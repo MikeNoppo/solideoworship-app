@@ -1,0 +1,9 @@
+[package]
+name = "sdw-app"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+iced.workspace = true
+sdw-core.workspace = true
+display-info = "0.5.9"
