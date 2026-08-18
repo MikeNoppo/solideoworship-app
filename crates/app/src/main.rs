@@ -2,14 +2,27 @@ mod display;
 mod message;
 mod panes;
 mod render;
+mod sample;
+mod style;
 mod windows;
+
+use std::sync::Arc;
+use std::time::Duration;
 
 use iced::keyboard::{self, key::Named};
 use iced::{Element, Subscription, Task, Theme, event, window};
-use sdw_core::OutputState;
+use sdw_core::slide::SlideDeck;
+use sdw_core::theme::SlideTheme;
+use sdw_core::{OutputState, Presentation};
 
 use crate::display::Display;
-use crate::message::Message;
+use crate::message::{LibraryTab, Message, Step};
+
+// Splash tetap tampil minimal selama ini walau pemuatan selesai lebih cepat, supaya
+// tidak berkedip sekilas lalu hilang. Dihitung sejak jendelanya benar-benar terbuka,
+// bukan sejak proses mulai: inisialisasi wgpu sendiri sudah memakan ratusan milidetik
+// sebelum ada yang bisa dilihat.
+const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
 
 fn main() -> iced::Result {
     iced::daemon(App::boot, App::update, App::view)
@@ -19,28 +32,54 @@ fn main() -> iced::Result {
         .run()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Phase {
+    #[default]
+    Splash,
+    Operator,
+}
+
 #[derive(Default)]
 struct App {
+    phase: Phase,
+    splash: Option<window::Id>,
+    splash_ready: bool,
     control: Option<window::Id>,
     output: Option<window::Id>,
     output_display: Option<u32>,
     reopen_output: bool,
+
     displays: Vec<Display>,
+    displays_loaded: bool,
+    splash_elapsed: bool,
     selected: Option<u32>,
+    screens_open: bool,
+
+    catalogue: Vec<Arc<SlideDeck>>,
+    schedule: Vec<Arc<SlideDeck>>,
+    schedule_selected: Option<usize>,
+    preview: Option<Presentation>,
+    live: Option<Presentation>,
+    preview_theme: SlideTheme,
+    live_theme: SlideTheme,
+
     output_state: OutputState,
+    library_tab: LibraryTab,
+    search: String,
     status: Option<Box<str>>,
 }
 
 impl App {
     fn boot() -> (Self, Task<Message>) {
-        let (id, opened) = window::open(windows::control());
+        let (id, opened) = window::open(windows::splash());
 
         (
             Self {
-                control: Some(id),
+                splash: Some(id),
+                catalogue: sample::catalogue(),
                 ..Self::default()
             },
-            Task::batch([opened.discard(), load_displays()]),
+            Task::batch([opened.map(|_| Message::SplashOpened), load_displays()]),
         )
     }
 
@@ -58,15 +97,40 @@ impl App {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::SplashOpened => {
+                self.splash_ready = true;
+                Task::none()
+            }
+            Message::SplashElapsed => {
+                self.splash_elapsed = true;
+                self.leave_splash()
+            }
+            Message::ControlOpened => match self.splash.take() {
+                Some(id) => window::close(id),
+                None => Task::none(),
+            },
+
             Message::DisplaysRequested => load_displays(),
-            Message::DisplaysLoaded(Ok(displays)) => self.apply_displays(displays),
+            Message::DisplaysLoaded(Ok(displays)) => {
+                self.displays_loaded = true;
+                let task = self.apply_displays(displays);
+
+                Task::batch([task, self.leave_splash()])
+            }
             Message::DisplaysLoaded(Err(error)) => {
+                self.displays_loaded = true;
                 self.displays.clear();
                 self.selected = None;
                 self.status = Some(format!("Gagal membaca daftar layar: {error}").into_boxed_str());
-                Task::none()
+
+                self.leave_splash()
             }
             Message::DisplaySelected(id) => self.select_display(id),
+            Message::ScreensToggled => {
+                self.screens_open = !self.screens_open;
+                Task::none()
+            }
+
             Message::OutputRequested => self.open_output(),
             Message::OutputOpened(id) => windows::go_fullscreen(id),
             Message::OutputDismissed => {
@@ -87,36 +151,175 @@ impl App {
                 }
                 Task::none()
             }
+
             Message::WindowCloseRequested(id) => window::close(id),
             Message::WindowClosed(id) => self.window_closed(id),
+
+            Message::ScheduleSelected(index) => {
+                if let Some(deck) = self.schedule.get(index) {
+                    self.schedule_selected = Some(index);
+                    self.preview_theme = SlideTheme::for_kind(deck.kind);
+                    self.preview = Presentation::new(Arc::clone(deck));
+                }
+                Task::none()
+            }
+            Message::ScheduleRemoved(index) => {
+                if index >= self.schedule.len() {
+                    return Task::none();
+                }
+
+                self.schedule.remove(index);
+
+                match self.schedule_selected {
+                    Some(selected) if selected == index => {
+                        self.schedule_selected = None;
+                        self.preview = None;
+                    }
+                    Some(selected) if selected > index => {
+                        self.schedule_selected = Some(selected - 1);
+                    }
+                    _ => {}
+                }
+
+                Task::none()
+            }
+            Message::PreviewSlideSelected(index) => {
+                if let Some(preview) = &mut self.preview {
+                    let _ = preview.go_to(index);
+                }
+                Task::none()
+            }
+            Message::PreviewMoved(step) => {
+                if let Some(preview) = &mut self.preview {
+                    let _ = step.apply(preview);
+                }
+                Task::none()
+            }
+            Message::LiveSlideSelected(index) => {
+                if let Some(live) = &mut self.live {
+                    let _ = live.go_to(index);
+                }
+                Task::none()
+            }
+            Message::LiveMoved(step) => {
+                if let Some(live) = &mut self.live {
+                    let _ = step.apply(live);
+                }
+                Task::none()
+            }
+            Message::GoLive => {
+                // Deck dibagi lewat Arc, jadi mendorong ke live tidak menyalin slide.
+                if let Some(preview) = &self.preview {
+                    let mut live = Presentation::new(preview.share());
+
+                    if let Some(live) = &mut live {
+                        let _ = live.go_to(preview.index());
+                    }
+
+                    self.live_theme = self.preview_theme.clone();
+                    self.live = live;
+                }
+                Task::none()
+            }
+
+            Message::LibraryTabSelected(tab) => {
+                self.library_tab = tab;
+                Task::none()
+            }
+            Message::SearchChanged(query) => {
+                self.search = query;
+                Task::none()
+            }
+            Message::LibraryAdded(index) => {
+                if let Some(deck) = self.catalogue.get(index) {
+                    self.schedule.push(Arc::clone(deck));
+
+                    return self.update(Message::ScheduleSelected(self.schedule.len() - 1));
+                }
+                Task::none()
+            }
         }
     }
 
     fn view(&self, window: window::Id) -> Element<'_, Message> {
         if self.output == Some(window) {
-            render::output::view(self.output_state)
-        } else {
-            panes::control::view(self)
+            return render::output::view(
+                self.live.as_ref().map(Presentation::current),
+                &self.live_theme,
+                self.output_state,
+            );
         }
+
+        if self.splash == Some(window) {
+            return panes::splash::view(self.splash_status());
+        }
+
+        panes::control::view(self)
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
+        let mut subscriptions = vec![
             // NOTE: kedua jendela memakai exit_on_close_request: false, jadi tombol
             // tutup bawaan OS tidak melakukan apa pun tanpa langganan ini.
             window::close_requests().map(Message::WindowCloseRequested),
             window::close_events().map(Message::WindowClosed),
-            event::listen_with(|event, status, _window| match (event, status) {
-                (
-                    iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
-                    event::Status::Ignored,
-                    // WHY: iced mengisi `key` dari key_without_modifiers, sehingga
-                    // Cmd+C/Ctrl+C juga tiba sebagai Character("c"). Tanpa syarat ini
-                    // menyalin teks akan mengosongkan layar proyektor.
-                ) if modifiers.is_empty() => shortcut(key),
-                _ => None,
-            }),
-        ])
+        ];
+
+        match self.phase {
+            Phase::Splash if self.splash_ready => subscriptions
+                .push(iced::time::every(SPLASH_MINIMUM).map(|_| Message::SplashElapsed)),
+            Phase::Splash => {}
+            Phase::Operator => subscriptions.push(event::listen_with(|event, status, _window| {
+                match (event, status) {
+                    (
+                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                            key, modifiers, ..
+                        }),
+                        event::Status::Ignored,
+                        // WHY: iced mengisi `key` dari key_without_modifiers, sehingga
+                        // Cmd+C/Ctrl+C juga tiba sebagai Character("c"). Tanpa syarat ini
+                        // menyalin teks akan mengosongkan layar proyektor.
+                    ) if modifiers.is_empty() => shortcut(key),
+                    _ => None,
+                }
+            })),
+        }
+
+        Subscription::batch(subscriptions)
+    }
+
+    fn splash_status(&self) -> &'static str {
+        if self.displays_loaded {
+            "Menyiapkan jendela operator…"
+        } else {
+            "Memeriksa layar yang tersedia…"
+        }
+    }
+
+    fn leave_splash(&mut self) -> Task<Message> {
+        if self.phase != Phase::Splash || !self.displays_loaded || !self.splash_elapsed {
+            return Task::none();
+        }
+
+        self.phase = Phase::Operator;
+
+        let (id, opened) = window::open(windows::control());
+        self.control = Some(id);
+
+        // Splash baru ditutup setelah jendela kontrol benar-benar terbuka, supaya tidak
+        // ada jeda kosong tanpa jendela sama sekali.
+        opened.discard().chain(Task::done(Message::ControlOpened))
+    }
+
+    fn library_matches(&self) -> Vec<(usize, &Arc<SlideDeck>)> {
+        let query = self.search.trim().to_lowercase();
+
+        self.catalogue
+            .iter()
+            .enumerate()
+            .filter(|(_, deck)| self.library_tab.accepts(deck.kind))
+            .filter(|(_, deck)| query.is_empty() || deck.title.to_lowercase().contains(&query))
+            .collect()
     }
 
     fn apply_displays(&mut self, displays: Vec<Display>) -> Task<Message> {
@@ -195,6 +398,11 @@ impl App {
     }
 
     fn window_closed(&mut self, id: window::Id) -> Task<Message> {
+        if self.splash == Some(id) {
+            self.splash = None;
+            return Task::none();
+        }
+
         if self.control == Some(id) {
             self.control = None;
             return iced::exit();
@@ -223,6 +431,13 @@ fn load_displays() -> Task<Message> {
 
 fn shortcut(key: keyboard::Key) -> Option<Message> {
     match key.as_ref() {
+        keyboard::Key::Named(Named::ArrowRight | Named::Space | Named::PageDown) => {
+            Some(Message::LiveMoved(Step::Next))
+        }
+        keyboard::Key::Named(Named::ArrowLeft | Named::PageUp) => {
+            Some(Message::LiveMoved(Step::Previous))
+        }
+        keyboard::Key::Named(Named::Enter) => Some(Message::GoLive),
         keyboard::Key::Character("b") => Some(Message::OutputStateToggled(OutputState::Black)),
         keyboard::Key::Character("c") => Some(Message::OutputStateToggled(OutputState::Clear)),
         keyboard::Key::Named(Named::F5) => Some(Message::OutputRequested),

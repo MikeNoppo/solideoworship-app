@@ -3,10 +3,23 @@ use iced::window::{self, Position, Settings};
 
 use crate::display::Display;
 
+// Splash sengaja tanpa dekorasi dan tidak bisa diubah ukurannya: ia hanya hidup
+// selama pemuatan awal, lalu ditutup setelah jendela kontrol benar-benar terbuka.
+pub fn splash() -> Settings {
+    Settings {
+        size: Size::new(560.0, 320.0),
+        position: Position::Centered,
+        decorations: false,
+        resizable: false,
+        exit_on_close_request: false,
+        ..Settings::default()
+    }
+}
+
 pub fn control() -> Settings {
     Settings {
-        size: Size::new(1280.0, 800.0),
-        min_size: Some(Size::new(960.0, 600.0)),
+        size: Size::new(1480.0, 920.0),
+        min_size: Some(Size::new(1120.0, 720.0)),
         position: Position::Centered,
         exit_on_close_request: false,
         ..Settings::default()
