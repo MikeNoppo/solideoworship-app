@@ -4,43 +4,67 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`solideoworship-app` — a native desktop GUI application built with [iced](https://iced.rs) 0.14 on Rust edition 2024. The repo is currently at scaffold stage: [src/main.rs](src/main.rs) holds the stock iced counter example and is the only source file. Treat the real application structure as still to be designed.
+`solideoworship-app` — a worship presenter application (EasyWorship-style) built with [iced](https://iced.rs) 0.14 on Rust edition 2024. The operator drives slides from a control window on the laptop; the congregation sees them on a projector via a second, fullscreen output window.
+
+Locked scope decisions: MVP covers **songs/lyrics and Bible verses only** (images and video deferred); **macOS and Windows are equal targets**, tested each milestone; no import of existing EasyWorship/OpenLP libraries yet; **runtime performance and memory efficiency are the stated priority**.
 
 ## Commands
 
 ```sh
-cargo run              # build + launch the GUI
-cargo build --release  # optimized build
-cargo check            # fast type-check, no codegen (use while iterating)
-cargo clippy           # lints
-cargo fmt              # format
-cargo test             # no tests exist yet
-cargo test <name>      # run a single test by (substring of) its path
+cargo run -p sdw-app     # build + launch the app
+cargo check              # fast type-check while iterating
+cargo test -p sdw-core   # pure domain logic — no GUI needed
+cargo clippy --all-targets
+cargo fmt
 ```
+
+`cargo clippy` reports a `block v0.1.6` future-incompatibility warning. It comes from a transitive macOS dependency of `display-info`, not from this code.
 
 ## Architecture
 
-iced follows the Elm architecture. Every screen or component is the same four pieces:
+Cargo workspace. The split exists to keep iced out of the domain layer's rebuild path — iced is slow to compile, so changing storage or parsing logic should not trigger it.
 
-1. **State** — a struct holding everything the UI renders from.
-2. **Message** — an enum of every event the UI can emit (`#[derive(Debug, Clone)]` is required; iced clones messages internally).
-3. **`update(&mut self, message: Message)`** — the only place state mutates. Return `Task<Message>` instead of `()` when the update needs to trigger async work or commands.
-4. **`view(&self) -> impl Into<Element<Message>>`** — pure function from state to widgets; it must not mutate state.
+- `crates/core` (`sdw-core`) — domain types and pure logic. **No iced, no rusqlite.** Unit-testable without a GUI.
+- `crates/app` (`sdw-app`) — the iced daemon binary.
+- `crates/library` (`sdw-library`) — planned: SQLite storage via `rusqlite` (`bundled` feature, FTS5). Not created yet.
 
-`main()` wires them together with `iced::run(update, view)`.
+### Two windows, one state
 
-### iced 0.14 API notes
+The app is an `iced::daemon`, not an `iced::application`, because it drives two windows. `view(&self, window::Id)` dispatches on `WindowRole` looked up in `App::roles`; both windows render from the same state, so the projector can never drift out of sync with the operator's preview.
 
-Most iced tutorials and LLM training data target 0.12/0.13 and will not compile here. In 0.14:
+### Planned unifying abstraction
 
-- There is no `Sandbox` or `Application` trait to implement — an app is just an update fn and a view fn.
-- `iced::run(update, view)` takes exactly two arguments and requires `State: Default`. It is shorthand for `iced::application(State::default, update, view).run()`.
-- Title, theme, subscriptions, and window size are set by builder chaining on `iced::application(...)` (`.title(..)`, `.theme(..)`, `.subscription(..)`, `.window_size(..)`) — not by trait methods and not as extra args to `run`. Switch from `run` to `application` as soon as any of those are needed.
+Songs and scripture both compile into a `SlideDeck` of `Slide`s. The live engine and the renderer are meant to know only `Slide` — never where it came from. Adding images, video, or slide decks later should mean adding a compiler, not touching the live engine. Keep this boundary intact.
+
+### Performance rules (deliberate, not incidental)
+
+1. Never load the whole library into memory. Song lists hold `(id, title)`; full lyrics load on selection. Bible verses are queried per displayed range.
+2. Prefer `Box<str>`/`Arc<str>` over `String` for immutable text; share decks with `Arc`, do not clone contents.
+3. `view` must borrow, not clone: `text(&slide.body)` yields `Fragment::Borrowed`; `text(slide.body.clone())` allocates on every redraw.
+4. `scrollable` does not virtualize — every child is laid out. Bound search results, and wrap long lists in `lazy`.
+5. Reactive rendering is on by default in 0.14. Do not add per-frame subscriptions unless animating, and never enable the `unconditional-rendering` feature.
+
+## Platform pitfalls already hit (verified by testing, not assumed)
+
+**Projector fullscreen must be set at window creation.** `window::open` with windowed settings followed by `window::set_mode(id, Mode::Fullscreen)` is flaky on macOS: winit's `set_fullscreen` silently returns for `Fullscreen::Borderless(None)` when `current_monitor_inner()` is still `None`, which happens when the window is not yet attached to a screen. Measured 1 failure in 3 runs. Setting `fullscreen: true` together with `position` in `window::Settings` succeeded 3 of 3. See [windows.rs](crates/app/src/windows.rs). Do not set `level` or `resizable` on the output window — macOS resets the level and forces a `Titled|Resizable` style mask when entering fullscreen.
+
+**`display-info` coordinate units differ by platform.** macOS reports `CGDisplayBounds` (logical points) and Linux divides by scale factor itself, but Windows reports `DEVMODE` physical pixels. iced always treats `Position::Specific` as logical points, so only Windows needs dividing. See [display.rs](crates/app/src/display.rs).
+
+**iced has no monitor enumeration** — only `window::monitor_size` for the window's current monitor. Hence the `display-info` dependency.
+
+**iced text has no outline or shadow.** `core::text::Text` has no such field. Lyric readability over busy backgrounds needs a scrim/panel or offset text layers.
+
+## iced 0.14 API notes
+
+Most iced material online targets 0.12/0.13 and will not compile here.
+
+- No `Sandbox`/`Application` trait to implement — an app is an update fn and a view fn.
+- `iced::run(update, view)` takes two args and requires `State: Default`; it is shorthand for `iced::application(State::default, update, view).run()`. Title, theme, subscription, and scale factor are builder methods on `application(..)`/`daemon(..)`.
 - `Command` no longer exists; async work returns `Task`.
 - Borrowed widget trees need an explicit lifetime: `Column<'_, Message>`.
 
-When unsure about an API, check the version resolved in `Cargo.lock` and the corresponding docs.rs page rather than assuming.
+Check the version resolved in `Cargo.lock` and read the crate source in `~/.cargo/registry` rather than assuming an API exists.
 
 ## Conventions
 
-- Code comments in this repo are written in Indonesian. Match that when adding comments (and see the global comment rules — comments explain *why*, not *what*).
+Code comments are written in Indonesian, as is UI copy. Follow the global comment rules — comments explain *why*, not *what*.
