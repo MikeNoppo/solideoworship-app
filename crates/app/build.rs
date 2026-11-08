@@ -104,6 +104,11 @@ fn check(
                 check(inner, value, code, &format!("{path}."), errors);
             }
             (Some(Value::String(english)), Value::String(text)) => {
+                if text.trim() != text {
+                    errors.push(format!(
+                        "{code}: `{path}` must not start or end with whitespace"
+                    ));
+                }
                 if !text.is_empty() && placeholders(english) != placeholders(text) {
                     errors.push(format!(
                         "{code}: `{path}` must use the placeholders {:?}",
@@ -130,7 +135,11 @@ fn write_structs(out: &mut String, name: &str, table: &Map<String, Value>) {
     for (key, value) in table {
         let field = field_name(key);
         match value {
-            Value::String(_) => {
+            Value::String(text) => {
+                assert!(
+                    text.trim() == text,
+                    "{SOURCE}: `{key}` must not start or end with whitespace"
+                );
                 let _ = writeln!(out, "    pub {field}: &'static str,");
             }
             Value::Object(_) => {

@@ -40,13 +40,13 @@
     "output_screen": "Output screen",
     "no_screens": "No screens detected yet.",
     "reload": "Reload",
-    "primary_screen": " (primary)"
+    "primary_screen": "(primary)"
   },
   "schedule": {
     "title": "Schedule",
     "empty": "The schedule is empty.\nAdd items from the library below.",
-    "unsaved": " ● not saved",
-    "recovered": " ● recovered, not saved",
+    "unsaved": "not saved",
+    "recovered": "recovered, not saved",
     "song": "Song"
   },
   "slides": {

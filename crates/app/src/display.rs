@@ -29,16 +29,16 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
                 // WHY: the label uses the raw info.width/height, not the size already
                 // divided by the scale factor. The operator matches screens by the
                 // resolution shown in the system settings, which on Windows is physical pixels.
-                label: format!(
-                    "{name} — {}×{}{}",
-                    info.width,
-                    info.height,
-                    if info.is_primary {
+                label: if info.is_primary {
+                    format!(
+                        "{name} — {}×{} {}",
+                        info.width,
+                        info.height,
                         t().toolbar.primary_screen
-                    } else {
-                        ""
-                    }
-                )
+                    )
+                } else {
+                    format!("{name} — {}×{}", info.width, info.height)
+                }
                 .into_boxed_str(),
                 origin: Point::new(info.x as f32 / divisor, info.y as f32 / divisor),
                 size: Size::new(info.width as f32 / divisor, info.height as f32 / divisor),

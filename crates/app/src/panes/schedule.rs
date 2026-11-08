@@ -58,14 +58,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let header = row![title(t().schedule.title, name)]
         .push(app.schedule.is_dirty().then(|| {
-            text(if app.schedule.is_recovered() {
-                t().schedule.recovered
-            } else {
-                t().schedule.unsaved
-            })
-            .size(11)
-            .style(text::warning)
+            row![
+                text("●").size(11).style(text::warning),
+                text(if app.schedule.is_recovered() {
+                    t().schedule.recovered
+                } else {
+                    t().schedule.unsaved
+                })
+                .size(11)
+                .style(text::warning),
+            ]
+            .spacing(4)
         }))
+        .spacing(6)
         .align_y(Center);
 
     pane(header.into(), body)

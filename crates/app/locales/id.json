@@ -40,13 +40,13 @@
     "output_screen": "Layar output",
     "no_screens": "Belum ada layar terdeteksi.",
     "reload": "Muat ulang",
-    "primary_screen": " (utama)"
+    "primary_screen": "(utama)"
   },
   "schedule": {
     "title": "Susunan Acara",
     "empty": "Susunan acara masih kosong.\nTambahkan dari library di bawah.",
-    "unsaved": " ● belum disimpan",
-    "recovered": " ● dipulihkan, belum disimpan",
+    "unsaved": "belum disimpan",
+    "recovered": "dipulihkan, belum disimpan",
     "song": "Lagu"
   },
   "slides": {
