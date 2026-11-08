@@ -7,6 +7,7 @@ mod render;
 mod sample;
 mod schedule;
 mod style;
+mod theme_dialog;
 mod windows;
 mod work;
 
@@ -24,6 +25,7 @@ use crate::editor::Editor;
 use crate::message::{LibraryTab, Message, Step};
 use crate::sample::Sample;
 use crate::schedule::Schedule;
+use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
 
 // Splash tetap tampil minimal selama ini walau pemuatan selesai lebih cepat, supaya
@@ -49,6 +51,11 @@ enum Phase {
     Operator,
 }
 
+enum Modal {
+    Editor(Box<Editor>),
+    Theme(Box<ThemeDialog>),
+}
+
 #[derive(Default)]
 struct App {
     phase: Phase,
@@ -70,7 +77,7 @@ struct App {
     library_error: Option<Box<str>>,
 
     song_results: Vec<SongSummary>,
-    editor: Option<Editor>,
+    modal: Option<Modal>,
     catalogue: Vec<Sample>,
     schedule: Schedule,
     styles: Styles,
@@ -93,7 +100,9 @@ impl App {
             catalogue: sample::catalogue(),
             ..Self::default()
         };
-        let library_opened = app.store.run(|_| Ok(()), Message::LibraryOpened);
+        let library_opened = app
+            .store
+            .run(|library| library.styles(), Message::LibraryOpened);
 
         (
             app,
@@ -136,7 +145,11 @@ impl App {
                 self.library_ready = true;
 
                 let search = match result {
-                    Ok(()) => self.search_songs(),
+                    Ok(styles) => {
+                        self.styles = styles;
+                        self.schedule.recompile(&self.styles);
+                        self.search_songs()
+                    }
                     Err(error) => {
                         self.library_error = Some(
                             format!("Library lagu tidak bisa dibuka: {error}").into_boxed_str(),
@@ -297,14 +310,14 @@ impl App {
                 }
             },
             Message::Editor(message) => {
-                let Some(editor) = &mut self.editor else {
+                let Some(Modal::Editor(editor)) = &mut self.modal else {
                     return Task::none();
                 };
 
                 match editor.update(message) {
                     editor::Action::None => Task::none(),
                     editor::Action::Close => {
-                        self.editor = None;
+                        self.modal = None;
                         Task::none()
                     }
                     editor::Action::Save { origin, song } => self.store.run(
@@ -326,7 +339,7 @@ impl App {
             }
             Message::SongSaved(result) => match result {
                 Ok((id, song)) => {
-                    self.editor = None;
+                    self.close_editor();
                     self.schedule.replace_song(id, &song, &self.styles);
                     self.search_songs()
                 }
@@ -334,11 +347,56 @@ impl App {
             },
             Message::SongDeleted(id, result) => match result {
                 Ok(()) => {
-                    self.editor = None;
+                    self.close_editor();
                     self.schedule.forget_song(id);
                     self.search_songs()
                 }
                 Err(error) => self.editor_failed(error),
+            },
+            Message::ThemeRequested => {
+                self.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
+                    &self.styles,
+                    self.schedule.selected_item(),
+                ))));
+                Task::none()
+            }
+            Message::Theme(message) => {
+                let Some(Modal::Theme(dialog)) = &mut self.modal else {
+                    return Task::none();
+                };
+
+                match dialog.update(message) {
+                    theme_dialog::Action::None => Task::none(),
+                    theme_dialog::Action::Close => {
+                        self.modal = None;
+                        Task::none()
+                    }
+                    theme_dialog::Action::Save(styles) => self.store.run(
+                        move |library| library.save_styles(&styles).map(|()| styles),
+                        Message::StylesSaved,
+                    ),
+                }
+            }
+            Message::StylesSaved(result) => {
+                match result {
+                    Ok(styles) => {
+                        if matches!(self.modal, Some(Modal::Theme(_))) {
+                            self.modal = None;
+                        }
+                        self.styles = styles;
+                        self.schedule.recompile(&self.styles);
+                    }
+                    Err(error) => match &mut self.modal {
+                        Some(Modal::Theme(dialog)) => dialog.fail(error),
+                        _ => self.library_error = Some(error),
+                    },
+                }
+                Task::none()
+            }
+            Message::SaveShortcut => match &self.modal {
+                Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Save)),
+                Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Save)),
+                None => Task::none(),
             },
             Message::LibraryAdded(index) => {
                 if let Some(sample) = self.catalogue.get(index) {
@@ -377,11 +435,11 @@ impl App {
             Phase::Splash if self.splash_ready => subscriptions
                 .push(iced::time::every(SPLASH_MINIMUM).map(|_| Message::SplashElapsed)),
             Phase::Splash => {}
-            Phase::Operator if self.editor.is_some() => {
+            Phase::Operator if self.modal.is_some() => {
                 subscriptions.push(event::listen_with(|event, _status, _window| match event {
                     iced::Event::Keyboard(keyboard::Event::KeyPressed {
                         key, modifiers, ..
-                    }) if modifiers.command() => editor_shortcut(key),
+                    }) if modifiers.command() => save_shortcut(key),
                     _ => None,
                 }));
             }
@@ -434,15 +492,25 @@ impl App {
     }
 
     fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
-        self.editor = Some(Editor::new(origin, song, self.styles.song.max_lines));
+        self.modal = Some(Modal::Editor(Box::new(Editor::new(
+            origin,
+            song,
+            self.styles.song.max_lines,
+        ))));
 
         operation::focus(editor::TITLE_INPUT)
     }
 
+    fn close_editor(&mut self) {
+        if matches!(self.modal, Some(Modal::Editor(_))) {
+            self.modal = None;
+        }
+    }
+
     fn editor_failed(&mut self, error: Box<str>) -> Task<Message> {
-        match &mut self.editor {
-            Some(editor) => editor.fail(error),
-            None => self.library_error = Some(error),
+        match &mut self.modal {
+            Some(Modal::Editor(editor)) => editor.fail(error),
+            _ => self.library_error = Some(error),
         }
 
         Task::none()
@@ -580,9 +648,9 @@ fn load_displays() -> Task<Message> {
     work::background(display::all).map(Message::DisplaysLoaded)
 }
 
-fn editor_shortcut(key: keyboard::Key) -> Option<Message> {
+fn save_shortcut(key: keyboard::Key) -> Option<Message> {
     match key.as_ref() {
-        keyboard::Key::Character("s") => Some(Message::Editor(editor::Message::Save)),
+        keyboard::Key::Character("s") => Some(Message::SaveShortcut),
         _ => None,
     }
 }

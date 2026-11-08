@@ -7,7 +7,7 @@ use sdw_core::theme::SlideTheme;
 use sdw_core::{Song, compile};
 use sdw_library::SongId;
 
-use crate::panes::thumbnails;
+use crate::panes::{dialog, thumbnails};
 use crate::render::slide::{self, Visibility};
 use crate::style;
 
@@ -190,7 +190,7 @@ impl Editor {
         .width(FillPortion(2))
         .height(Fill);
 
-        container(
+        dialog(
             column![
                 text(heading).size(18),
                 fields,
@@ -199,13 +199,6 @@ impl Editor {
             ]
             .spacing(12),
         )
-        .padding(16)
-        .width(Fill)
-        .height(Fill)
-        .max_width(1240)
-        .max_height(800)
-        .style(style::dialog)
-        .into()
     }
 
     fn footer(&self) -> Element<'_, Message> {

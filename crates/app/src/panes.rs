@@ -72,6 +72,20 @@ pub fn transport(
     .into()
 }
 
+pub fn dialog<'a, M>(content: impl Into<Element<'a, M>>) -> Element<'a, M>
+where
+    M: 'a,
+{
+    container(content.into())
+        .padding(16)
+        .width(Fill)
+        .height(Fill)
+        .max_width(1240)
+        .max_height(800)
+        .style(style::dialog)
+        .into()
+}
+
 pub fn thumbnails<'a, M>(
     slides: &'a [Slide],
     selected: usize,

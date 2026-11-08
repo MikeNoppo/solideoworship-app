@@ -41,6 +41,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 } else {
                     button::secondary
                 }),
+            button("Tema")
+                .on_press(Message::ThemeRequested)
+                .style(button::secondary),
             space::horizontal(),
             button("Tayangkan")
                 .on_press_maybe(app.schedule.preview().map(|_| Message::GoLive))

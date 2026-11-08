@@ -62,6 +62,42 @@ pub fn dialog(theme: &Theme) -> container::Style {
     }
 }
 
+pub fn sample(color: Color) -> impl Fn(&Theme) -> container::Style {
+    move |theme| container::Style {
+        background: Some(color.into()),
+        border: Border {
+            radius: 4.0.into(),
+            width: 1.0,
+            color: theme.extended_palette().background.strong.color,
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn swatch(color: Color, is_selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let palette = theme.extended_palette();
+
+        button::Style {
+            background: Some(color.into()),
+            border: Border {
+                radius: 4.0.into(),
+                width: if is_selected || status == button::Status::Hovered {
+                    2.0
+                } else {
+                    1.0
+                },
+                color: if is_selected {
+                    palette.primary.strong.color
+                } else {
+                    palette.background.strong.color
+                },
+            },
+            ..button::Style::default()
+        }
+    }
+}
+
 pub fn splash(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
 

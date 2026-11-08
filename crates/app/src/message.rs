@@ -1,10 +1,11 @@
 use iced::window;
 use sdw_core::slide::ContentKind;
-use sdw_core::{OutputState, Presentation, Song};
+use sdw_core::{OutputState, Presentation, Song, Styles};
 use sdw_library::{SongId, SongSummary};
 
 use crate::display::Display;
 use crate::editor;
+use crate::theme_dialog;
 use crate::work::Outcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +53,7 @@ pub enum Message {
     SplashOpened,
     SplashElapsed,
     ControlOpened,
-    LibraryOpened(Outcome<()>),
+    LibraryOpened(Outcome<Styles>),
 
     DisplaysRequested,
     DisplaysLoaded(Result<Vec<Display>, Box<str>>),
@@ -88,5 +89,9 @@ pub enum Message {
     SongSaved(Outcome<(SongId, Song)>),
     SongDeleted(SongId, Outcome<()>),
     Editor(editor::Message),
+    ThemeRequested,
+    Theme(theme_dialog::Message),
+    StylesSaved(Outcome<Styles>),
+    SaveShortcut,
     LibraryAdded(usize),
 }

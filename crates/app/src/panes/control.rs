@@ -1,10 +1,10 @@
 use iced::widget::{center, column, container, opaque, row, stack, text};
 use iced::{Element, Fill, FillPortion};
 
-use crate::App;
 use crate::message::Message;
 use crate::panes::{library, live, preview, schedule, toolbar};
 use crate::style;
+use crate::{App, Modal};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let stage = row![
@@ -34,16 +34,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let base = container(layout).width(Fill).height(Fill);
 
-    match &app.editor {
-        Some(editor) => stack![
-            base,
-            opaque(
-                center(editor.view(&app.styles.song.theme).map(Message::Editor))
-                    .padding(32)
-                    .style(style::backdrop),
-            ),
-        ]
-        .into(),
-        None => base.into(),
-    }
+    let dialog = match &app.modal {
+        Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
+        Some(Modal::Theme(dialog)) => dialog.view().map(Message::Theme),
+        None => return base.into(),
+    };
+
+    stack![
+        base,
+        opaque(center(dialog).padding(32).style(style::backdrop)),
+    ]
+    .into()
 }

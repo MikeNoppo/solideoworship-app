@@ -53,6 +53,12 @@ impl Schedule {
         self.preview.as_mut()
     }
 
+    pub fn selected_item(&self) -> Option<&ScheduleItem> {
+        self.selected
+            .and_then(|index| self.entries.get(index))
+            .map(Entry::item)
+    }
+
     pub fn push(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
         self.entries.push(Entry::new(item, origin, styles));
         self.select(self.entries.len() - 1);
@@ -71,6 +77,14 @@ impl Schedule {
         if selected_changed {
             self.refresh_preview();
         }
+    }
+
+    pub fn recompile(&mut self, styles: &Styles) {
+        for entry in &mut self.entries {
+            entry.deck = Arc::new(entry.item.compile(styles));
+        }
+
+        self.refresh_preview();
     }
 
     pub fn forget_song(&mut self, id: SongId) {
@@ -283,5 +297,30 @@ mod tests {
         schedule.replace_song(ids[0], &Song::new("A baru", "", None), &styles);
 
         assert_eq!(&*schedule.entries()[0].deck().title, "A");
+    }
+
+    #[test]
+    fn kompilasi_ulang_memakai_batas_baris_baru() {
+        let mut schedule = Schedule::default();
+        let mut styles = Styles::default();
+        schedule.push(
+            ScheduleItem::Song(Song::new("A", "satu\ndua\ntiga\nempat", None)),
+            None,
+            &styles,
+        );
+        assert_eq!(schedule.entries()[0].deck().len(), 1);
+
+        styles.song.max_lines = 1;
+        schedule.recompile(&styles);
+
+        assert_eq!(schedule.entries()[0].deck().len(), 4);
+        assert_eq!(schedule.preview().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn item_terpilih_tersedia_untuk_contoh_tema() {
+        let schedule = schedule(&["A", "B"]);
+
+        assert_eq!(schedule.selected_item(), Some(&song("B")));
     }
 }
