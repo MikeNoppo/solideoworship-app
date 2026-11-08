@@ -1,5 +1,6 @@
 mod display;
 mod editor;
+mod files;
 mod message;
 mod panes;
 mod paths;
@@ -11,6 +12,7 @@ mod theme_dialog;
 mod windows;
 mod work;
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use iced::keyboard::{self, key::Named};
@@ -18,7 +20,7 @@ use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
 use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
-use sdw_library::{SongId, SongSummary};
+use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::display::Display;
 use crate::editor::Editor;
@@ -116,9 +118,14 @@ impl App {
 
     fn title(&self, window: window::Id) -> String {
         if self.output == Some(window) {
-            "SolideoWorship — Output".to_owned()
-        } else {
-            "SolideoWorship".to_owned()
+            return "SolideoWorship — Output".to_owned();
+        }
+
+        let marker = if self.schedule.is_dirty() { "● " } else { "" };
+
+        match self.schedule.path().and_then(Path::file_stem) {
+            Some(name) => format!("{marker}{} — SolideoWorship", name.to_string_lossy()),
+            None => format!("{marker}SolideoWorship"),
         }
     }
 
@@ -396,8 +403,52 @@ impl App {
             Message::SaveShortcut => match &self.modal {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Save)),
                 Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Save)),
+                None => self.update(Message::ScheduleSaveRequested),
+            },
+            Message::ScheduleNewRequested => {
+                self.schedule.clear();
+                Task::none()
+            }
+            Message::ScheduleOpenRequested => match self.control {
+                Some(control) => files::pick_schedule(control).map(Message::ScheduleFilePicked),
                 None => Task::none(),
             },
+            Message::ScheduleFilePicked(path) => match path {
+                Some(path) => work::background(move || {
+                    schedule_file::open(&path)
+                        .map(|items| (path, items))
+                        .map_err(work::describe)
+                })
+                .map(Message::ScheduleOpened),
+                None => Task::none(),
+            },
+            Message::ScheduleOpened(result) => {
+                match result {
+                    Ok((path, items)) => self.schedule.load(path, items, &self.styles),
+                    Err(error) => self.status = Some(error),
+                }
+                Task::none()
+            }
+            Message::ScheduleSaveRequested => match self.schedule.path() {
+                Some(path) => self.write_schedule(path.to_path_buf()),
+                None => self.update(Message::ScheduleSaveAsRequested),
+            },
+            Message::ScheduleSaveAsRequested => match self.control {
+                Some(control) => files::choose_schedule_path(control, self.schedule.path())
+                    .map(Message::ScheduleSavePathChosen),
+                None => Task::none(),
+            },
+            Message::ScheduleSavePathChosen(path) => match path {
+                Some(path) => self.write_schedule(path),
+                None => Task::none(),
+            },
+            Message::ScheduleSaved(revision, result) => {
+                match result {
+                    Ok(path) => self.schedule.mark_saved(path, revision),
+                    Err(error) => self.status = Some(error),
+                }
+                Task::none()
+            }
             Message::LibraryAdded(index) => {
                 if let Some(sample) = self.catalogue.get(index) {
                     self.schedule.push(sample.item.clone(), None, &self.styles);
@@ -449,6 +500,12 @@ impl App {
                         iced::Event::Keyboard(keyboard::Event::KeyPressed {
                             key, modifiers, ..
                         }),
+                        _,
+                    ) if modifiers.command() => command_shortcut(key),
+                    (
+                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                            key, modifiers, ..
+                        }),
                         event::Status::Ignored,
                         // WHY: iced mengisi `key` dari key_without_modifiers, sehingga
                         // Cmd+C/Ctrl+C juga tiba sebagai Character("c"). Tanpa syarat ini
@@ -489,6 +546,18 @@ impl App {
         // Splash baru ditutup setelah jendela kontrol benar-benar terbuka, supaya tidak
         // ada jeda kosong tanpa jendela sama sekali.
         opened.discard().chain(Task::done(Message::ControlOpened))
+    }
+
+    fn write_schedule(&self, path: PathBuf) -> Task<Message> {
+        let items = self.schedule.items();
+        let revision = self.schedule.revision();
+
+        work::background(move || {
+            schedule_file::save(&path, &items)
+                .map(|()| path)
+                .map_err(work::describe)
+        })
+        .map(move |result| Message::ScheduleSaved(revision, result))
     }
 
     fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
@@ -652,6 +721,13 @@ fn save_shortcut(key: keyboard::Key) -> Option<Message> {
     match key.as_ref() {
         keyboard::Key::Character("s") => Some(Message::SaveShortcut),
         _ => None,
+    }
+}
+
+fn command_shortcut(key: keyboard::Key) -> Option<Message> {
+    match key.as_ref() {
+        keyboard::Key::Character("o") => Some(Message::ScheduleOpenRequested),
+        _ => save_shortcut(key),
     }
 }
 

@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -10,6 +11,10 @@ use sdw_library::Library;
 pub type Outcome<T> = Result<T, Box<str>>;
 
 const STOPPED: &str = "Pekerjaan latar berhenti tanpa hasil.";
+
+pub fn describe(error: impl Display) -> Box<str> {
+    error.to_string().into_boxed_str()
+}
 
 pub fn background<T, F>(job: F) -> Task<Outcome<T>>
 where
@@ -53,8 +58,7 @@ impl Store {
         let _ = thread::Builder::new()
             .name("sdw-library".into())
             .spawn(move || {
-                let mut library =
-                    Library::open(&path).map_err(|error| error.to_string().into_boxed_str());
+                let mut library = Library::open(&path).map_err(describe);
 
                 for job in queue {
                     match &mut library {
@@ -81,7 +85,7 @@ impl Store {
         let job: Job = Box::new(move |library| {
             let outcome = match library {
                 Ok(library) => match panic::catch_unwind(AssertUnwindSafe(|| job(library))) {
-                    Ok(result) => result.map_err(|error| error.to_string().into_boxed_str()),
+                    Ok(result) => result.map_err(describe),
                     Err(_) => Err(PANICKED.into()),
                 },
                 Err(error) => Err(error.into()),

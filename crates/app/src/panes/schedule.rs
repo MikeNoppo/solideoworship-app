@@ -1,3 +1,6 @@
+use std::ffi::OsStr;
+use std::path::Path;
+
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Center, Element, Fill};
 
@@ -52,5 +55,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
         scrollable(items).height(Fill).into()
     };
 
-    pane(title("Susunan Acara", None), body)
+    let name = app
+        .schedule
+        .path()
+        .and_then(Path::file_stem)
+        .and_then(OsStr::to_str);
+
+    let header = row![title("Susunan Acara", name)]
+        .push(
+            app.schedule
+                .is_dirty()
+                .then(|| text(" ● belum disimpan").size(11).style(text::warning)),
+        )
+        .align_y(Center);
+
+    pane(header.into(), body)
 }

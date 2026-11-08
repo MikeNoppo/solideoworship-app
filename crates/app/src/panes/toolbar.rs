@@ -34,6 +34,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
     container(
         row![
             text("SolideoWorship").size(18),
+            button("Baru")
+                .on_press(Message::ScheduleNewRequested)
+                .style(button::secondary),
+            button("Buka…")
+                .on_press(Message::ScheduleOpenRequested)
+                .style(button::secondary),
+            button("Simpan")
+                .on_press(Message::ScheduleSaveRequested)
+                .style(button::secondary),
+            button("Simpan sebagai…")
+                .on_press(Message::ScheduleSaveAsRequested)
+                .style(button::secondary),
             button("Layar")
                 .on_press(Message::ScreensToggled)
                 .style(if app.screens_open {

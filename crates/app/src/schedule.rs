@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sdw_core::{Presentation, ScheduleItem, SlideDeck, Song, Styles};
@@ -30,9 +31,51 @@ pub struct Schedule {
     entries: Vec<Entry>,
     selected: Option<usize>,
     preview: Option<Presentation>,
+    path: Option<PathBuf>,
+    revision: u64,
+    saved_revision: u64,
 }
 
 impl Schedule {
+    pub fn load(&mut self, path: PathBuf, items: Vec<ScheduleItem>, styles: &Styles) {
+        *self = Self {
+            entries: items
+                .into_iter()
+                .map(|item| Entry::new(item, None, styles))
+                .collect(),
+            path: Some(path),
+            ..Self::default()
+        };
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn items(&self) -> Vec<ScheduleItem> {
+        self.entries
+            .iter()
+            .map(|entry| entry.item.clone())
+            .collect()
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.revision != self.saved_revision
+    }
+
+    pub fn mark_saved(&mut self, path: PathBuf, revision: u64) {
+        self.path = Some(path);
+        self.saved_revision = revision;
+    }
+
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -61,6 +104,7 @@ impl Schedule {
 
     pub fn push(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
         self.entries.push(Entry::new(item, origin, styles));
+        self.revision += 1;
         self.select(self.entries.len() - 1);
     }
 
@@ -71,6 +115,7 @@ impl Schedule {
             if entry.origin == Some(id) {
                 *entry = Entry::new(ScheduleItem::Song(song.clone()), Some(id), styles);
                 selected_changed |= self.selected == Some(index);
+                self.revision += 1;
             }
         }
 
@@ -110,6 +155,7 @@ impl Schedule {
         }
 
         self.entries.remove(index);
+        self.revision += 1;
 
         match self.selected {
             Some(selected) if selected == index => {
@@ -139,6 +185,7 @@ impl Schedule {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use sdw_core::{ScheduleItem, Song, Styles};
@@ -322,5 +369,100 @@ mod tests {
         let schedule = schedule(&["A", "B"]);
 
         assert_eq!(schedule.selected_item(), Some(&song("B")));
+    }
+
+    #[test]
+    fn susunan_acara_baru_tidak_berubah() {
+        assert!(!Schedule::default().is_dirty());
+    }
+
+    #[test]
+    fn menambah_dan_menghapus_menandai_perubahan() {
+        let mut schedule = schedule(&["A"]);
+        assert!(schedule.is_dirty());
+
+        schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
+        assert!(!schedule.is_dirty());
+
+        schedule.remove(0);
+        assert!(schedule.is_dirty());
+    }
+
+    #[test]
+    fn simpan_revisi_lama_tetap_dianggap_berubah() {
+        let mut schedule = schedule(&["A"]);
+        let saving = schedule.revision();
+        schedule.push(song("B"), None, &Styles::default());
+
+        schedule.mark_saved(PathBuf::from("a.sdw"), saving);
+
+        assert!(schedule.is_dirty());
+        assert_eq!(schedule.path(), Some(Path::new("a.sdw")));
+    }
+
+    #[test]
+    fn kompilasi_ulang_dan_lepas_asal_tidak_menandai_perubahan() {
+        let ids = song_ids(1);
+        let mut schedule = Schedule::default();
+        schedule.push(song("A"), Some(ids[0]), &Styles::default());
+        schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
+
+        schedule.recompile(&Styles::default());
+        schedule.forget_song(ids[0]);
+        schedule.select(0);
+
+        assert!(!schedule.is_dirty());
+    }
+
+    #[test]
+    fn mengubah_lagu_asal_menandai_perubahan() {
+        let ids = song_ids(1);
+        let mut schedule = Schedule::default();
+        schedule.push(song("A"), Some(ids[0]), &Styles::default());
+        schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
+
+        schedule.replace_song(ids[0], &Song::new("A baru", "", None), &Styles::default());
+
+        assert!(schedule.is_dirty());
+    }
+
+    #[test]
+    fn membuka_file_mengganti_isi_tanpa_pilihan_dan_tanpa_perubahan() {
+        let mut schedule = schedule(&["A", "B"]);
+
+        schedule.load(
+            PathBuf::from("minggu.sdw"),
+            vec![song("C")],
+            &Styles::default(),
+        );
+
+        assert_eq!(schedule.items(), vec![song("C")]);
+        assert_eq!(schedule.selected(), None);
+        assert!(schedule.preview().is_none());
+        assert!(!schedule.is_dirty());
+        assert_eq!(schedule.path(), Some(Path::new("minggu.sdw")));
+    }
+
+    #[test]
+    fn item_dari_file_tidak_punya_lagu_asal() {
+        let ids = song_ids(1);
+        let mut schedule = Schedule::default();
+        schedule.load(PathBuf::from("a.sdw"), vec![song("A")], &Styles::default());
+
+        schedule.replace_song(ids[0], &Song::new("Lain", "", None), &Styles::default());
+
+        assert_eq!(&*schedule.entries()[0].deck().title, "A");
+    }
+
+    #[test]
+    fn susunan_acara_baru_mengosongkan_semuanya() {
+        let mut schedule = schedule(&["A"]);
+        schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
+
+        schedule.clear();
+
+        assert!(schedule.is_empty());
+        assert_eq!(schedule.path(), None);
+        assert!(!schedule.is_dirty());
     }
 }

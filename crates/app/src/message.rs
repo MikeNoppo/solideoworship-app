@@ -1,6 +1,8 @@
+use std::path::PathBuf;
+
 use iced::window;
 use sdw_core::slide::ContentKind;
-use sdw_core::{OutputState, Presentation, Song, Styles};
+use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
 use sdw_library::{SongId, SongSummary};
 
 use crate::display::Display;
@@ -93,5 +95,13 @@ pub enum Message {
     Theme(theme_dialog::Message),
     StylesSaved(Outcome<Styles>),
     SaveShortcut,
+    ScheduleNewRequested,
+    ScheduleOpenRequested,
+    ScheduleFilePicked(Option<PathBuf>),
+    ScheduleOpened(Outcome<(PathBuf, Vec<ScheduleItem>)>),
+    ScheduleSaveRequested,
+    ScheduleSaveAsRequested,
+    ScheduleSavePathChosen(Option<PathBuf>),
+    ScheduleSaved(u64, Outcome<PathBuf>),
     LibraryAdded(usize),
 }
