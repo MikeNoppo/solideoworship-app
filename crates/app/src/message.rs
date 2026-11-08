@@ -64,6 +64,7 @@ pub enum Message {
     SplashElapsed,
     ControlOpened,
     LibraryOpened(Outcome<Styles>),
+    RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
 
     DisplaysRequested,
     DisplaysLoaded(Result<Vec<Display>, Box<str>>),

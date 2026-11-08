@@ -6,6 +6,7 @@ mod files;
 mod message;
 mod panes;
 mod paths;
+mod recovery;
 mod render;
 mod schedule;
 mod style;
@@ -31,6 +32,7 @@ use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::SaveTarget;
 use crate::message::{LibraryTab, Message, Pending, Step, UnsavedChoice};
+use crate::recovery::Recovery;
 use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
@@ -44,6 +46,8 @@ const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
 const SONG_LIMIT: usize = 100;
 
 const IMPORT_BUFFER: usize = 64 * 1024;
+
+const QUIT_FLUSH: Duration = Duration::from_secs(2);
 
 fn main() -> iced::Result {
     iced::daemon(App::boot, App::update, App::view)
@@ -84,6 +88,7 @@ struct App {
     screens_open: bool,
 
     store: Store,
+    recovery: Recovery,
     library_ready: bool,
     library_unavailable: Option<Box<str>>,
     library_error: Option<Box<str>>,
@@ -114,11 +119,15 @@ impl App {
         let app = Self {
             splash: Some(id),
             store: Store::spawn(paths::library_file()),
+            recovery: Recovery::new(paths::recovery_file()),
             ..Self::default()
         };
         let library_opened = app
             .store
             .run(|library| library.styles(), Message::LibraryOpened);
+        let recovery_path = app.recovery.path().to_path_buf();
+        let recovery_loaded =
+            work::background(move || recovery::load(&recovery_path)).map(Message::RecoveryLoaded);
 
         (
             app,
@@ -126,6 +135,7 @@ impl App {
                 opened.map(|_| Message::SplashOpened),
                 load_displays(),
                 library_opened,
+                recovery_loaded,
             ]),
         )
     }
@@ -148,6 +158,12 @@ impl App {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        let task = self.handle(message);
+        self.sync_recovery();
+        task
+    }
+
+    fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SplashOpened => {
                 self.splash_ready = true;
@@ -179,6 +195,19 @@ impl App {
                 };
 
                 Task::batch([search, self.leave_splash()])
+            }
+
+            Message::RecoveryLoaded(result) => {
+                match result {
+                    Ok(Some(items)) if self.schedule.is_empty() => {
+                        self.schedule.restore(items, &self.styles);
+                    }
+                    Ok(_) => {}
+                    Err(error) => self.status = Some(error),
+                }
+
+                self.recovery.activate();
+                Task::none()
             }
 
             Message::DisplaysRequested => load_displays(),
@@ -458,7 +487,12 @@ impl App {
                         self.after_save = Some(pending);
                         self.update(Message::ScheduleSaveRequested)
                     }
-                    UnsavedChoice::Discard => self.proceed(pending),
+                    UnsavedChoice::Discard => {
+                        if pending == Pending::Quit {
+                            self.schedule.clear();
+                        }
+                        self.proceed(pending)
+                    }
                     UnsavedChoice::Cancel => Task::none(),
                 }
             }
@@ -685,6 +719,12 @@ impl App {
         opened.discard().chain(Task::done(Message::ControlOpened))
     }
 
+    fn sync_recovery(&mut self) {
+        if let Some(job) = self.recovery.sync(&self.schedule) {
+            self.store.run_detached(move || job.run());
+        }
+    }
+
     fn guard(&mut self, pending: Pending) -> Task<Message> {
         if self.modal.is_some() {
             return Task::none();
@@ -708,10 +748,15 @@ impl App {
                 Some(control) => files::pick_schedule(control).map(Message::ScheduleFilePicked),
                 None => Task::none(),
             },
-            Pending::Quit => match self.control {
-                Some(control) => window::close(control),
-                None => iced::exit(),
-            },
+            Pending::Quit => {
+                self.sync_recovery();
+                self.store.flush(QUIT_FLUSH);
+
+                match self.control {
+                    Some(control) => window::close(control),
+                    None => iced::exit(),
+                }
+            }
         }
     }
 
@@ -1301,5 +1346,42 @@ mod tests {
         ));
         assert!(app.songs_truncated);
         assert_eq!(app.song_results.len(), super::SONG_LIMIT);
+    }
+
+    #[test]
+    fn susunan_acara_dari_file_pemulihan_dikembalikan() {
+        let mut app = App::default();
+
+        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
+            Song::new("Pulih", "satu", None),
+        )]))));
+
+        assert_eq!(app.schedule.entries().len(), 1);
+        assert!(app.schedule.is_recovered());
+    }
+
+    #[test]
+    fn file_pemulihan_tidak_menimpa_susunan_acara_yang_sudah_diisi() {
+        let mut app = dirty_app();
+
+        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
+            Song::new("Pulih", "satu", None),
+        )]))));
+
+        assert!(!app.schedule.is_recovered());
+        assert_eq!(&*app.schedule.entries()[0].deck().title, "A");
+    }
+
+    #[test]
+    fn jangan_simpan_saat_keluar_membuang_isi_pemulihan() {
+        let mut app = dirty_app();
+        let control = window::Id::unique();
+        app.control = Some(control);
+        let _ = app.update(Message::WindowCloseRequested(control));
+
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Discard));
+
+        assert!(app.schedule.is_empty());
+        assert!(!app.schedule.is_dirty());
     }
 }

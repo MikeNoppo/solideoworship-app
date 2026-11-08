@@ -3,9 +3,14 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 const LIBRARY_FILE: &str = "library.sqlite3";
+const RECOVERY_FILE: &str = "recovery.sdw";
 
 pub fn library_file() -> PathBuf {
     data_dir().join(LIBRARY_FILE)
+}
+
+pub fn recovery_file() -> PathBuf {
+    data_dir().join(RECOVERY_FILE)
 }
 
 fn data_dir() -> PathBuf {

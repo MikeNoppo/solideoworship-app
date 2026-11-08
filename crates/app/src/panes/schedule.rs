@@ -56,11 +56,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .and_then(OsStr::to_str);
 
     let header = row![title("Susunan Acara", name)]
-        .push(
-            app.schedule
-                .is_dirty()
-                .then(|| text(" ● belum disimpan").size(11).style(text::warning)),
-        )
+        .push(app.schedule.is_dirty().then(|| {
+            text(if app.schedule.is_recovered() {
+                " ● dipulihkan, belum disimpan"
+            } else {
+                " ● belum disimpan"
+            })
+            .size(11)
+            .style(text::warning)
+        }))
         .align_y(Center);
 
     pane(header.into(), body)

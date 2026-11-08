@@ -3,6 +3,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use iced::Task;
 use iced::futures::channel::oneshot;
@@ -69,6 +70,24 @@ impl Store {
             });
 
         Self { jobs }
+    }
+
+    pub fn run_detached(&self, job: impl FnOnce() + Send + 'static) {
+        let _ = self.jobs.send(Box::new(move |_| job()));
+    }
+
+    pub fn flush(&self, timeout: Duration) {
+        let (done, finished) = mpsc::channel();
+
+        if self
+            .jobs
+            .send(Box::new(move |_| {
+                let _ = done.send(());
+            }))
+            .is_ok()
+        {
+            let _ = finished.recv_timeout(timeout);
+        }
     }
 
     pub fn run<T, M>(

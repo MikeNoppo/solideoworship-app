@@ -35,6 +35,7 @@ pub struct Schedule {
     revision: u64,
     saved_revision: u64,
     opened_at: u64,
+    recovered: bool,
 }
 
 impl Schedule {
@@ -50,6 +51,22 @@ impl Schedule {
 
     pub fn clear(&mut self) {
         self.reset(Vec::new(), None);
+    }
+
+    pub fn restore(&mut self, items: Vec<ScheduleItem>, styles: &Styles) {
+        self.reset(
+            items
+                .into_iter()
+                .map(|item| Entry::new(item, None, styles))
+                .collect(),
+            None,
+        );
+        self.revision += 1;
+        self.recovered = true;
+    }
+
+    pub fn is_recovered(&self) -> bool {
+        self.recovered && self.is_dirty()
     }
 
     pub fn items(&self) -> Vec<ScheduleItem> {
@@ -509,5 +526,28 @@ mod tests {
 
         assert_eq!(schedule.path(), None);
         assert!(schedule.is_dirty());
+    }
+
+    #[test]
+    fn susunan_acara_pulihan_belum_tersimpan_dan_tanpa_file() {
+        let mut schedule = schedule(&["A"]);
+        schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
+
+        schedule.restore(vec![song("B"), song("C")], &Styles::default());
+
+        assert_eq!(schedule.items(), vec![song("B"), song("C")]);
+        assert_eq!(schedule.path(), None);
+        assert!(schedule.is_dirty());
+        assert!(schedule.is_recovered());
+    }
+
+    #[test]
+    fn tanda_pulihan_hilang_setelah_disimpan() {
+        let mut schedule = Schedule::default();
+        schedule.restore(vec![song("B")], &Styles::default());
+
+        schedule.mark_saved(PathBuf::from("b.sdw"), schedule.revision());
+
+        assert!(!schedule.is_recovered());
     }
 }
