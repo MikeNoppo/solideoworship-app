@@ -72,6 +72,8 @@ const BOOKS: [(&str, &str); 66] = [
     ("Wahyu", "Why"),
 ];
 
+const SINGLE_CHAPTER: [u8; 5] = [31, 57, 63, 64, 65];
+
 const ALIASES: &[(u8, &str)] = &[
     (1, "kj"),
     (2, "kl"),
@@ -187,6 +189,10 @@ impl Book {
         }
     }
 
+    fn has_single_chapter(self) -> bool {
+        SINGLE_CHAPTER.contains(&self.number())
+    }
+
     fn entry(self) -> (&'static str, &'static str) {
         BOOKS[usize::from(self.0.get()) - 1]
     }
@@ -294,11 +300,26 @@ impl Reference {
 
         let chapter = cursor.number()?.ok_or(ReferenceError::MissingChapter)?;
 
+        if book.has_single_chapter() && !cursor.at(CHAPTER_SEPARATORS) {
+            let end = if cursor.eat(DASHES) {
+                cursor.number()?.ok_or_else(|| cursor.trailing())?
+            } else {
+                chapter
+            };
+
+            if !cursor.0.is_empty() {
+                return Err(cursor.trailing());
+            }
+
+            let verses = (chapter, end);
+            return Self::new(book, 1, (verses != (1, 1)).then_some(verses));
+        }
+
         if cursor.eat(DASHES) {
             return Err(ReferenceError::CrossChapter);
         }
 
-        let verses = if cursor.eat(&[':', '.']) {
+        let verses = if cursor.eat(CHAPTER_SEPARATORS) {
             let start = cursor.number()?.ok_or_else(|| cursor.trailing())?;
             let end = if cursor.eat(DASHES) {
                 cursor.number()?.ok_or_else(|| cursor.trailing())?
@@ -306,7 +327,7 @@ impl Reference {
                 start
             };
 
-            if cursor.eat(&[':', '.']) {
+            if cursor.eat(CHAPTER_SEPARATORS) {
                 return Err(ReferenceError::CrossChapter);
             }
 
@@ -356,6 +377,7 @@ impl FromStr for Reference {
 }
 
 const DASHES: &[char] = &['-', '\u{2013}', '\u{2014}'];
+const CHAPTER_SEPARATORS: &[char] = &[':', '.'];
 
 fn book_end(input: &str) -> usize {
     let mut seen_letter = false;
@@ -390,6 +412,10 @@ impl Cursor<'_> {
         self.0 = rest[digits..].trim_start();
 
         Ok(Some(number))
+    }
+
+    fn at(&self, separators: &[char]) -> bool {
+        self.0.trim_start().starts_with(separators)
     }
 
     fn eat(&mut self, separators: &[char]) -> bool {
@@ -712,5 +738,42 @@ mod tests {
 
         assert!(message.contains("Mazmur"));
         assert!(message.contains("lebih lengkap"));
+    }
+
+    #[test]
+    fn angka_di_kitab_satu_pasal_dibaca_sebagai_ayat() {
+        assert_eq!(parsed("Yud 3"), (65, 1, Some((3, 3))));
+        assert_eq!(parsed("Flm 6"), (57, 1, Some((6, 6))));
+        assert_eq!(parsed("Ob 2-4"), (31, 1, Some((2, 4))));
+        assert_eq!(parsed("2 Yoh 5"), (63, 1, Some((5, 5))));
+        assert_eq!(parsed("3Yoh 1-4"), (64, 1, Some((1, 4))));
+    }
+
+    #[test]
+    fn kitab_satu_pasal_tetap_menerima_bentuk_lengkap() {
+        assert_eq!(parsed("Yud 1"), (65, 1, None));
+        assert_eq!(parsed("Yud 1:3"), (65, 1, Some((3, 3))));
+        assert_eq!(parsed("Yudas 1:20-25"), (65, 1, Some((20, 25))));
+    }
+
+    #[test]
+    fn kitab_satu_pasal_tetap_menolak_sisa_yang_tidak_dimengerti() {
+        assert_eq!(
+            Reference::parse("Yud 3 abc"),
+            Err(ReferenceError::Trailing("abc".into()))
+        );
+        assert_eq!(
+            Reference::parse("Yud 5-3"),
+            Err(ReferenceError::ReversedRange { start: 5, end: 3 })
+        );
+    }
+
+    #[test]
+    fn kitab_banyak_pasal_tidak_terpengaruh() {
+        assert_eq!(parsed("Yoh 3"), (43, 3, None));
+        assert_eq!(
+            Reference::parse("Mzm 23-24"),
+            Err(ReferenceError::CrossChapter)
+        );
     }
 }
