@@ -1,4 +1,5 @@
 use iced::Size;
+use iced::window::settings::PlatformSpecific;
 use iced::window::{self, Position, Settings};
 
 use crate::display::Display;
@@ -12,6 +13,7 @@ pub fn splash() -> Settings {
         decorations: false,
         resizable: false,
         exit_on_close_request: false,
+        platform_specific: platform_specific(),
         ..Settings::default()
     }
 }
@@ -22,6 +24,7 @@ pub fn control() -> Settings {
         min_size: Some(Size::new(1120.0, 720.0)),
         position: Position::Centered,
         exit_on_close_request: false,
+        platform_specific: platform_specific(),
         ..Settings::default()
     }
 }
@@ -43,8 +46,25 @@ pub fn output(display: &Display) -> Settings {
         fullscreen: true,
         decorations: false,
         exit_on_close_request: false,
+        platform_specific: platform_specific(),
         ..Settings::default()
     }
+}
+
+#[cfg(target_os = "linux")]
+const APP_ID: &str = "solideoworship";
+
+#[cfg(target_os = "linux")]
+fn platform_specific() -> PlatformSpecific {
+    PlatformSpecific {
+        application_id: APP_ID.to_owned(),
+        ..PlatformSpecific::default()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn platform_specific() -> PlatformSpecific {
+    PlatformSpecific::default()
 }
 
 // Safety net in case fullscreen at creation was not applied; a no-op when the
