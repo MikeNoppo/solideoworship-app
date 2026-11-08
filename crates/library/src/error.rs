@@ -41,7 +41,7 @@ impl fmt::Display for Error {
                 "File Alkitab harus berenkoding UTF-8. Simpan ulang file sebagai UTF-8 lalu coba lagi.",
             ),
             Self::Storage(error) => write!(f, "Gagal mengakses database library: {error}"),
-            Self::Io(error) => write!(f, "Gagal membuka file library: {error}"),
+            Self::Io(error) => write!(f, "Gagal mengakses file: {error}"),
         }
     }
 }

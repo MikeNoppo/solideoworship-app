@@ -71,6 +71,10 @@ impl BibleTab {
         self.lookup()
     }
 
+    pub fn bibles(&self) -> &[BibleSummary] {
+        &self.bibles
+    }
+
     pub fn update(&mut self, message: Message) -> Action {
         match message {
             Message::BibleSelected(bible) => {
@@ -157,7 +161,9 @@ impl BibleTab {
 
     pub fn body(&self) -> Element<'_, Message> {
         if self.bibles.is_empty() {
-            return notice("Belum ada terjemahan Alkitab di library.");
+            return notice(
+                "Belum ada terjemahan Alkitab. Klik Kelola Alkitab untuk mengimpor file Zefania XML.",
+            );
         }
 
         if let Some(invalid) = &self.invalid {

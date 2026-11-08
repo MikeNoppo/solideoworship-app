@@ -50,7 +50,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .into(),
         ),
         LibraryTab::Scripture => (
-            app.bible.header().map(Message::Bible),
+            row![
+                app.bible.header().map(Message::Bible),
+                space::horizontal(),
+                button(text("Kelola Alkitab").size(13))
+                    .padding([4, 12])
+                    .on_press(Message::BibleManagerRequested)
+                    .style(button::secondary),
+            ]
+            .spacing(12)
+            .align_y(Center)
+            .into(),
             app.bible.body().map(Message::Bible),
         ),
     };

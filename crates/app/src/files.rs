@@ -8,10 +8,28 @@ const FILTER: &str = "Susunan acara SolideoWorship";
 const DEFAULT_NAME: &str = "Susunan acara.sdw";
 
 pub fn pick_schedule(parent: window::Id) -> Task<Option<PathBuf>> {
-    window::run(parent, |window| {
+    pick(parent, "Buka susunan acara", FILTER, EXTENSION)
+}
+
+pub fn pick_bible(parent: window::Id) -> Task<Option<PathBuf>> {
+    pick(
+        parent,
+        "Pilih file Alkitab Zefania XML",
+        "Alkitab Zefania XML",
+        "xml",
+    )
+}
+
+fn pick(
+    parent: window::Id,
+    title: &'static str,
+    filter: &'static str,
+    extension: &'static str,
+) -> Task<Option<PathBuf>> {
+    window::run(parent, move |window| {
         AsyncFileDialog::new()
-            .set_title("Buka susunan acara")
-            .add_filter(FILTER, &[EXTENSION])
+            .set_title(title)
+            .add_filter(filter, &[extension])
             .set_parent(window)
             .pick_file()
     })

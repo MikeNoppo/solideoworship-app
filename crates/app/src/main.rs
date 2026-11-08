@@ -1,3 +1,4 @@
+mod bible_manager;
 mod bible_tab;
 mod display;
 mod editor;
@@ -12,6 +13,8 @@ mod theme_dialog;
 mod windows;
 mod work;
 
+use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -22,6 +25,7 @@ use sdw_core::theme::SlideTheme;
 use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
 use sdw_library::{SongId, SongSummary, schedule_file};
 
+use crate::bible_manager::BibleManager;
 use crate::bible_tab::BibleTab;
 use crate::display::Display;
 use crate::editor::Editor;
@@ -37,6 +41,8 @@ use crate::work::Store;
 const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
 
 const SONG_LIMIT: usize = 100;
+
+const IMPORT_BUFFER: usize = 64 * 1024;
 
 fn main() -> iced::Result {
     iced::daemon(App::boot, App::update, App::view)
@@ -57,6 +63,7 @@ enum Modal {
     Editor(Box<Editor>),
     Theme(Box<ThemeDialog>),
     Unsaved(Pending),
+    Bibles(Box<BibleManager>),
 }
 
 #[derive(Default)]
@@ -405,6 +412,7 @@ impl App {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Save)),
                 Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Save)),
                 Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Save)),
+                Some(Modal::Bibles(_)) => Task::none(),
                 None => self.update(Message::ScheduleSaveRequested),
             },
             Message::ScheduleNewRequested => self.guard(Pending::New),
@@ -481,6 +489,10 @@ impl App {
             }
             Message::BiblesLoaded(result) => match result {
                 Ok(bibles) => {
+                    if let Some(Modal::Bibles(manager)) = &mut self.modal {
+                        manager.set_bibles(bibles.clone());
+                    }
+
                     let action = self.bible.set_bibles(bibles);
                     self.bible_action(action)
                 }
@@ -492,6 +504,61 @@ impl App {
             Message::PassageFound(bible, reference, result) => {
                 let action = self.bible.found(bible, &reference, result);
                 self.bible_action(action)
+            }
+            Message::BibleManagerRequested => {
+                if self.modal.is_none() {
+                    self.modal = Some(Modal::Bibles(Box::new(BibleManager::new(
+                        self.bible.bibles().to_vec(),
+                    ))));
+                }
+                Task::none()
+            }
+            Message::BibleManager(message) => {
+                let Some(Modal::Bibles(manager)) = &mut self.modal else {
+                    return Task::none();
+                };
+
+                match manager.update(message) {
+                    bible_manager::Action::None => Task::none(),
+                    bible_manager::Action::Close => {
+                        self.modal = None;
+                        Task::none()
+                    }
+                    bible_manager::Action::PickFile => match self.control {
+                        Some(control) => files::pick_bible(control).map(|path| {
+                            Message::BibleManager(bible_manager::Message::FilePicked(path))
+                        }),
+                        None => Task::none(),
+                    },
+                    bible_manager::Action::Import { path, abbreviation } => self.store.run(
+                        move |library| {
+                            let file = File::open(&path)?;
+                            library.import_zefania(
+                                BufReader::with_capacity(IMPORT_BUFFER, file),
+                                &abbreviation,
+                            )
+                        },
+                        Message::BibleImported,
+                    ),
+                    bible_manager::Action::Delete(id) => self.store.run(
+                        move |library| library.delete_bible(id),
+                        Message::BibleDeleted,
+                    ),
+                }
+            }
+            Message::BibleImported(result) => {
+                match &mut self.modal {
+                    Some(Modal::Bibles(manager)) => manager.imported(result),
+                    _ => self.library_error = result.err(),
+                }
+                self.load_bibles()
+            }
+            Message::BibleDeleted(result) => {
+                match &mut self.modal {
+                    Some(Modal::Bibles(manager)) => manager.deleted(result),
+                    _ => self.library_error = result.err(),
+                }
+                self.load_bibles()
             }
         }
     }

@@ -38,6 +38,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
         Some(Modal::Theme(dialog)) => dialog.view().map(Message::Theme),
         Some(Modal::Unsaved(pending)) => unsaved::view(*pending),
+        Some(Modal::Bibles(manager)) => manager.view().map(Message::BibleManager),
         None => return base.into(),
     };
 
