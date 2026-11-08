@@ -31,12 +31,13 @@ impl Language {
 }
 
 pub fn init(user_file: &Path, installed_file: Option<&Path>) {
-    let language = choose(
-        env::var("SDW_LANG").ok().as_deref(),
-        read_language_file(user_file).as_deref(),
-        installed_file.and_then(read_language_file).as_deref(),
-        sys_locale::get_locale().as_deref(),
-    );
+    let sources: [&dyn Fn() -> Option<String>; 4] = [
+        &|| env::var("SDW_LANG").ok(),
+        &|| read_language_file(user_file),
+        &|| installed_file.and_then(read_language_file),
+        &sys_locale::get_locale,
+    ];
+    let language = choose(sources.iter().map(|source| source()));
     let _ = ACTIVE.set(language.strings());
 }
 
@@ -74,16 +75,11 @@ fn utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> Option<String> {
     String::from_utf16(&units).ok()
 }
 
-fn choose(
-    variable: Option<&str>,
-    user_file: Option<&str>,
-    installed_file: Option<&str>,
-    system: Option<&str>,
-) -> Language {
-    [variable, user_file, installed_file, system]
+fn choose<S: AsRef<str>>(codes: impl IntoIterator<Item = Option<S>>) -> Language {
+    codes
         .into_iter()
         .flatten()
-        .find_map(Language::from_code)
+        .find_map(|code| Language::from_code(code.as_ref()))
         .unwrap_or(Language::En)
 }
 
@@ -257,6 +253,8 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
     #[test]
@@ -282,39 +280,46 @@ mod tests {
     }
 
     #[test]
-    fn variable_then_files_then_system_then_english() {
+    fn first_supported_code_wins() {
         assert_eq!(
-            choose(Some("en"), Some("id"), Some("id"), Some("id-ID")),
+            choose([Some("en"), Some("id"), Some("id"), Some("id-ID")]),
             Language::En
         );
         assert_eq!(
-            choose(None, Some("id\n"), None, Some("en-US")),
+            choose([None, Some("id\n"), None, Some("en-US")]),
             Language::Id
         );
-        assert_eq!(choose(Some("xx"), Some("id"), None, None), Language::Id);
-        assert_eq!(choose(None, None, None, Some("id-ID")), Language::Id);
+        assert_eq!(choose([Some("xx"), Some("id"), None, None]), Language::Id);
         assert_eq!(
-            choose(None, Some("klingon"), None, Some("id_ID.UTF-8")),
+            choose([None, None, Some("id"), Some("en-US")]),
             Language::Id
         );
         assert_eq!(
-            choose(Some(""), Some("klingon"), None, Some("C")),
+            choose([None, Some("klingon"), None, Some("id_ID.UTF-8")]),
+            Language::Id
+        );
+        assert_eq!(
+            choose([Some(""), Some("klingon"), None, Some("C")]),
             Language::En
         );
-        assert_eq!(choose(None, None, None, None), Language::En);
+        assert_eq!(choose([None::<&str>; 4]), Language::En);
     }
 
     #[test]
-    fn user_file_overrides_the_installed_file() {
-        assert_eq!(
-            choose(None, Some("en"), Some("id"), Some("id-ID")),
-            Language::En
+    fn sources_after_the_first_supported_code_are_not_consulted() {
+        let consulted = Cell::new(0);
+        let consult = |code: Option<&'static str>| {
+            consulted.set(consulted.get() + 1);
+            code
+        };
+
+        let language = choose(
+            [Some("xx"), Some("id"), Some("en"), None]
+                .into_iter()
+                .map(consult),
         );
-        assert_eq!(choose(None, None, Some("id"), Some("en-US")), Language::Id);
-        assert_eq!(
-            choose(None, Some("klingon"), Some("id"), Some("en-US")),
-            Language::Id
-        );
+        assert_eq!(language, Language::Id);
+        assert_eq!(consulted.get(), 2);
     }
 
     #[test]
