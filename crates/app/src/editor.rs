@@ -128,13 +128,16 @@ impl Editor {
                 text("Judul").size(12).style(text::secondary),
                 text_input("Judul lagu", &self.title)
                     .id(TITLE_INPUT)
-                    .on_input(Message::TitleChanged),
+                    .on_input(Message::TitleChanged)
+                    .on_submit(Message::Save),
             ]
             .spacing(4)
             .width(FillPortion(3)),
             column![
                 text("Copyright / CCLI").size(12).style(text::secondary),
-                text_input("Opsional", &self.copyright).on_input(Message::CopyrightChanged),
+                text_input("Opsional", &self.copyright)
+                    .on_input(Message::CopyrightChanged)
+                    .on_submit(Message::Save),
             ]
             .spacing(4)
             .width(FillPortion(2)),

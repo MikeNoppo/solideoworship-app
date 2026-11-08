@@ -368,6 +368,7 @@ impl ThemeDialog {
                     .style(style::sample(color(current))),
                 text_input("#rrggbb", &self.hex[slot.index()])
                     .on_input(move |value| Message::HexChanged(slot, value))
+                    .on_submit(Message::Save)
                     .size(13)
                     .width(100),
             ]
