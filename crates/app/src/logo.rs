@@ -1,0 +1,121 @@
+use iced::font::Weight;
+use iced::widget::{Column, Space, container, row, text};
+use iced::window::icon::{self, Icon};
+use iced::{Center, Color, Element, Font};
+
+use crate::style;
+
+pub struct Cut {
+    rows: &'static [f32],
+    row: f32,
+    gap: f32,
+}
+
+pub const FULL: Cut = Cut {
+    rows: &[46.0, 46.0, 138.0, 138.0, 46.0, 46.0, 46.0, 46.0],
+    row: 18.0,
+    gap: 9.0,
+};
+
+pub const SMALL: Cut = Cut {
+    rows: &[64.0, 144.0, 64.0, 64.0, 64.0],
+    row: 24.0,
+    gap: 16.0,
+};
+
+impl Cut {
+    fn height(&self) -> f32 {
+        self.rows.len() as f32 * (self.row + self.gap) - self.gap
+    }
+}
+
+pub fn mark<'a, Message: 'a>(cut: &Cut, height: f32) -> Element<'a, Message> {
+    let scale = height / cut.height();
+    let row = cut.row * scale;
+
+    Column::with_children(cut.rows.iter().map(|width| {
+        container(Space::new())
+            .width(width * scale)
+            .height(row)
+            .style(style::logo_row(row / 2.0))
+            .into()
+    }))
+    .spacing(cut.gap * scale)
+    .align_x(Center)
+    .into()
+}
+
+pub fn wordmark<'a, Message: 'a>(size: f32) -> Element<'a, Message> {
+    let bold = Font {
+        weight: Weight::Bold,
+        ..Font::DEFAULT
+    };
+
+    row![
+        text("Solideo").size(size).font(bold),
+        text("Worship").size(size)
+    ]
+    .into()
+}
+
+const ICON_SIZE: u32 = 32;
+const ICON_RADIUS: f32 = 6.0;
+const ICON_TILE: Color = Color::from_rgb8(0x1C, 0x1D, 0x21);
+const ICON_MARK: Color = Color::from_rgb8(0xF2, 0xF2, 0xF3);
+const ICON_CROSS: [(u32, u32, u32, u32); 2] = [(14, 4, 4, 24), (8, 10, 16, 4)];
+
+pub fn window_icon() -> Option<Icon> {
+    let mut rgba = Vec::with_capacity((ICON_SIZE * ICON_SIZE * 4) as usize);
+
+    for y in 0..ICON_SIZE {
+        for x in 0..ICON_SIZE {
+            let on_mark = ICON_CROSS.iter().any(|&(left, top, width, height)| {
+                (left..left + width).contains(&x) && (top..top + height).contains(&y)
+            });
+            let [red, green, blue, _] = if on_mark { ICON_MARK } else { ICON_TILE }.into_rgba8();
+            rgba.extend([red, green, blue, tile_alpha(x, y)]);
+        }
+    }
+
+    icon::from_rgba(rgba, ICON_SIZE, ICON_SIZE).ok()
+}
+
+fn tile_alpha(x: u32, y: u32) -> u8 {
+    let size = ICON_SIZE as f32;
+    let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+    let corner_x = px.clamp(ICON_RADIUS, size - ICON_RADIUS);
+    let corner_y = py.clamp(ICON_RADIUS, size - ICON_RADIUS);
+    let distance = (px - corner_x).hypot(py - corner_y);
+    let coverage = (ICON_RADIUS - distance + 0.5).clamp(0.0, 1.0);
+
+    (coverage * 255.0).round() as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pixel(rgba: &[u8], x: u32, y: u32) -> [u8; 4] {
+        let start = ((y * ICON_SIZE + x) * 4) as usize;
+        rgba[start..start + 4].try_into().unwrap()
+    }
+
+    #[test]
+    fn cuts_keep_the_heights_of_the_svg_masters() {
+        assert_eq!(FULL.height(), 207.0);
+        assert_eq!(SMALL.height(), 184.0);
+    }
+
+    #[test]
+    fn window_icon_draws_the_cross_on_a_rounded_tile() {
+        let (rgba, size) = window_icon().unwrap().into_raw();
+
+        assert_eq!((size.width, size.height), (ICON_SIZE, ICON_SIZE));
+        assert_eq!(pixel(&rgba, 0, 0)[3], 0);
+        assert_eq!(pixel(&rgba, 31, 31)[3], 0);
+        assert_eq!(pixel(&rgba, 2, 16), [0x1C, 0x1D, 0x21, 255]);
+        assert_eq!(pixel(&rgba, 16, 12), [0xF2, 0xF2, 0xF3, 255]);
+        assert_eq!(pixel(&rgba, 16, 27), [0xF2, 0xF2, 0xF3, 255]);
+        assert_eq!(pixel(&rgba, 16, 28), [0x1C, 0x1D, 0x21, 255]);
+    }
+}

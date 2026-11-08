@@ -4,6 +4,7 @@ use iced::window::settings::PlatformSpecific;
 use iced::window::{self, Position, Settings};
 
 use crate::display::Display;
+use crate::logo;
 
 // The splash is deliberately undecorated and not resizable: it only lives during
 // initial loading and closes once the control window has actually opened.
@@ -51,6 +52,7 @@ const APP_ID: &str = "solideoworship";
 
 fn base() -> Settings {
     Settings {
+        icon: logo::window_icon(),
         exit_on_close_request: false,
         #[cfg(target_os = "linux")]
         platform_specific: PlatformSpecific {
