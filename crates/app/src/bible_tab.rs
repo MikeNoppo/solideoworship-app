@@ -5,7 +5,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::bible::{Passage, Reference, ReferenceError};
 use sdw_library::{BibleId, BibleSummary};
 
-use crate::i18n::{Localize, fill, t};
+use crate::i18n::{Localize, fill, plural, t};
 use crate::panes::{alert, notice};
 use crate::work::Outcome;
 
@@ -129,7 +129,15 @@ impl BibleTab {
                         .checked_sub(PREVIEW_LIMIT)
                         .filter(|&remaining| remaining > 0)
                         .map(|remaining| {
-                            fill(t().bible.remaining, &[("count", &remaining)]).into_boxed_str()
+                            fill(
+                                plural(
+                                    remaining as u64,
+                                    t().bible.remaining_one,
+                                    t().bible.remaining_other,
+                                ),
+                                &[("count", &remaining)],
+                            )
+                            .into_boxed_str()
                         }),
                     passage,
                 });

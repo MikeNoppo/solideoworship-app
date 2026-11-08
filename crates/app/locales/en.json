@@ -101,12 +101,13 @@
   "bible": {
     "hint": "Type a reference like Yoh 3:16-18, then press Enter to add it to the schedule.",
     "not_found": "This verse is not in the selected translation.",
-    "remaining": "…and {count} more verses. All verses are added to the schedule.",
     "translation": "Translation",
     "reference_placeholder": "Reference, e.g. Yoh 3:16-18",
     "no_bibles": "No Bible translations yet. Click Manage Bibles to import a Zefania XML file.",
     "searching": "Looking up verses…",
-    "add": "Add to schedule"
+    "add": "Add to schedule",
+    "remaining_one": "…and {count} more verse. All verses are added to the schedule.",
+    "remaining_other": "…and {count} more verses. All verses are added to the schedule."
   },
   "bible_manager": {
     "copyright_note": "Bibles are not bundled with the app because of their publishers' copyright. Import a Zefania XML file you own, UTF-8 encoded.",
@@ -120,8 +121,10 @@
     "importing": "Processing…",
     "import": "Import",
     "confirm_delete": "Delete this translation?",
-    "imported": "{bible} imported: {verses} verses.",
-    "imported_with_skipped": "{bible} imported: {verses} verses, {skipped} skipped."
+    "imported": "{bible} imported: {verses}.",
+    "imported_with_skipped": "{bible} imported: {verses}, {skipped} skipped.",
+    "verses_one": "{count} verse",
+    "verses_other": "{count} verses"
   },
   "theme": {
     "title": "Theme settings",

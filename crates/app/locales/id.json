@@ -101,12 +101,13 @@
   "bible": {
     "hint": "Ketik referensi seperti Yoh 3:16-18, lalu tekan Enter untuk menambahkannya ke susunan acara.",
     "not_found": "Ayat ini tidak ada di terjemahan yang dipilih.",
-    "remaining": "…dan {count} ayat lagi. Semua ayat ikut ditambahkan ke susunan acara.",
     "translation": "Terjemahan",
     "reference_placeholder": "Referensi, mis. Yoh 3:16-18",
     "no_bibles": "Belum ada terjemahan Alkitab. Klik Kelola Alkitab untuk mengimpor file Zefania XML.",
     "searching": "Mencari ayat…",
-    "add": "Tambahkan ke susunan acara"
+    "add": "Tambahkan ke susunan acara",
+    "remaining_one": "…dan {count} ayat lagi. Semua ayat ikut ditambahkan ke susunan acara.",
+    "remaining_other": "…dan {count} ayat lagi. Semua ayat ikut ditambahkan ke susunan acara."
   },
   "bible_manager": {
     "copyright_note": "Alkitab tidak disertakan di aplikasi karena hak cipta penerbitnya. Impor file Zefania XML milik Anda sendiri, berenkoding UTF-8.",
@@ -120,8 +121,10 @@
     "importing": "Memproses…",
     "import": "Impor",
     "confirm_delete": "Hapus terjemahan ini?",
-    "imported": "{bible} berhasil diimpor: {verses} ayat.",
-    "imported_with_skipped": "{bible} berhasil diimpor: {verses} ayat, {skipped} dilewati."
+    "imported": "{bible} berhasil diimpor: {verses}.",
+    "imported_with_skipped": "{bible} berhasil diimpor: {verses}, {skipped} dilewati.",
+    "verses_one": "{count} ayat",
+    "verses_other": "{count} ayat"
   },
   "theme": {
     "title": "Pengaturan tema",

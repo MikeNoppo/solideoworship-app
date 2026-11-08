@@ -126,6 +126,10 @@ impl Localize for ReferenceError {
     }
 }
 
+pub fn plural(count: u64, one: &'static str, other: &'static str) -> &'static str {
+    if count == 1 { one } else { other }
+}
+
 pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
     let mut filled = String::with_capacity(template.len());
     let mut rest = template;
@@ -211,6 +215,13 @@ mod tests {
             error.localize(),
             "\"Ma\" could mean Mazmur, Maleakhi, Matius, Markus. Type more of the book name."
         );
+    }
+
+    #[test]
+    fn plural_picks_singular_only_for_one() {
+        assert_eq!(plural(1, "one", "other"), "one");
+        assert_eq!(plural(0, "one", "other"), "other");
+        assert_eq!(plural(2, "one", "other"), "other");
     }
 
     #[test]

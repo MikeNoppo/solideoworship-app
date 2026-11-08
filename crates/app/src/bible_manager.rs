@@ -4,7 +4,7 @@ use iced::widget::{button, column, container, row, scrollable, space, text, text
 use iced::{Center, Element, Fill};
 use sdw_library::{BibleId, BibleSummary, ImportReport};
 
-use crate::i18n::{fill, t};
+use crate::i18n::{fill, plural, t};
 use crate::style;
 use crate::work::Outcome;
 
@@ -113,11 +113,20 @@ impl BibleManager {
                     t().bible_manager.imported
                 };
 
+                let verses = fill(
+                    plural(
+                        report.verses.into(),
+                        t().bible_manager.verses_one,
+                        t().bible_manager.verses_other,
+                    ),
+                    &[("count", &report.verses)],
+                );
+
                 Ok(fill(
                     template,
                     &[
                         ("bible", &report.bible),
-                        ("verses", &report.verses),
+                        ("verses", &verses),
                         ("skipped", &report.skipped),
                     ],
                 )
@@ -344,7 +353,9 @@ mod tests {
         manager.imported(Ok(report));
 
         assert!(manager.file.is_none());
-        assert!(matches!(&manager.outcome, Some(Ok(message)) if message.contains("1 verses")));
+        assert!(
+            matches!(&manager.outcome, Some(Ok(message)) if &**message == "TB imported: 1 verse.")
+        );
         assert_eq!(manager.update(Message::PickFile), Action::PickFile);
     }
 
