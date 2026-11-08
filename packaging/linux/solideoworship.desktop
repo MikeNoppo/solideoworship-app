@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=SolideoWorship
+GenericName=Worship Presenter
+GenericName[id]=Presentasi Ibadah
+Comment=Project song lyrics and Bible verses during worship
+Comment[id]=Tampilkan lirik lagu dan ayat Alkitab saat ibadah
+Exec=solideoworship
+Terminal=false
+Categories=Office;Presentation;
+Keywords=worship;church;lyrics;bible;projector;presentation;
+Keywords[id]=ibadah;gereja;lirik;alkitab;proyektor;presentasi;
+StartupWMClass=solideoworship
