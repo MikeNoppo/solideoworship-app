@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 const LIBRARY_FILE: &str = "library.sqlite3";
 const RECOVERY_FILE: &str = "recovery.sdw";
+const LANGUAGE_FILE: &str = "language";
 
 pub fn library_file() -> PathBuf {
     data_dir().join(LIBRARY_FILE)
@@ -11,6 +12,10 @@ pub fn library_file() -> PathBuf {
 
 pub fn recovery_file() -> PathBuf {
     data_dir().join(RECOVERY_FILE)
+}
+
+pub fn language_file() -> PathBuf {
+    data_dir().join(LANGUAGE_FILE)
 }
 
 fn data_dir() -> PathBuf {

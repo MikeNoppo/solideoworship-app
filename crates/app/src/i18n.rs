@@ -1,5 +1,7 @@
 use std::fmt::{Display, Write as _};
+use std::path::Path;
 use std::sync::OnceLock;
+use std::{env, fs};
 
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 
@@ -13,6 +15,21 @@ impl Language {
             .into_iter()
             .find(|candidate| candidate.code().eq_ignore_ascii_case(language))
     }
+}
+
+pub fn init(language_file: &Path) {
+    let language = choose(
+        env::var("SDW_LANG").ok().as_deref(),
+        fs::read_to_string(language_file).ok().as_deref(),
+    );
+    let _ = ACTIVE.set(language.strings());
+}
+
+fn choose(variable: Option<&str>, file: Option<&str>) -> Language {
+    variable
+        .and_then(Language::from_code)
+        .or_else(|| file.and_then(Language::from_code))
+        .unwrap_or(Language::En)
 }
 
 pub fn t() -> &'static Strings {
@@ -73,6 +90,15 @@ mod tests {
         assert_eq!(Language::from_code("en_US.UTF-8"), Some(Language::En));
         assert_eq!(Language::from_code("xx"), None);
         assert_eq!(Language::from_code(""), None);
+    }
+
+    #[test]
+    fn variable_wins_over_file_and_english_is_the_fallback() {
+        assert_eq!(choose(Some("en"), Some("id")), Language::En);
+        assert_eq!(choose(None, Some("id\n")), Language::Id);
+        assert_eq!(choose(Some("xx"), Some("id")), Language::Id);
+        assert_eq!(choose(Some(""), Some("klingon")), Language::En);
+        assert_eq!(choose(None, None), Language::En);
     }
 
     #[test]
