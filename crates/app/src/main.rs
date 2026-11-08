@@ -11,6 +11,7 @@ mod panes;
 mod paths;
 mod recovery;
 mod render;
+mod report;
 mod schedule;
 mod style;
 mod theme_dialog;
@@ -20,6 +21,7 @@ mod work;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use std::process::ExitCode;
 use std::time::Duration;
 
 use iced::keyboard::{self, key::Named};
@@ -53,17 +55,19 @@ const IMPORT_BUFFER: usize = 64 * 1024;
 
 const QUIT_FLUSH: Duration = Duration::from_secs(2);
 
-fn main() -> iced::Result {
+fn main() -> ExitCode {
     i18n::init(
         &paths::language_file(),
         paths::installed_language_file().as_deref(),
     );
 
-    iced::daemon(App::boot, App::update, App::view)
-        .title(App::title)
-        .theme(App::theme)
-        .subscription(App::subscription)
-        .run()
+    report::run(|| {
+        iced::daemon(App::boot, App::update, App::view)
+            .title(App::title)
+            .theme(App::theme)
+            .subscription(App::subscription)
+            .run()
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

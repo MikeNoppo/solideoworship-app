@@ -1,5 +1,6 @@
+use std::cell::RefCell;
 use std::fmt::{Display, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::{env, fs};
 
@@ -11,6 +12,7 @@ use sdw_library::Error;
 use sdw_library::schedule_file::ScheduleFileError;
 
 use crate::message::LibraryTab;
+use crate::report;
 use crate::theme_dialog::ColorSlot;
 
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
@@ -31,32 +33,42 @@ impl Language {
 }
 
 pub fn init(user_file: &Path, installed_file: Option<&Path>) {
+    let unsupported = RefCell::new(Vec::new());
+    let read = |path: &Path| {
+        let (found, code) = read_language_file(path)?;
+
+        if Language::from_code(&code).is_none() {
+            unsupported.borrow_mut().push(found);
+        }
+
+        Some(code)
+    };
     let sources: [&dyn Fn() -> Option<String>; 4] = [
         &|| env::var("SDW_LANG").ok(),
-        &|| read_language_file(user_file),
-        &|| installed_file.and_then(read_language_file),
+        &|| read(user_file),
+        &|| installed_file.and_then(read),
         &sys_locale::get_locale,
     ];
     let language = choose(sources.iter().map(|source| source()));
     let _ = ACTIVE.set(language.strings());
+
+    let codes = Language::ALL.map(Language::code).join(", ");
+
+    for path in unsupported.into_inner() {
+        report::warn(&fill(
+            t().app.unsupported_language,
+            &[("path", &path.display()), ("codes", &codes)],
+        ));
+    }
 }
 
-fn read_language_file(path: &Path) -> Option<String> {
+fn read_language_file(path: &Path) -> Option<(PathBuf, String)> {
     [path.to_path_buf(), path.with_extension("txt")]
-        .iter()
+        .into_iter()
         .find_map(|path| {
-            let bytes = fs::read(path).ok()?;
-            let text = decode(&bytes);
+            let bytes = fs::read(&path).ok()?;
 
-            if text.as_deref().and_then(Language::from_code).is_none() {
-                eprintln!(
-                    "{}: not a supported language code, expected one of {:?}",
-                    path.display(),
-                    Language::ALL.map(Language::code)
-                );
-            }
-
-            text
+            Some((path, decode(&bytes).unwrap_or_default()))
         })
 }
 
@@ -376,10 +388,10 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("language.txt"), "id").unwrap();
 
-        let text = read_language_file(&dir.join("language"));
+        let found = read_language_file(&dir.join("language"));
         fs::remove_dir_all(&dir).unwrap();
 
-        assert_eq!(text.as_deref(), Some("id"));
+        assert_eq!(found, Some((dir.join("language.txt"), "id".to_owned())));
     }
 
     #[test]

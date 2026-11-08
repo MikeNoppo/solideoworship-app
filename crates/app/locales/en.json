@@ -23,7 +23,9 @@
     "no_screen_selected": "No screen selected.",
     "job_stopped": "The background job stopped without a result.",
     "job_panicked": "An internal error occurred while accessing the library.",
-    "recovery_unreadable": "The recovered schedule could not be read and was discarded: {error}"
+    "recovery_unreadable": "The recovered schedule could not be read and was discarded: {error}",
+    "fatal_error": "SolideoWorship stopped because of an error.\n\n{error}",
+    "unsupported_language": "{path} does not contain a supported language code. Expected one of: {codes}."
   },
   "toolbar": {
     "new": "New",

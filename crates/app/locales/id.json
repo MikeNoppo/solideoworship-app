@@ -23,7 +23,9 @@
     "no_screen_selected": "Tidak ada layar yang dipilih.",
     "job_stopped": "Pekerjaan latar berhenti tanpa hasil.",
     "job_panicked": "Terjadi kesalahan internal saat mengakses library.",
-    "recovery_unreadable": "Susunan acara pemulihan tidak bisa dibaca dan dibuang: {error}"
+    "recovery_unreadable": "Susunan acara pemulihan tidak bisa dibaca dan dibuang: {error}",
+    "fatal_error": "SolideoWorship berhenti karena terjadi kesalahan.\n\n{error}",
+    "unsupported_language": "{path} tidak berisi kode bahasa yang didukung. Kode yang bisa dipakai: {codes}."
   },
   "toolbar": {
     "new": "Baru",
