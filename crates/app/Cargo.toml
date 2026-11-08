@@ -7,4 +7,5 @@ rust-version.workspace = true
 [dependencies]
 iced.workspace = true
 sdw-core.workspace = true
+sdw-library.workspace = true
 display-info = "0.5.9"

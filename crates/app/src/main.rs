@@ -1,6 +1,7 @@
 mod display;
 mod message;
 mod panes;
+mod paths;
 mod render;
 mod sample;
 mod schedule;
@@ -19,6 +20,7 @@ use crate::display::Display;
 use crate::message::{LibraryTab, Message, Step};
 use crate::sample::Sample;
 use crate::schedule::Schedule;
+use crate::work::Store;
 
 // Splash tetap tampil minimal selama ini walau pemuatan selesai lebih cepat, supaya
 // tidak berkedip sekilas lalu hilang. Dihitung sejak jendelanya benar-benar terbuka,
@@ -57,6 +59,10 @@ struct App {
     selected: Option<u32>,
     screens_open: bool,
 
+    store: Store,
+    library_ready: bool,
+    library_error: Option<Box<str>>,
+
     catalogue: Vec<Sample>,
     schedule: Schedule,
     styles: Styles,
@@ -73,13 +79,21 @@ impl App {
     fn boot() -> (Self, Task<Message>) {
         let (id, opened) = window::open(windows::splash());
 
+        let app = Self {
+            splash: Some(id),
+            store: Store::spawn(paths::library_file()),
+            catalogue: sample::catalogue(),
+            ..Self::default()
+        };
+        let library_opened = app.store.run(|_| Ok(()), Message::LibraryOpened);
+
         (
-            Self {
-                splash: Some(id),
-                catalogue: sample::catalogue(),
-                ..Self::default()
-            },
-            Task::batch([opened.map(|_| Message::SplashOpened), load_displays()]),
+            app,
+            Task::batch([
+                opened.map(|_| Message::SplashOpened),
+                load_displays(),
+                library_opened,
+            ]),
         )
     }
 
@@ -109,6 +123,15 @@ impl App {
                 Some(id) => window::close(id),
                 None => Task::none(),
             },
+
+            Message::LibraryOpened(result) => {
+                self.library_ready = true;
+                self.library_error = result.err().map(|error| {
+                    format!("Library lagu tidak bisa dibuka: {error}").into_boxed_str()
+                });
+
+                self.leave_splash()
+            }
 
             Message::DisplaysRequested => load_displays(),
             Message::DisplaysLoaded(Ok(displays)) => {
@@ -267,15 +290,21 @@ impl App {
     }
 
     fn splash_status(&self) -> &'static str {
-        if self.displays_loaded {
-            "Menyiapkan jendela operator…"
-        } else {
+        if !self.displays_loaded {
             "Memeriksa layar yang tersedia…"
+        } else if !self.library_ready {
+            "Membuka library lagu…"
+        } else {
+            "Menyiapkan jendela operator…"
         }
     }
 
     fn leave_splash(&mut self) -> Task<Message> {
-        if self.phase != Phase::Splash || !self.displays_loaded || !self.splash_elapsed {
+        if self.phase != Phase::Splash
+            || !self.displays_loaded
+            || !self.library_ready
+            || !self.splash_elapsed
+        {
             return Task::none();
         }
 

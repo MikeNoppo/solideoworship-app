@@ -61,6 +61,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .align_y(Center)
         .into(),
         column![
+            app.library_error.as_deref().map(|error| {
+                container(text(error).size(12).style(text::danger)).padding([4, 10])
+            }),
             container(
                 text("Klik item untuk menambahkannya ke susunan acara.")
                     .size(11)

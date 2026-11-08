@@ -3,6 +3,7 @@ use sdw_core::slide::ContentKind;
 use sdw_core::{OutputState, Presentation};
 
 use crate::display::Display;
+use crate::work::Outcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -49,6 +50,7 @@ pub enum Message {
     SplashOpened,
     SplashElapsed,
     ControlOpened,
+    LibraryOpened(Outcome<()>),
 
     DisplaysRequested,
     DisplaysLoaded(Result<Vec<Display>, Box<str>>),

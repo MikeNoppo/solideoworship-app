@@ -2594,6 +2594,7 @@ dependencies = [
  "display-info",
  "iced",
  "sdw-core",
+ "sdw-library",
 ]
 
 [[package]]
