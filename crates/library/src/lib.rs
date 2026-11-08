@@ -9,7 +9,7 @@ use std::time::Duration;
 use rusqlite::Connection;
 
 pub use error::{Error, StorageError};
-pub use songs::SongId;
+pub use songs::{SongId, SongSummary};
 
 pub struct Library {
     conn: Connection,
