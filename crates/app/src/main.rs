@@ -90,6 +90,7 @@ struct App {
     song_results_query: Box<str>,
     pick_first_song: bool,
     modal: Option<Modal>,
+    modal_ticket: u64,
     after_save: Option<Pending>,
     bible: BibleTab,
     schedule: Schedule,
@@ -336,13 +337,15 @@ impl App {
                 move |result| Message::SongEditLoaded(id, result),
             ),
             Message::SongEditLoaded(id, result) => match result {
-                Ok(song) => self.open_editor(Some(id), &song),
+                Ok(song) if self.modal.is_none() => self.open_editor(Some(id), &song),
+                Ok(_) => Task::none(),
                 Err(error) => {
                     self.library_error = Some(error);
                     Task::none()
                 }
             },
             Message::Editor(message) => {
+                let ticket = self.modal_ticket;
                 let Some(Modal::Editor(editor)) = &mut self.modal else {
                     return Task::none();
                 };
@@ -362,38 +365,41 @@ impl App {
 
                             Ok((id, song))
                         },
-                        Message::SongSaved,
+                        move |result| Message::SongSaved(ticket, result),
                     ),
                     editor::Action::Delete(id) => self.store.run(
                         move |library| library.delete_song(id),
-                        move |result| Message::SongDeleted(id, result),
+                        move |result| Message::SongDeleted(ticket, id, result),
                     ),
                 }
             }
-            Message::SongSaved(result) => match result {
+            Message::SongSaved(ticket, result) => match result {
                 Ok((id, song)) => {
-                    self.close_editor();
+                    self.close_modal(ticket);
                     self.schedule.replace_song(id, &song, &self.styles);
                     self.search_songs()
                 }
-                Err(error) => self.editor_failed(error),
+                Err(error) => self.editor_failed(ticket, error),
             },
-            Message::SongDeleted(id, result) => match result {
+            Message::SongDeleted(ticket, id, result) => match result {
                 Ok(()) => {
-                    self.close_editor();
+                    self.close_modal(ticket);
                     self.schedule.forget_song(id);
                     self.search_songs()
                 }
-                Err(error) => self.editor_failed(error),
+                Err(error) => self.editor_failed(ticket, error),
             },
             Message::ThemeRequested => {
-                self.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
-                    &self.styles,
-                    self.schedule.selected_item(),
-                ))));
+                if self.modal.is_none() {
+                    self.open_modal(Modal::Theme(Box::new(ThemeDialog::new(
+                        &self.styles,
+                        self.schedule.selected_item(),
+                    ))));
+                }
                 Task::none()
             }
             Message::Theme(message) => {
+                let ticket = self.modal_ticket;
                 let Some(Modal::Theme(dialog)) = &mut self.modal else {
                     return Task::none();
                 };
@@ -406,20 +412,18 @@ impl App {
                     }
                     theme_dialog::Action::Save(styles) => self.store.run(
                         move |library| library.save_styles(&styles).map(|()| styles),
-                        Message::StylesSaved,
+                        move |result| Message::StylesSaved(ticket, result),
                     ),
                 }
             }
-            Message::StylesSaved(result) => {
+            Message::StylesSaved(ticket, result) => {
                 match result {
                     Ok(styles) => {
-                        if matches!(self.modal, Some(Modal::Theme(_))) {
-                            self.modal = None;
-                        }
+                        self.close_modal(ticket);
                         self.styles = styles;
                         self.schedule.recompile(&self.styles);
                     }
-                    Err(error) => match &mut self.modal {
+                    Err(error) => match self.modal_for(ticket) {
                         Some(Modal::Theme(dialog)) => dialog.fail(error),
                         _ => self.library_error = Some(error),
                     },
@@ -525,13 +529,14 @@ impl App {
             }
             Message::BibleManagerRequested => {
                 if self.modal.is_none() {
-                    self.modal = Some(Modal::Bibles(Box::new(BibleManager::new(
+                    self.open_modal(Modal::Bibles(Box::new(BibleManager::new(
                         self.bible.bibles().to_vec(),
                     ))));
                 }
                 Task::none()
             }
             Message::BibleManager(message) => {
+                let ticket = self.modal_ticket;
                 let Some(Modal::Bibles(manager)) = &mut self.modal else {
                     return Task::none();
                 };
@@ -556,25 +561,27 @@ impl App {
                                 &abbreviation,
                             )
                         },
-                        Message::BibleImported,
+                        move |result| Message::BibleImported(ticket, result),
                     ),
                     bible_manager::Action::Delete(id) => self.store.run(
                         move |library| library.delete_bible(id),
-                        Message::BibleDeleted,
+                        move |result| Message::BibleDeleted(ticket, result),
                     ),
                 }
             }
-            Message::BibleImported(result) => {
-                match &mut self.modal {
-                    Some(Modal::Bibles(manager)) => manager.imported(result),
-                    _ => self.library_error = result.err(),
+            Message::BibleImported(ticket, result) => {
+                match (self.modal_for(ticket), result) {
+                    (Some(Modal::Bibles(manager)), result) => manager.imported(result),
+                    (_, Err(error)) => self.library_error = Some(error),
+                    (_, Ok(_)) => {}
                 }
                 self.load_bibles()
             }
-            Message::BibleDeleted(result) => {
-                match &mut self.modal {
-                    Some(Modal::Bibles(manager)) => manager.deleted(result),
-                    _ => self.library_error = result.err(),
+            Message::BibleDeleted(ticket, result) => {
+                match (self.modal_for(ticket), result) {
+                    (Some(Modal::Bibles(manager)), result) => manager.deleted(result),
+                    (_, Err(error)) => self.library_error = Some(error),
+                    (_, Ok(())) => {}
                 }
                 self.load_bibles()
             }
@@ -677,7 +684,7 @@ impl App {
         }
 
         if self.schedule.is_dirty() {
-            self.modal = Some(Modal::Unsaved(pending));
+            self.open_modal(Modal::Unsaved(pending));
             return Task::none();
         }
 
@@ -714,7 +721,7 @@ impl App {
     }
 
     fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
-        self.modal = Some(Modal::Editor(Box::new(Editor::new(
+        self.open_modal(Modal::Editor(Box::new(Editor::new(
             origin,
             song,
             self.styles.song.max_lines,
@@ -723,14 +730,25 @@ impl App {
         operation::focus(editor::TITLE_INPUT)
     }
 
-    fn close_editor(&mut self) {
-        if matches!(self.modal, Some(Modal::Editor(_))) {
+    fn open_modal(&mut self, modal: Modal) {
+        self.modal_ticket += 1;
+        self.modal = Some(modal);
+    }
+
+    fn modal_for(&mut self, ticket: u64) -> Option<&mut Modal> {
+        (ticket == self.modal_ticket)
+            .then_some(self.modal.as_mut())
+            .flatten()
+    }
+
+    fn close_modal(&mut self, ticket: u64) {
+        if ticket == self.modal_ticket {
             self.modal = None;
         }
     }
 
-    fn editor_failed(&mut self, error: Box<str>) -> Task<Message> {
-        match &mut self.modal {
+    fn editor_failed(&mut self, ticket: u64, error: Box<str>) -> Task<Message> {
+        match self.modal_for(ticket) {
             Some(Modal::Editor(editor)) => editor.fail(error),
             _ => self.library_error = Some(error),
         }
@@ -935,6 +953,7 @@ mod tests {
     use sdw_library::{Library, SongSummary};
 
     use super::{App, Modal};
+    use crate::editor;
     use crate::message::{Message, Pending, UnsavedChoice};
     use crate::theme_dialog::ThemeDialog;
 
@@ -1125,5 +1144,79 @@ mod tests {
         let _ = app.update(Message::SongsFound("ka".into(), Ok(summaries(&["Kami"]))));
 
         assert!(app.song_results.is_empty());
+    }
+
+    fn library_song() -> (sdw_library::SongId, Song) {
+        let mut library = Library::open_in_memory().unwrap();
+        let song = Song::new("A", "satu", None);
+        let id = library.insert_song(&song).unwrap();
+
+        (id, song)
+    }
+
+    #[test]
+    fn simpan_editor_lama_tidak_menutup_editor_baru() {
+        let (id, song) = library_song();
+        let mut app = App::default();
+        let _ = app.open_editor(Some(id), &song);
+        let old_ticket = app.modal_ticket;
+        let _ = app.update(Message::Editor(editor::Message::Save));
+        let _ = app.update(Message::Editor(editor::Message::Cancel));
+        let _ = app.update(Message::SongCreateRequested);
+
+        let _ = app.update(Message::SongSaved(old_ticket, Ok((id, song))));
+
+        assert!(matches!(app.modal, Some(Modal::Editor(_))));
+    }
+
+    #[test]
+    fn simpan_editor_menutup_editor_yang_memintanya() {
+        let (id, song) = library_song();
+        let mut app = App::default();
+        let _ = app.open_editor(Some(id), &song);
+        let ticket = app.modal_ticket;
+
+        let _ = app.update(Message::SongSaved(ticket, Ok((id, song))));
+
+        assert!(app.modal.is_none());
+    }
+
+    #[test]
+    fn lagu_yang_selesai_dimuat_tidak_mengganti_dialog_lain() {
+        let (id, song) = library_song();
+        let mut app = App::default();
+        let _ = app.update(Message::ThemeRequested);
+
+        let _ = app.update(Message::SongEditLoaded(id, Ok(song)));
+
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
+    }
+
+    #[test]
+    fn simpan_tema_lama_tidak_menutup_dialog_tema_baru_tapi_tetap_diterapkan() {
+        let mut app = App::default();
+        let _ = app.update(Message::ThemeRequested);
+        let old_ticket = app.modal_ticket;
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::Cancel));
+        let _ = app.update(Message::ThemeRequested);
+        let mut styles = app.styles.clone();
+        styles.song.max_lines = 7;
+
+        let _ = app.update(Message::StylesSaved(old_ticket, Ok(styles)));
+
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
+        assert_eq!(app.styles.song.max_lines, 7);
+    }
+
+    #[test]
+    fn gagal_simpan_editor_lama_dilaporkan_di_library() {
+        let mut app = App::default();
+        let _ = app.update(Message::ThemeRequested);
+        let ticket = app.modal_ticket;
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::Cancel));
+
+        let _ = app.update(Message::SongSaved(ticket, Err("rusak".into())));
+
+        assert_eq!(app.library_error.as_deref(), Some("rusak"));
     }
 }
