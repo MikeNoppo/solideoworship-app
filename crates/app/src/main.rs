@@ -2,20 +2,24 @@
 
 mod bible_manager;
 mod bible_tab;
+mod captions;
 mod display;
 mod editor;
 mod files;
 mod i18n;
+mod icon;
 mod logo;
 mod message;
 mod panes;
 mod paths;
+mod popover;
 mod recovery;
 mod render;
 mod report;
 mod schedule;
 mod style;
 mod theme_dialog;
+mod ui;
 mod windows;
 mod work;
 
@@ -34,11 +38,12 @@ use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::bible_manager::BibleManager;
 use crate::bible_tab::BibleTab;
+use crate::captions::Captions;
 use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::SaveTarget;
 use crate::i18n::{fill, t};
-use crate::message::{LibraryTab, Message, Pending, Step, UnsavedChoice};
+use crate::message::{LibraryTab, Menu, Message, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
 use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
@@ -63,7 +68,13 @@ fn main() -> ExitCode {
     );
 
     report::run(|| {
-        iced::daemon(App::boot, App::update, App::view)
+        style::FONTS
+            .into_iter()
+            .fold(
+                iced::daemon(App::boot, App::update, App::view),
+                |daemon, font| daemon.font(font),
+            )
+            .default_font(style::INTER)
             .title(App::title)
             .theme(App::theme)
             .subscription(App::subscription)
@@ -76,6 +87,14 @@ enum Phase {
     #[default]
     Splash,
     Operator,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Notice {
+    Recovered,
+    Library,
+    Screens,
+    Failure(Box<str>),
 }
 
 enum Modal {
@@ -91,6 +110,7 @@ struct App {
     splash: Option<window::Id>,
     splash_ready: bool,
     control: Option<window::Id>,
+    control_width: f32,
     output: Option<window::Id>,
     output_display: Option<u32>,
     reopen_output: bool,
@@ -99,7 +119,9 @@ struct App {
     displays_loaded: bool,
     splash_elapsed: bool,
     selected: Option<u32>,
-    screens_open: bool,
+    screens_error: Option<Box<str>>,
+    menu: Option<Menu>,
+    notices: Vec<Notice>,
 
     store: Store,
     recovery: Recovery,
@@ -107,6 +129,7 @@ struct App {
     library_unavailable: Option<Box<str>>,
     library_error: Option<Box<str>>,
 
+    song_count: Option<usize>,
     song_results: Vec<SongSummary>,
     song_results_query: Box<str>,
     songs_truncated: bool,
@@ -119,11 +142,12 @@ struct App {
     styles: Styles,
     live: Option<Presentation>,
     live_theme: SlideTheme,
+    live_sections: Vec<Box<str>>,
 
     output_state: OutputState,
     library_tab: LibraryTab,
     search: String,
-    status: Option<Box<str>>,
+    captions: Captions,
 }
 
 impl App {
@@ -168,12 +192,17 @@ impl App {
     }
 
     fn theme(&self, _window: window::Id) -> Theme {
-        Theme::Dark
+        style::THEME.clone()
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         let task = self.handle(message);
         self.sync_recovery();
+
+        let mut captions = std::mem::take(&mut self.captions);
+        captions.refresh(self);
+        self.captions = captions;
+
         task
     }
 
@@ -199,13 +228,11 @@ impl App {
                     Ok(styles) => {
                         self.styles = styles;
                         self.schedule.recompile(&self.styles);
-                        Task::batch([self.search_songs(), self.load_bibles()])
+                        Task::batch([self.search_songs(), self.count_songs(), self.load_bibles()])
                     }
                     Err(error) => {
-                        self.library_unavailable = Some(
-                            fill(t().app.library_unavailable, &[("error", &error)])
-                                .into_boxed_str(),
-                        );
+                        self.library_unavailable = Some(sentence(t().notice.library_body, &error));
+                        self.notify(Notice::Library);
                         Task::none()
                     }
                 };
@@ -217,18 +244,25 @@ impl App {
                 match result {
                     Ok(Some(items)) if self.schedule.is_empty() => {
                         self.schedule.restore(items, &self.styles);
+                        self.schedule.select(0);
+                        self.notify(Notice::Recovered);
                     }
                     Ok(_) => {}
-                    Err(error) => self.status = Some(error),
+                    Err(error) => self.notify(Notice::Failure(error)),
                 }
 
                 self.recovery.activate();
                 Task::none()
             }
 
-            Message::DisplaysRequested => load_displays(),
+            Message::DisplaysRequested => {
+                self.menu = None;
+                load_displays()
+            }
             Message::DisplaysLoaded(Ok(displays)) => {
                 self.displays_loaded = true;
+                self.screens_error = None;
+                self.notices.retain(|notice| *notice != Notice::Screens);
                 let task = self.apply_displays(displays);
 
                 Task::batch([task, self.leave_splash()])
@@ -237,14 +271,27 @@ impl App {
                 self.displays_loaded = true;
                 self.displays.clear();
                 self.selected = None;
-                self.status =
-                    Some(fill(t().app.screens_failed, &[("error", &error)]).into_boxed_str());
+                self.screens_error = Some(sentence(t().notice.screens_body, &error));
+                self.notify(Notice::Screens);
 
                 self.leave_splash()
             }
-            Message::DisplaySelected(id) => self.select_display(id),
-            Message::ScreensToggled => {
-                self.screens_open = !self.screens_open;
+            Message::DisplaySelected(id) => {
+                self.menu = None;
+                self.select_display(id)
+            }
+            Message::MenuToggled(menu) => {
+                self.menu = (self.menu != Some(menu)).then_some(menu);
+                Task::none()
+            }
+            Message::MenuDismissed => {
+                self.menu = None;
+                Task::none()
+            }
+            Message::NoticeDismissed(index) => {
+                if index < self.notices.len() {
+                    self.notices.remove(index);
+                }
                 Task::none()
             }
 
@@ -274,24 +321,26 @@ impl App {
             }
             Message::WindowCloseRequested(id) => window::close(id),
             Message::WindowClosed(id) => self.window_closed(id),
+            Message::WindowResized(id, size) => {
+                if self.control == Some(id) {
+                    self.control_width = size.width;
+                }
+                Task::none()
+            }
 
             Message::ScheduleSelected(index) => {
                 self.schedule.select(index);
                 Task::none()
             }
-            Message::ScheduleRemoved(index) => {
-                self.schedule.remove(index);
+            Message::SelectedRemoved => {
+                if let Some(index) = self.schedule.selected() {
+                    self.schedule.remove(index);
+                }
                 Task::none()
             }
             Message::PreviewSlideSelected(index) => {
                 if let Some(preview) = self.schedule.preview_mut() {
                     let _ = preview.go_to(index);
-                }
-                Task::none()
-            }
-            Message::PreviewMoved(step) => {
-                if let Some(preview) = self.schedule.preview_mut() {
-                    let _ = step.apply(preview);
                 }
                 Task::none()
             }
@@ -317,6 +366,18 @@ impl App {
                     }
 
                     self.live_theme = self.styles.theme(preview.deck().kind).clone();
+                    self.live_sections = preview
+                        .slides()
+                        .iter()
+                        .map(|slide| {
+                            slide
+                                .label
+                                .as_deref()
+                                .unwrap_or(t().slides.fallback_label)
+                                .to_uppercase()
+                                .into_boxed_str()
+                        })
+                        .collect();
                     self.live = live;
                 }
                 Task::none()
@@ -341,6 +402,17 @@ impl App {
                 }
 
                 self.pick_first_song = true;
+                Task::none()
+            }
+            Message::SearchFocused => {
+                self.library_tab = LibraryTab::Songs;
+                operation::focus(panes::library::SEARCH)
+            }
+            Message::SongsCounted(result) => {
+                match result {
+                    Ok(count) => self.song_count = Some(count),
+                    Err(error) => self.library_error = Some(error),
+                }
                 Task::none()
             }
             Message::SongsFound(query, result) => {
@@ -430,7 +502,7 @@ impl App {
                 Ok((id, song)) => {
                     self.close_modal(ticket);
                     self.schedule.replace_song(id, &song, &self.styles);
-                    self.search_songs()
+                    Task::batch([self.search_songs(), self.count_songs()])
                 }
                 Err(error) => self.editor_failed(ticket, error),
             },
@@ -438,7 +510,7 @@ impl App {
                 Ok(()) => {
                     self.close_modal(ticket);
                     self.schedule.forget_song(id);
-                    self.search_songs()
+                    Task::batch([self.search_songs(), self.count_songs()])
                 }
                 Err(error) => self.editor_failed(ticket, error),
             },
@@ -490,8 +562,14 @@ impl App {
                 Some(Modal::Bibles(_)) => Task::none(),
                 None => self.update(Message::ScheduleSaveRequested),
             },
-            Message::ScheduleNewRequested => self.guard(Pending::New),
-            Message::ScheduleOpenRequested => self.guard(Pending::Open),
+            Message::ScheduleNewRequested => {
+                self.menu = None;
+                self.guard(Pending::New)
+            }
+            Message::ScheduleOpenRequested => {
+                self.menu = None;
+                self.guard(Pending::Open)
+            }
             Message::Unsaved(choice) => {
                 let Some(Modal::Unsaved(pending)) = self.modal else {
                     return Task::none();
@@ -524,15 +602,22 @@ impl App {
             },
             Message::ScheduleOpened(result) => {
                 match result {
-                    Ok((path, items)) => self.schedule.load(path, items, &self.styles),
-                    Err(error) => self.status = Some(error),
+                    Ok((path, items)) => {
+                        self.schedule.load(path, items, &self.styles);
+                        self.notices.retain(|notice| *notice != Notice::Recovered);
+                    }
+                    Err(error) => self.notify(Notice::Failure(error)),
                 }
                 Task::none()
             }
-            Message::ScheduleSaveRequested => match self.schedule.path() {
-                Some(path) => self.write_schedule(SaveTarget::existing(path.to_path_buf())),
-                None => self.update(Message::ScheduleSaveAsRequested),
-            },
+            Message::ScheduleSaveRequested => {
+                self.menu = None;
+
+                match self.schedule.path() {
+                    Some(path) => self.write_schedule(SaveTarget::existing(path.to_path_buf())),
+                    None => self.update(Message::ScheduleSaveAsRequested),
+                }
+            }
             Message::ScheduleSaveAsRequested => match self.control {
                 Some(control) => files::choose_schedule_path(control, self.schedule.path())
                     .map(Message::ScheduleSavePathChosen),
@@ -551,6 +636,7 @@ impl App {
                 match result {
                     Ok(path) => {
                         self.schedule.mark_saved(path, revision);
+                        self.notices.retain(|notice| *notice != Notice::Recovered);
 
                         match pending {
                             Some(pending) if !self.schedule.is_dirty() => self.proceed(pending),
@@ -558,7 +644,7 @@ impl App {
                         }
                     }
                     Err(error) => {
-                        self.status = Some(error);
+                        self.notify(Notice::Failure(error));
                         Task::none()
                     }
                 }
@@ -656,7 +742,8 @@ impl App {
         }
 
         if self.splash == Some(window) {
-            return panes::splash::view(self.splash_status());
+            let (status, step) = self.splash_status();
+            return panes::splash::view(status, step);
         }
 
         panes::control::view(self)
@@ -668,6 +755,7 @@ impl App {
             // button does nothing without this subscription.
             window::close_requests().map(Message::WindowCloseRequested),
             window::close_events().map(Message::WindowClosed),
+            window::resize_events().map(|(id, size)| Message::WindowResized(id, size)),
         ];
 
         match self.phase {
@@ -707,13 +795,13 @@ impl App {
         Subscription::batch(subscriptions)
     }
 
-    fn splash_status(&self) -> &'static str {
+    fn splash_status(&self) -> (&'static str, usize) {
         if !self.displays_loaded {
-            t().app.checking_screens
+            (t().app.checking_screens, 0)
         } else if !self.library_ready {
-            t().app.opening_library
+            (t().app.opening_library, 1)
         } else {
-            t().app.preparing_window
+            (t().app.preparing_window, 2)
         }
     }
 
@@ -730,10 +818,22 @@ impl App {
 
         let (id, opened) = window::open(windows::control());
         self.control = Some(id);
+        self.control_width = windows::CONTROL_SIZE.width;
 
         // The splash closes only after the control window has actually opened, so there
         // is never a gap with no window at all.
         opened.discard().chain(Task::done(Message::ControlOpened))
+    }
+
+    fn notify(&mut self, notice: Notice) {
+        if !self.notices.contains(&notice) {
+            self.notices.push(notice);
+        }
+    }
+
+    fn count_songs(&self) -> Task<Message> {
+        self.store
+            .run(|library| library.song_count(), Message::SongsCounted)
     }
 
     fn sync_recovery(&mut self) {
@@ -759,6 +859,7 @@ impl App {
         match pending {
             Pending::New => {
                 self.schedule.clear();
+                self.notices.retain(|notice| *notice != Notice::Recovered);
                 Task::none()
             }
             Pending::Open => match self.control {
@@ -898,11 +999,10 @@ impl App {
 
         if output_display_lost {
             self.reopen_output = false;
-            self.status = Some(t().app.output_disconnected.into());
+            self.notify(Notice::Failure(t().app.output_disconnected.into()));
             return self.close_output();
         }
 
-        self.status = None;
         Task::none()
     }
 
@@ -936,7 +1036,7 @@ impl App {
         }
 
         let Some(display) = self.selected_display() else {
-            self.status = Some(t().app.no_screen_selected.into());
+            self.notify(Notice::Failure(t().app.no_screen_selected.into()));
             return Task::none();
         };
 
@@ -945,7 +1045,6 @@ impl App {
 
         self.output = Some(id);
         self.output_display = Some(display_id);
-        self.status = None;
 
         opened.map(Message::OutputOpened)
     }
@@ -989,6 +1088,10 @@ fn load_displays() -> Task<Message> {
     work::background(display::all).map(Message::DisplaysLoaded)
 }
 
+fn sentence(template: &str, error: &str) -> Box<str> {
+    fill(template, &[("error", &error.trim_end_matches('.'))]).into_boxed_str()
+}
+
 fn save_shortcut(key: keyboard::Key) -> Option<Message> {
     match key.as_ref() {
         keyboard::Key::Character("s") => Some(Message::SaveShortcut),
@@ -1016,6 +1119,8 @@ fn shortcut(key: keyboard::Key) -> Option<Message> {
         keyboard::Key::Character("c") => Some(Message::OutputStateToggled(OutputState::Clear)),
         keyboard::Key::Named(Named::F5) => Some(Message::OutputRequested),
         keyboard::Key::Named(Named::Escape) => Some(Message::OutputDismissed),
+        keyboard::Key::Named(Named::Delete) => Some(Message::SelectedRemoved),
+        keyboard::Key::Character("/") => Some(Message::SearchFocused),
         _ => None,
     }
 }
@@ -1029,7 +1134,7 @@ mod tests {
 
     use sdw_library::{Library, SongSummary};
 
-    use super::{App, Modal};
+    use super::{App, Modal, Notice};
     use crate::editor;
     use crate::message::{Message, Pending, UnsavedChoice};
     use crate::theme_dialog::ThemeDialog;
@@ -1118,7 +1223,7 @@ mod tests {
 
         assert!(!app.schedule.is_empty());
         assert!(app.after_save.is_none());
-        assert!(app.status.is_some());
+        assert_eq!(app.notices, [Notice::Failure("broken".into())]);
     }
 
     #[test]
@@ -1333,8 +1438,11 @@ mod tests {
 
         assert_eq!(
             app.library_unavailable.as_deref(),
-            Some("The library could not be opened: disk full")
+            Some(
+                "disk full. Songs, Bibles and saved themes are unavailable; schedules still work."
+            )
         );
+        assert_eq!(app.notices, [Notice::Library]);
     }
 
     fn numbered_summaries(count: usize) -> Vec<SongSummary> {

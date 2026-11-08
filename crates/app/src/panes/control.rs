@@ -1,37 +1,73 @@
 use iced::widget::{center, column, container, opaque, row, stack};
-use iced::{Element, Fill, FillPortion};
+use iced::{Center, Element, Fill, FillPortion, Padding};
 
+use crate::i18n::t;
 use crate::message::Message;
-use crate::panes::{banner, library, live, preview, schedule, toolbar, unsaved};
-use crate::style;
-use crate::{App, Modal};
+use crate::panes::{library, live, preview, schedule, toolbar, unsaved, welcome};
+use crate::style::{self, Tone};
+use crate::ui::{self, action, label};
+use crate::{App, Modal, Notice, icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    let stage = row![
-        container(schedule::view(app)).width(FillPortion(22)),
-        container(preview::view(app)).width(FillPortion(39)),
-        container(live::view(app)).width(FillPortion(39)),
+    let top: Element<'_, Message> = match app.schedule.preview() {
+        Some(presentation) => container(preview::view(app, presentation))
+            .padding(Padding {
+                top: 16.0,
+                right: preview::PADDING,
+                bottom: 20.0,
+                left: preview::PADDING,
+            })
+            .height(FillPortion(11))
+            .into(),
+        None => container(welcome::view(app))
+            .padding(Padding {
+                top: 16.0,
+                right: 20.0,
+                bottom: 20.0,
+                left: 20.0,
+            })
+            .into(),
+    };
+
+    let library_height = if app.schedule.preview().is_some() {
+        FillPortion(9)
+    } else {
+        Fill
+    };
+
+    let middle = column![
+        top,
+        ui::hrule(style::BORDER),
+        container(library::view(app))
+            .padding(Padding {
+                top: 14.0,
+                right: 20.0,
+                bottom: 12.0,
+                left: 20.0,
+            })
+            .height(library_height),
     ]
-    .spacing(8)
-    .height(FillPortion(63));
+    .width(Fill);
 
-    let mut layout = column![toolbar::view(app)].spacing(0);
+    let body = row![
+        schedule::view(app),
+        ui::line(style::BORDER),
+        middle,
+        ui::line(style::BORDER),
+        live::view(app),
+    ]
+    .height(Fill);
 
-    if app.screens_open {
-        layout = layout.push(toolbar::screens(app));
-    }
+    let layout = column![toolbar::view(app), ui::hrule(style::BORDER)]
+        .extend(notices(app))
+        .push(body)
+        .push(ui::hrule(style::BORDER))
+        .push(status_bar(app));
 
-    if let Some(status) = &app.status {
-        layout = layout.push(banner(status));
-    }
-
-    layout = layout.push(
-        container(column![stage, container(library::view(app)).height(FillPortion(37))].spacing(8))
-            .padding(8)
-            .height(Fill),
-    );
-
-    let base = container(layout).width(Fill).height(Fill);
+    let base = container(layout)
+        .width(Fill)
+        .height(Fill)
+        .style(style::fill(style::BG));
 
     let dialog = match &app.modal {
         Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
@@ -45,5 +81,121 @@ pub fn view(app: &App) -> Element<'_, Message> {
         base,
         opaque(center(dialog).padding(32).style(style::backdrop)),
     ]
+    .into()
+}
+
+fn notices(app: &App) -> Vec<Element<'_, Message>> {
+    let library_error = app.library_error.as_deref().map(|error| {
+        ui::banner(
+            icon::CIRCLE_ALERT,
+            error,
+            None,
+            None,
+            Some(Message::LibraryErrorDismissed),
+        )
+    });
+
+    app.notices
+        .iter()
+        .enumerate()
+        .map(|(index, notice)| {
+            let dismiss = Some(Message::NoticeDismissed(index));
+
+            match notice {
+                Notice::Recovered => ui::banner(
+                    icon::HISTORY,
+                    t().notice.recovered_title,
+                    Some(t().notice.recovered_body),
+                    Some(
+                        action(
+                            Tone::Secondary,
+                            Some(icon::SAVE),
+                            t().toolbar.save_as,
+                            None,
+                            Some(Message::ScheduleSaveAsRequested),
+                        )
+                        .height(28)
+                        .into(),
+                    ),
+                    dismiss,
+                ),
+                Notice::Library => ui::banner(
+                    icon::DATABASE,
+                    t().notice.library_title,
+                    app.library_unavailable.as_deref(),
+                    None,
+                    dismiss,
+                ),
+                Notice::Screens => ui::banner(
+                    icon::MONITOR_X,
+                    t().notice.screens_title,
+                    app.screens_error.as_deref(),
+                    Some(
+                        action(
+                            Tone::Secondary,
+                            Some(icon::REFRESH_CW),
+                            t().toolbar.reload,
+                            None,
+                            Some(Message::DisplaysRequested),
+                        )
+                        .height(28)
+                        .into(),
+                    ),
+                    dismiss,
+                ),
+                Notice::Failure(message) => {
+                    ui::banner(icon::CIRCLE_ALERT, message, None, None, dismiss)
+                }
+            }
+        })
+        .chain(library_error)
+        .collect()
+}
+
+fn status_bar(app: &App) -> Element<'_, Message> {
+    let hints = [
+        ("/", t().status.search),
+        ("↵", t().toolbar.go_live),
+        ("← →", t().status.slides),
+        ("B", t().toolbar.black),
+        ("C", t().toolbar.clear),
+    ]
+    .into_iter()
+    .fold(row![].spacing(18), |list, (key, caption)| {
+        list.push(
+            row![
+                ui::kbd(key, 18.0, 10.0, true),
+                label(caption, 12.0, style::INTER, style::TEXT_3),
+            ]
+            .spacing(6)
+            .align_y(Center),
+        )
+    });
+
+    container(
+        row![
+            row![
+                ui::dot(
+                    6.0,
+                    if app.captions.on_air {
+                        style::LIVE
+                    } else {
+                        style::TEXT_3
+                    }
+                ),
+                label(&app.captions.status, 12.0, style::INTER, style::TEXT_2),
+            ]
+            .spacing(8)
+            .align_y(Center)
+            .width(Fill),
+            hints,
+        ]
+        .spacing(18)
+        .align_y(Center),
+    )
+    .height(30)
+    .padding([0, 16])
+    .center_y(30)
+    .width(Fill)
     .into()
 }

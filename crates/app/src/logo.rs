@@ -1,7 +1,6 @@
-use iced::font::Weight;
 use iced::widget::{Column, Space, container, row, text};
 use iced::window::icon::{self, Icon};
-use iced::{Center, Color, Element, Font};
+use iced::{Center, Color, Element};
 
 use crate::style;
 
@@ -10,12 +9,6 @@ pub struct Cut {
     row: f32,
     gap: f32,
 }
-
-pub const FULL: Cut = Cut {
-    rows: &[46.0, 46.0, 138.0, 138.0, 46.0, 46.0, 46.0, 46.0],
-    row: 18.0,
-    gap: 9.0,
-};
 
 pub const SMALL: Cut = Cut {
     rows: &[64.0, 144.0, 64.0, 64.0, 64.0],
@@ -46,14 +39,15 @@ pub fn mark<'a, Message: 'a>(cut: &Cut, height: f32) -> Element<'a, Message> {
 }
 
 pub fn wordmark<'a, Message: 'a>(size: f32) -> Element<'a, Message> {
-    let bold = Font {
-        weight: Weight::Bold,
-        ..Font::DEFAULT
-    };
-
     row![
-        text("Solideo").size(size).font(bold),
-        text("Worship").size(size)
+        text("Solideo")
+            .size(size)
+            .font(style::BOLD)
+            .color(style::TEXT),
+        text("Worship")
+            .size(size)
+            .font(style::INTER)
+            .color(style::TEXT_2),
     ]
     .into()
 }
@@ -118,13 +112,7 @@ mod tests {
 
     #[test]
     fn cuts_match_the_svg_masters() {
-        let masters = [
-            (
-                include_str!("../../../assets/logo/symbol-on-dark.svg"),
-                &FULL,
-            ),
-            (include_str!("../../../assets/logo/app-icon-32.svg"), &SMALL),
-        ];
+        let masters = [(include_str!("../../../assets/logo/app-icon-32.svg"), &SMALL)];
 
         for (svg, cut) in masters {
             let rects = mark_rects(svg);

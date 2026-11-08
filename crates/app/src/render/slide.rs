@@ -34,7 +34,7 @@ where
     responsive(move |size| {
         let width = size.width.min(size.height * CANVAS_RATIO);
 
-        center(canvas(slide, theme, visibility, width)).into()
+        center(canvas(slide, theme, visibility, width, 0.0)).into()
     })
     .into()
 }
@@ -43,11 +43,12 @@ pub fn thumbnail<'a, Message>(
     slide: &'a Slide,
     theme: &'a SlideTheme,
     width: f32,
+    radius: f32,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    canvas(Some(slide), theme, Visibility::FULL, width)
+    canvas(Some(slide), theme, Visibility::FULL, width, radius)
 }
 
 fn canvas<'a, Message>(
@@ -55,6 +56,7 @@ fn canvas<'a, Message>(
     theme: &'a SlideTheme,
     visibility: Visibility,
     width: f32,
+    radius: f32,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -100,6 +102,10 @@ where
         .height(height)
         .style(move |_theme| container::Style {
             background: Some(background.into()),
+            border: iced::Border {
+                radius: radius.into(),
+                ..iced::Border::default()
+            },
             ..container::Style::default()
         })
         .into()

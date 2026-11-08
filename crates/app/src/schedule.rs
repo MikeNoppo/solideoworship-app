@@ -4,17 +4,41 @@ use std::sync::Arc;
 use sdw_core::{Presentation, ScheduleItem, SlideDeck, Song, Styles};
 use sdw_library::SongId;
 
+use crate::i18n::{Label, fill, plural, t};
+
 pub struct Entry {
     item: ScheduleItem,
     origin: Option<SongId>,
     deck: Arc<SlideDeck>,
+    meta: Box<str>,
 }
 
 impl Entry {
     fn new(item: ScheduleItem, origin: Option<SongId>, styles: &Styles) -> Self {
-        let deck = Arc::new(item.compile(styles));
+        let (deck, meta) = compile(&item, styles);
 
-        Self { item, origin, deck }
+        Self {
+            item,
+            origin,
+            deck,
+            meta,
+        }
+    }
+
+    fn compile(&mut self, styles: &Styles) {
+        (self.deck, self.meta) = compile(&self.item, styles);
+    }
+
+    pub fn origin(&self) -> Option<SongId> {
+        self.origin
+    }
+
+    pub fn meta(&self) -> &str {
+        &self.meta
+    }
+
+    pub fn is_shown_by(&self, presentation: &Presentation) -> bool {
+        presentation.shares(&self.deck)
     }
 
     pub fn item(&self) -> &ScheduleItem {
@@ -24,6 +48,28 @@ impl Entry {
     pub fn deck(&self) -> &SlideDeck {
         &self.deck
     }
+}
+
+fn compile(item: &ScheduleItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>) {
+    let deck = item.compile(styles);
+    let count = deck.len();
+    let slides = fill(
+        plural(count as u64, t().slides.count_one, t().slides.count_other),
+        &[("count", &count)],
+    );
+
+    let meta = match item {
+        ScheduleItem::Song(_) => format!("{} · {slides}", deck.kind.label()),
+        ScheduleItem::Passage(passage) => {
+            format!(
+                "{} · {} · {slides}",
+                deck.kind.label(),
+                passage.translation()
+            )
+        }
+    };
+
+    (Arc::new(deck), meta.into_boxed_str())
 }
 
 #[derive(Default)]
@@ -160,10 +206,14 @@ impl Schedule {
 
     pub fn recompile(&mut self, styles: &Styles) {
         for entry in &mut self.entries {
-            entry.deck = Arc::new(entry.item.compile(styles));
+            entry.compile(styles);
         }
 
         self.refresh_preview();
+    }
+
+    pub fn contains_song(&self, id: SongId) -> bool {
+        self.entries.iter().any(|entry| entry.origin == Some(id))
     }
 
     pub fn forget_song(&mut self, id: SongId) {

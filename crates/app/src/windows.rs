@@ -18,9 +18,11 @@ pub fn splash() -> Settings {
     }
 }
 
+pub const CONTROL_SIZE: Size = Size::new(1480.0, 920.0);
+
 pub fn control() -> Settings {
     Settings {
-        size: Size::new(1480.0, 920.0),
+        size: CONTROL_SIZE,
         min_size: Some(Size::new(1120.0, 720.0)),
         position: Position::Centered,
         ..base()

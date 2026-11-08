@@ -5,7 +5,10 @@ use crate::i18n::t;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Display {
     pub id: u32,
-    pub label: Box<str>,
+    pub name: Box<str>,
+    pub title: Box<str>,
+    pub resolution: Box<str>,
+    pub detail: Box<str>,
     pub origin: Point,
     pub size: Size,
     pub is_primary: bool,
@@ -24,22 +27,28 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
                 info.friendly_name
             };
 
+            let toolbar = &t().toolbar;
+            let (kind, note) = if info.is_builtin {
+                (toolbar.builtin, toolbar.builtin_note)
+            } else {
+                (toolbar.external, toolbar.external_note)
+            };
+            // WHY: the resolution uses the raw info.width/height, not the size already
+            // divided by the scale factor. The operator matches screens by the
+            // resolution shown in the system settings, which on Windows is physical pixels.
+            let resolution = format!("{}×{}", info.width, info.height);
+
             Display {
                 id: info.id,
-                // WHY: the label uses the raw info.width/height, not the size already
-                // divided by the scale factor. The operator matches screens by the
-                // resolution shown in the system settings, which on Windows is physical pixels.
-                label: if info.is_primary {
-                    format!(
-                        "{name} — {}×{} {}",
-                        info.width,
-                        info.height,
-                        t().toolbar.primary_screen
-                    )
+                title: format!("{name} ({note})").into_boxed_str(),
+                detail: if info.is_primary {
+                    format!("{resolution} · {kind}, {}", toolbar.primary)
                 } else {
-                    format!("{name} — {}×{}", info.width, info.height)
+                    format!("{resolution} · {kind}")
                 }
                 .into_boxed_str(),
+                resolution: resolution.into_boxed_str(),
+                name: name.into_boxed_str(),
                 origin: Point::new(info.x as f32 / divisor, info.y as f32 / divisor),
                 size: Size::new(info.width as f32 / divisor, info.height as f32 / divisor),
                 is_primary: info.is_primary,
@@ -53,7 +62,7 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
     // (CGDirectDisplayID / HMONITOR) that can change between sessions, so the order
     // — and therefore the default choice — would not be stable.
     displays.sort_by(|a, b| {
-        (a.is_builtin, a.is_primary, &a.label).cmp(&(b.is_builtin, b.is_primary, &b.label))
+        (a.is_builtin, a.is_primary, &a.name).cmp(&(b.is_builtin, b.is_primary, &b.name))
     });
 
     Ok(displays)

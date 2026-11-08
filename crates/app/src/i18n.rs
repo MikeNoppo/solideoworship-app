@@ -425,8 +425,8 @@ mod tests {
     #[test]
     fn translations_keep_english_placeholders() {
         assert_eq!(
-            fill(ID.slides.position, &[("position", &1), ("total", &3)]),
-            "Slide 1 dari 3"
+            fill(ID.status.showing, &[("position", &1), ("title", &"Mzm 23")]),
+            "menampilkan slide 1 dari Mzm 23"
         );
     }
 }

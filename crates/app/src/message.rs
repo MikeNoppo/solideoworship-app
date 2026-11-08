@@ -38,6 +38,12 @@ impl LibraryTab {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Menu {
+    Schedule,
+    Screens,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pending {
     New,
     Open,
@@ -62,7 +68,9 @@ pub enum Message {
     DisplaysRequested,
     DisplaysLoaded(Result<Vec<Display>, Box<str>>),
     DisplaySelected(u32),
-    ScreensToggled,
+    MenuToggled(Menu),
+    MenuDismissed,
+    NoticeDismissed(usize),
 
     OutputRequested,
     OutputOpened(window::Id),
@@ -72,11 +80,11 @@ pub enum Message {
 
     WindowCloseRequested(window::Id),
     WindowClosed(window::Id),
+    WindowResized(window::Id, iced::Size),
 
     ScheduleSelected(usize),
-    ScheduleRemoved(usize),
+    SelectedRemoved,
     PreviewSlideSelected(usize),
-    PreviewMoved(Step),
     LiveSlideSelected(usize),
     LiveMoved(Step),
     GoLive,
@@ -84,6 +92,8 @@ pub enum Message {
     LibraryTabSelected(LibraryTab),
     SearchChanged(String),
     SearchSubmitted,
+    SearchFocused,
+    SongsCounted(Outcome<usize>),
     SongsFound(Box<str>, Outcome<Vec<SongSummary>>),
     LibraryErrorDismissed,
     SongPicked(SongId),

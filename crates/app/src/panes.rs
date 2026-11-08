@@ -6,74 +6,52 @@ pub mod schedule;
 pub mod splash;
 pub mod toolbar;
 pub mod unsaved;
+pub mod welcome;
 
 use iced::widget::{button, column, container, grid, row, text};
 use iced::{Center, Element, Fill};
 use sdw_core::slide::Slide;
 use sdw_core::theme::SlideTheme;
 
-use crate::i18n::{fill, t};
+use crate::i18n::t;
 use crate::message::Message;
 use crate::render::slide;
-use crate::style;
+use crate::{style, ui};
 
 const THUMBNAIL_WIDTH: f32 = 146.0;
+const COMPACT_BELOW: f32 = 1360.0;
 
-pub fn pane<'a>(title: Element<'a, Message>, body: Element<'a, Message>) -> Element<'a, Message> {
-    container(
-        column![
-            container(title)
-                .padding([6, 10])
-                .width(Fill)
-                .style(style::panel_header),
-            body,
-        ]
-        .spacing(0),
-    )
-    .width(Fill)
-    .height(Fill)
-    .style(style::panel)
-    .into()
+pub struct Columns {
+    pub schedule: f32,
+    pub live: f32,
 }
 
-// The title is built from two separate fragments so the item name is borrowed as is
-// and no new String is allocated on every redraw.
-pub fn title<'a>(prefix: &'static str, name: Option<&'a str>) -> Element<'a, Message> {
-    match name {
-        Some(name) => row![
-            text(prefix).size(13).style(text::secondary),
-            text(" — ").size(13).style(text::secondary),
-            text(name).size(13),
-        ]
-        .align_y(Center)
-        .into(),
-        None => text(prefix).size(13).style(text::secondary).into(),
+pub fn columns(window_width: f32) -> Columns {
+    if window_width < COMPACT_BELOW {
+        Columns {
+            schedule: 240.0,
+            live: 340.0,
+        }
+    } else {
+        Columns {
+            schedule: 280.0,
+            live: 420.0,
+        }
     }
 }
 
-pub fn transport(
-    position: usize,
-    total: usize,
-    on_previous: Message,
-    on_next: Message,
-) -> Element<'static, Message> {
-    row![
-        text(fill(
-            t().slides.position,
-            &[("position", &position), ("total", &total)],
-        ))
-        .size(12)
-        .style(text::secondary),
-        iced::widget::space::horizontal(),
-        button("‹")
-            .on_press_maybe((position > 1).then_some(on_previous))
-            .style(button::secondary),
-        button("›")
-            .on_press_maybe((position < total).then_some(on_next))
-            .style(button::secondary),
-    ]
-    .spacing(8)
-    .align_y(Center)
+pub fn live_badge<'a>() -> Element<'a, Message> {
+    container(
+        row![
+            ui::dot(6.0, style::LIVE),
+            ui::label(t().slides.live, 10.0, style::BOLD, style::LIVE),
+        ]
+        .spacing(5)
+        .align_y(Center),
+    )
+    .padding([0, 6])
+    .center_y(18)
+    .style(style::rounded(style::LIVE_SOFT, 4.0))
     .into()
 }
 
@@ -87,30 +65,6 @@ pub fn alert<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
     container(text(message).size(13).style(text::danger))
         .padding(12)
         .into()
-}
-
-pub fn banner<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
-    container(text(message).size(12).style(text::danger))
-        .padding([4, 12])
-        .into()
-}
-
-pub fn dismissible_banner<'a, M>(message: &'a str, on_dismiss: M) -> Element<'a, M>
-where
-    M: Clone + 'a,
-{
-    container(
-        row![
-            text(message).size(12).style(text::danger).width(Fill),
-            button(text("×").size(12))
-                .padding([0, 8])
-                .on_press(on_dismiss)
-                .style(button::text),
-        ]
-        .align_y(Center),
-    )
-    .padding([4, 12])
-    .into()
 }
 
 pub fn dialog<'a, M>(content: impl Into<Element<'a, M>>) -> Element<'a, M>
@@ -141,7 +95,7 @@ where
 
         button(
             column![
-                slide::thumbnail(item, theme, THUMBNAIL_WIDTH),
+                slide::thumbnail(item, theme, THUMBNAIL_WIDTH, 0.0),
                 text(item.label.as_deref().unwrap_or(""))
                     .size(11)
                     .style(style::caption(is_selected)),
