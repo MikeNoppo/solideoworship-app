@@ -120,7 +120,7 @@ Variabel lingkungan `SDW_DATA_DIR` mengganti folder itu, berguna untuk mencoba a
 
 ## Build dari source
 
-Butuh [Rust](https://rustup.rs) versi 1.92 atau lebih baru, plus compiler C untuk SQLite yang dibundel: Visual Studio Build Tools di Windows, atau Xcode Command Line Tools (`xcode-select --install`) di macOS.
+Butuh [Rust](https://rustup.rs), plus compiler C untuk SQLite yang dibundel: Visual Studio Build Tools di Windows, atau Xcode Command Line Tools (`xcode-select --install`) di macOS. Versi Rust minimum tercantum di `rust-version` pada `Cargo.toml`. Kalau memakai rustup, versi yang dipakai CI (`rust-toolchain.toml`) terpasang otomatis saat build pertama.
 
 Di Linux, dialog buka/simpan memakai `xdg-desktop-portal`, atau `zenity` bila portal tidak tersedia.
 
@@ -160,7 +160,7 @@ cargo fmt                    # format kode
 
 `cargo clippy` memunculkan peringatan *future-incompatibility* untuk `block v0.1.6`. Peringatan itu berasal dari dependensi macOS milik `display-info`, bukan dari kode proyek ini.
 
-Setiap push ke `main` dan setiap pull request diperiksa CI di Linux, Windows, dan macOS: format, clippy tanpa peringatan, seluruh test, build dengan Rust 1.92, serta lisensi dan celah keamanan dependency lewat [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). Dependency baru wajib memakai lisensi yang cocok dengan GPL-3.0; daftarnya ada di `deny.toml`. Di Linux, build membutuhkan paket `libxcb1-dev` (atau padanannya di distro kamu).
+Setiap push ke `main` dan setiap pull request diperiksa CI. Di Linux, Windows, dan macOS: clippy tanpa peringatan, seluruh test, dan `cargo check` dengan versi Rust minimum. Di Linux saja: format, serta lisensi, sumber, dan celah keamanan dependency lewat [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). Cek celah keamanan tidak memblokir pull request dan juga dijalankan tiap minggu. Dependency baru wajib berasal dari crates.io dan memakai lisensi yang cocok dengan GPL-3.0; daftarnya ada di `deny.toml`. Di Linux, build membutuhkan paket `libxcb1-dev` (atau padanannya di distro kamu).
 
 Kontribusi sangat diterima. Commit memakai format [Conventional Commits](https://www.conventionalcommits.org), dan komentar kode serta teks antarmuka ditulis dalam Bahasa Indonesia.
 
