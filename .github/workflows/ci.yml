@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,6 +38,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --all-targets --locked --profile ci -- -D warnings
       - run: cargo test --workspace --locked --profile ci
 
@@ -57,6 +59,8 @@ jobs:
           rustup toolchain install "$version" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --workspace --all-targets --locked --profile ci
 
   deny:
