@@ -44,6 +44,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\..\target\release\sdw-app.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\assets\fonts\Inter-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Inter.txt"; Flags: ignoreversion
+Source: "..\..\assets\fonts\Lucide-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Lucide.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
