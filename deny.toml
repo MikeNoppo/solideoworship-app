@@ -3,11 +3,13 @@ targets = [
     "x86_64-unknown-linux-gnu",
     "x86_64-pc-windows-msvc",
     "aarch64-apple-darwin",
+    "aarch64-pc-windows-msvc",
     "x86_64-apple-darwin",
 ]
 
 [advisories]
 unmaintained = "workspace"
+yanked = "deny"
 
 [licenses]
 allow = [
@@ -25,3 +27,7 @@ allow = [
 
 [bans]
 multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
