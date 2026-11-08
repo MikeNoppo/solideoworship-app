@@ -13,7 +13,8 @@ The mark is the **Lyric Cross**: centered lines of lyrics whose silhouette forms
 | `symbol-black.svg` / `symbol-white.svg` | Mark alone, one colour |
 | `app-icon.svg` / `app-icon-light.svg` | App icon tile, 48 px and up |
 | `app-icon-32.svg` | App icon cut for 32 px |
-| `app-icon-16.svg` | App icon cut for 16 and 24 px |
+| `app-icon-24.svg` | App icon cut for 24 px |
+| `app-icon-16.svg` | App icon cut for 16 px |
 | `installer-wizard.svg` | Side image of the Windows installer |
 | `social-preview.svg` | GitHub social preview, 1280×640 |
 | `png/`, `solideoworship.ico` | Rendered by `render.sh`; do not edit by hand |

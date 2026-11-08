@@ -8,9 +8,8 @@ render() {
     rsvg-convert --width "$2" --height "$3" "$1.svg" --output "png/$4.png"
 }
 
-for size in 16 24; do
-    render app-icon-16 "$size" "$size" "app-icon-$size"
-done
+render app-icon-16 16 16 app-icon-16
+render app-icon-24 24 24 app-icon-24
 render app-icon-32 32 32 app-icon-32
 for size in 48 64 128 256 512 1024; do
     render app-icon "$size" "$size" "app-icon-$size"
