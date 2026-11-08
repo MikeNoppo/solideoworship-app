@@ -22,8 +22,10 @@ Installs SolideoWorship for the current user, without root:
   $binary
   $desktop
 
---uninstall removes those two files. Songs, Bibles and settings in
-$data_home/$app are kept either way.
+--uninstall removes them, along with a menu entry left in
+~/.local/share/applications by an install that used a different
+XDG_DATA_HOME. Songs, Bibles and settings in $data_home/$app
+are kept either way.
 USAGE
 }
 
@@ -51,10 +53,30 @@ install_app() {
 }
 
 uninstall_app() {
-    rm -f "$binary" "$desktop"
-    echo "Removed $binary"
-    echo "Removed $desktop"
-    echo "Kept $data_home/$app"
+    removed=false
+    menu_removed=false
+
+    for file in "$binary" "$desktop" "$HOME/.local/share/applications/$app.desktop"; do
+        if [ -e "$file" ] || [ -L "$file" ]; then
+            rm -f "$file"
+            echo "Removed $file"
+            removed=true
+            [ "$file" = "$binary" ] || menu_removed=true
+        fi
+    done
+
+    if [ "$removed" = false ]; then
+        echo "SolideoWorship is not installed for this user." >&2
+        exit 1
+    fi
+
+    if [ "$menu_removed" = false ]; then
+        echo "No menu entry found in $applications. If it was installed with another XDG_DATA_HOME, run --uninstall again with that value." >&2
+    fi
+
+    if [ -d "$data_home/$app" ]; then
+        echo "Kept $data_home/$app"
+    fi
 }
 
 if [ "$(id -u)" -eq 0 ]; then
