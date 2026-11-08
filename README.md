@@ -32,7 +32,7 @@ Installers are attached to each [GitHub release](https://github.com/MikeNoppo/so
 2. Pick the language. The app uses the language chosen here.
 3. Install for yourself only, which needs no administrator rights and goes into `%LOCALAPPDATA%\Programs\SolideoWorship`, or for all users, which asks for administrator rights and goes into `Program Files`.
 
-To update, run the newer installer; it offers to close SolideoWorship if it is still open. Uninstalling from Windows Settings removes the program but keeps your songs, Bibles, and settings (see [Data location](#data-location)).
+To update, run the newer installer. If SolideoWorship is still open, the installer offers to close it and then closes it immediately: a schedule with unsaved changes comes back on the next start, but a song still open in the editor is lost, so save it first. Uninstalling from Windows Settings removes the program but keeps your songs, Bibles, and settings (see [Data location](#data-location)).
 
 Requires 64-bit Windows 10 or later. The Visual C++ Redistributable is not needed.
 
@@ -108,8 +108,8 @@ While a dialog (song editor, theme settings) is open, operator shortcuts are dis
 The interface language is chosen once, at startup. There is deliberately no language switcher inside the app. The first match wins:
 
 1. The `SDW_LANG` environment variable, e.g. `SDW_LANG=id`.
-2. A plain-text file named `language` (or `language.txt`) in the [data folder](#data-location) containing a language code such as `id` or `en`. It overrides the language for one user. UTF-8 (with or without BOM) and UTF-16, as written by Notepad or PowerShell, are all accepted. An unrecognized code is reported on the console.
-3. A `language` file next to the executable, in the same format. The Windows installer writes the language picked during setup here, so it applies to every user of an all-users install.
+2. A plain-text file named `language` (or `language.txt`) in the [data folder](#data-location) containing a language code such as `id` or `en`. It overrides the language for one user. UTF-8 (with or without BOM) and UTF-16, as written by Notepad or PowerShell, are all accepted. A file with an unrecognized code is skipped with a warning, shown in a message box on Windows and on the console elsewhere.
+3. On Windows, a `language` file next to the executable, in the same format. The installer writes the language picked during setup here, so it applies to every user of an all-users install.
 4. The operating system's language, if it is one the app supports.
 5. Otherwise, English.
 
@@ -192,7 +192,7 @@ For an optimized release build:
 cargo build --release -p sdw-app
 ```
 
-The binary ends up in `target/release/sdw-app` (or `sdw-app.exe` on Windows). On Windows, `.cargo/config.toml` links the C runtime statically, so the exe runs without the Visual C++ Redistributable.
+The binary ends up in `target/release/sdw-app` (or `sdw-app.exe` on Windows). On Windows, `.cargo/config.toml` links the C runtime statically, so the exe runs without the Visual C++ Redistributable. A `RUSTFLAGS` environment variable replaces that setting, so leave it unset when building an exe for others.
 
 ## Project structure
 
@@ -227,7 +227,7 @@ Every push to `main` and every pull request is checked by CI. On Linux, Windows,
 2. Tag the commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
 3. The Release workflow builds the Windows installer and the Linux archive, then creates a **draft** GitHub release with both files and `SHA256SUMS.txt`. Check it and publish it.
 
-The workflow can also be started by hand from the Actions tab to build both packages for testing without a release; they are attached to the run as artifacts. The tag must match the workspace version, or the workflow stops.
+The workflow can also be started by hand from the Actions tab to build both packages for testing without a release; they are attached to the run as artifacts. The tag must match the workspace version, or the workflow stops. Re-running the workflow for a tag replaces the files of its draft release, but never touches a release that is already published.
 
 To build the packages yourself:
 
