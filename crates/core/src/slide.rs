@@ -11,15 +11,6 @@ pub enum ContentKind {
     Scripture,
 }
 
-impl ContentKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Song => "Lagu",
-            Self::Scripture => "Alkitab",
-        }
-    }
-}
-
 // Songs and scripture both compile into this shape. The live engine and the renderer
 // only ever know SlideDeck, never where its contents came from — adding a new content
 // kind means adding one compiler, not touching either of them.

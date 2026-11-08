@@ -87,14 +87,6 @@ impl OutputState {
     pub fn shows_background(self) -> bool {
         matches!(self, Self::Show | Self::Clear)
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Show => "Tampil",
-            Self::Black => "Hitam",
-            Self::Clear => "Kosong",
-        }
-    }
 }
 
 #[cfg(test)]
