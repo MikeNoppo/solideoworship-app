@@ -1,3 +1,4 @@
+use crate::bible::{Passage, Verse};
 use crate::slide::{ContentKind, Slide, SlideDeck};
 use crate::song::Song;
 
@@ -77,50 +78,54 @@ impl SongSlides<'_> {
     }
 }
 
-pub fn scripture(
-    book_chapter: &str,
-    translation: &str,
-    verses: &[(u16, &str)],
-    max_chars: usize,
-) -> SlideDeck {
+pub fn scripture(passage: &Passage, max_chars: usize) -> SlideDeck {
     let max_chars = max_chars.max(1);
+    let reference = passage.reference();
+    let translation = passage.translation();
+    let book_chapter = format!("{} {}", reference.book().name(), reference.chapter());
+    let verses = passage.verses();
     let mut slides = Vec::new();
-    let mut group: Vec<(u16, &str)> = Vec::new();
+    let mut start = 0;
     let mut length = 0;
 
-    for &(number, text) in verses {
+    for (index, verse) in verses.iter().enumerate() {
+        let chars = verse.text.chars().count();
+
         // Ayat tidak pernah dipotong di tengah; batas karakter hanya menentukan berapa
         // ayat utuh yang muat dalam satu slide.
-        if !group.is_empty() && length + text.chars().count() > max_chars {
-            slides.push(verse_slide(book_chapter, translation, &group));
-            group.clear();
+        if index > start && length + chars > max_chars {
+            slides.push(verse_slide(
+                &book_chapter,
+                translation,
+                &verses[start..index],
+            ));
+            start = index;
             length = 0;
         }
 
-        length += text.chars().count();
-        group.push((number, text));
+        length += chars;
     }
 
-    if !group.is_empty() {
-        slides.push(verse_slide(book_chapter, translation, &group));
+    if start < verses.len() {
+        slides.push(verse_slide(&book_chapter, translation, &verses[start..]));
     }
 
     SlideDeck {
-        title: format!("{book_chapter} ({translation})").into_boxed_str(),
+        title: format!("{reference} ({translation})").into_boxed_str(),
         kind: ContentKind::Scripture,
         slides,
     }
 }
 
-fn verse_slide(book_chapter: &str, translation: &str, group: &[(u16, &str)]) -> Slide {
+fn verse_slide(book_chapter: &str, translation: &str, group: &[Verse]) -> Slide {
     let body = group
         .iter()
-        .map(|(number, text)| format!("{number} {text}"))
+        .map(|verse| format!("{} {}", verse.number, verse.text))
         .collect::<Vec<_>>()
         .join(" ");
 
-    let first = group.first().map(|(number, _)| *number).unwrap_or_default();
-    let last = group.last().map(|(number, _)| *number).unwrap_or_default();
+    let first = group.first().map(|verse| verse.number).unwrap_or_default();
+    let last = group.last().map(|verse| verse.number).unwrap_or_default();
 
     let reference = if first == last {
         format!("{book_chapter}:{first}")
@@ -138,6 +143,7 @@ fn verse_slide(book_chapter: &str, translation: &str, group: &[(u16, &str)]) -> 
 #[cfg(test)]
 mod tests {
     use super::{scripture, song};
+    use crate::bible::{Book, Passage, Reference, Verse};
     use crate::song::Song;
 
     fn labels(lyrics: &str, max_lines: usize) -> Vec<Option<String>> {
@@ -263,15 +269,30 @@ mod tests {
         assert!(song(&Song::new("Uji", "\n\n[Reff]\n", None), 4).is_empty());
     }
 
+    fn passage(book: u8, chapter: u16, verses: &[(u16, &str)]) -> Passage {
+        let reference = Reference::new(Book::from_number(book).unwrap(), chapter, None).unwrap();
+        let verses = verses
+            .iter()
+            .map(|&(number, text)| Verse {
+                number,
+                text: text.into(),
+            })
+            .collect();
+
+        Passage::new(reference, "TB", verses).unwrap()
+    }
+
     #[test]
     fn ayat_tidak_pernah_dipotong_di_tengah() {
         let deck = scripture(
-            "Yohanes 3",
-            "TB",
-            &[
-                (16, "Karena begitu besar kasih Allah"),
-                (17, "Sebab Allah mengutus"),
-            ],
+            &passage(
+                43,
+                3,
+                &[
+                    (16, "Karena begitu besar kasih Allah"),
+                    (17, "Sebab Allah mengutus"),
+                ],
+            ),
             20,
         );
 
@@ -283,9 +304,7 @@ mod tests {
     #[test]
     fn footer_mengikuti_ayat_yang_tampil_di_slide() {
         let deck = scripture(
-            "Yohanes 3",
-            "TB",
-            &[(16, "satu"), (17, "dua"), (18, "tiga")],
+            &passage(43, 3, &[(16, "satu"), (17, "dua"), (18, "tiga")]),
             100,
         );
 
@@ -298,8 +317,26 @@ mod tests {
 
     #[test]
     fn ayat_tunggal_memakai_referensi_tanpa_rentang() {
-        let deck = scripture("Kejadian 1", "TB", &[(27, "Maka Allah menciptakan")], 100);
+        let deck = scripture(&passage(1, 1, &[(27, "Maka Allah menciptakan")]), 100);
 
         assert_eq!(deck.slides[0].footer.as_deref(), Some("Kejadian 1:27 (TB)"));
+    }
+
+    #[test]
+    fn judul_deck_memakai_referensi_dan_terjemahan() {
+        let reference = Reference::new(Book::from_number(19).unwrap(), 23, Some((1, 2))).unwrap();
+        let verses = vec![
+            Verse {
+                number: 1,
+                text: "satu".into(),
+            },
+            Verse {
+                number: 2,
+                text: "dua".into(),
+            },
+        ];
+        let deck = scripture(&Passage::new(reference, "TB", verses).unwrap(), 100);
+
+        assert_eq!(&*deck.title, "Mazmur 23:1-2 (TB)");
     }
 }

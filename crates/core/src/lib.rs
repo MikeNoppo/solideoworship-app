@@ -1,3 +1,4 @@
+pub mod bible;
 pub mod compile;
 pub mod live;
 pub mod slide;
