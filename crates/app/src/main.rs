@@ -668,11 +668,15 @@ impl App {
                     None => self.update(Message::ScheduleSaveAsRequested),
                 }
             }
-            Message::ScheduleSaveAsRequested => match self.control {
-                Some(control) => files::choose_schedule_path(control, self.schedule.path())
-                    .map(Message::ScheduleSavePathChosen),
-                None => Task::none(),
-            },
+            Message::ScheduleSaveAsRequested => {
+                self.menu = None;
+
+                match self.control {
+                    Some(control) => files::choose_schedule_path(control, self.schedule.path())
+                        .map(Message::ScheduleSavePathChosen),
+                    None => Task::none(),
+                }
+            }
             Message::ScheduleSavePathChosen(target) => match target {
                 Some(target) => self.write_schedule(target),
                 None => {
