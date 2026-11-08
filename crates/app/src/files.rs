@@ -36,7 +36,57 @@ fn pick(
     .then(|dialog| Task::perform(dialog, |file| file.map(PathBuf::from)))
 }
 
-pub fn choose_schedule_path(parent: window::Id, current: Option<&Path>) -> Task<Option<PathBuf>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveTarget {
+    pub path: PathBuf,
+    pub extension_added: bool,
+}
+
+impl SaveTarget {
+    pub fn existing(path: PathBuf) -> Self {
+        Self {
+            path,
+            extension_added: false,
+        }
+    }
+
+    fn chosen(path: PathBuf) -> Self {
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(EXTENSION))
+        {
+            return Self::existing(path);
+        }
+
+        let mut name = path.file_name().unwrap_or_default().to_owned();
+        name.push(".");
+        name.push(EXTENSION);
+
+        Self {
+            path: path.with_file_name(name),
+            extension_added: true,
+        }
+    }
+
+    pub fn check(&self) -> Result<(), Box<str>> {
+        if self.extension_added && self.path.exists() {
+            let name = self.path.file_name().unwrap_or_default().to_string_lossy();
+
+            return Err(format!(
+                "File \"{name}\" sudah ada. Pilih file itu langsung di dialog bila ingin \
+                 menimpanya, atau gunakan nama lain."
+            )
+            .into_boxed_str());
+        }
+
+        Ok(())
+    }
+}
+
+pub fn choose_schedule_path(
+    parent: window::Id,
+    current: Option<&Path>,
+) -> Task<Option<SaveTarget>> {
     let directory = current.and_then(Path::parent).map(Path::to_path_buf);
     let name = current.and_then(Path::file_name).map_or_else(
         || DEFAULT_NAME.to_owned(),
@@ -58,38 +108,64 @@ pub fn choose_schedule_path(parent: window::Id, current: Option<&Path>) -> Task<
     })
     .then(|dialog| {
         Task::perform(dialog, |file| {
-            file.map(|file| with_extension(PathBuf::from(file)))
+            file.map(|file| SaveTarget::chosen(PathBuf::from(file)))
         })
     })
 }
 
-fn with_extension(path: PathBuf) -> PathBuf {
-    if path.extension().is_some() {
-        path
-    } else {
-        path.with_extension(EXTENSION)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+    use std::{env, fs, process};
 
-    use super::with_extension;
+    use super::SaveTarget;
+
+    fn chosen(path: &str) -> SaveTarget {
+        SaveTarget::chosen(PathBuf::from(path))
+    }
 
     #[test]
-    fn ekstensi_sdw_ditambahkan_bila_kosong() {
+    fn ekstensi_sdw_ditambahkan_bila_tidak_ada() {
+        assert_eq!(chosen("/tmp/minggu").path, Path::new("/tmp/minggu.sdw"));
+        assert!(chosen("/tmp/minggu").extension_added);
+    }
+
+    #[test]
+    fn titik_di_nama_file_bukan_ekstensi_sdw() {
         assert_eq!(
-            with_extension(PathBuf::from("/tmp/minggu")),
-            PathBuf::from("/tmp/minggu.sdw")
+            chosen("/tmp/Minggu 1.5").path,
+            Path::new("/tmp/Minggu 1.5.sdw")
+        );
+        assert_eq!(
+            chosen("/tmp/Ibadah 12.11").path,
+            Path::new("/tmp/Ibadah 12.11.sdw")
         );
     }
 
     #[test]
-    fn ekstensi_yang_dipilih_pengguna_dipertahankan() {
-        assert_eq!(
-            with_extension(PathBuf::from("/tmp/minggu.json")),
-            PathBuf::from("/tmp/minggu.json")
-        );
+    fn ekstensi_sdw_dipertahankan_tanpa_membedakan_huruf() {
+        for name in ["/tmp/minggu.sdw", "/tmp/minggu.SDW"] {
+            let target = chosen(name);
+
+            assert_eq!(target.path, Path::new(name));
+            assert!(!target.extension_added);
+        }
+    }
+
+    #[test]
+    fn tidak_menimpa_diam_diam_file_yang_namanya_dilengkapi() {
+        let dir = env::temp_dir().join(format!("sdw-files-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("minggu.sdw"), "lama").unwrap();
+
+        let completed = SaveTarget::chosen(dir.join("minggu"));
+        let explicit = SaveTarget::chosen(dir.join("minggu.sdw"));
+        let fresh = SaveTarget::chosen(dir.join("baru"));
+
+        assert!(completed.check().is_err());
+        assert!(explicit.check().is_ok());
+        assert!(fresh.check().is_ok());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

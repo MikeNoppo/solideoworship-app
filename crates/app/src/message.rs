@@ -6,6 +6,7 @@ use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
 use sdw_library::{BibleId, BibleSummary, ImportReport, SongId, SongSummary};
 
 use crate::display::Display;
+use crate::files::SaveTarget;
 use crate::theme_dialog;
 use crate::work::Outcome;
 use crate::{bible_manager, bible_tab, editor};
@@ -108,7 +109,7 @@ pub enum Message {
     ScheduleOpened(Outcome<(PathBuf, Vec<ScheduleItem>)>),
     ScheduleSaveRequested,
     ScheduleSaveAsRequested,
-    ScheduleSavePathChosen(Option<PathBuf>),
+    ScheduleSavePathChosen(Option<SaveTarget>),
     ScheduleSaved(u64, Outcome<PathBuf>),
     Unsaved(UnsavedChoice),
     Bible(bible_tab::Message),

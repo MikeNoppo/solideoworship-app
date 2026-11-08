@@ -15,7 +15,7 @@ mod work;
 
 use std::fs::File;
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use iced::keyboard::{self, key::Named};
@@ -29,6 +29,7 @@ use crate::bible_manager::BibleManager;
 use crate::bible_tab::BibleTab;
 use crate::display::Display;
 use crate::editor::Editor;
+use crate::files::SaveTarget;
 use crate::message::{LibraryTab, Message, Pending, Step, UnsavedChoice};
 use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
@@ -472,7 +473,7 @@ impl App {
                 Task::none()
             }
             Message::ScheduleSaveRequested => match self.schedule.path() {
-                Some(path) => self.write_schedule(path.to_path_buf()),
+                Some(path) => self.write_schedule(SaveTarget::existing(path.to_path_buf())),
                 None => self.update(Message::ScheduleSaveAsRequested),
             },
             Message::ScheduleSaveAsRequested => match self.control {
@@ -480,8 +481,8 @@ impl App {
                     .map(Message::ScheduleSavePathChosen),
                 None => Task::none(),
             },
-            Message::ScheduleSavePathChosen(path) => match path {
-                Some(path) => self.write_schedule(path),
+            Message::ScheduleSavePathChosen(target) => match target {
+                Some(target) => self.write_schedule(target),
                 None => {
                     self.after_save = None;
                     Task::none()
@@ -708,13 +709,14 @@ impl App {
         }
     }
 
-    fn write_schedule(&self, path: PathBuf) -> Task<Message> {
+    fn write_schedule(&self, target: SaveTarget) -> Task<Message> {
         let items = self.schedule.items();
         let revision = self.schedule.revision();
 
         work::background(move || {
-            schedule_file::save(&path, &items)
-                .map(|()| path)
+            target.check()?;
+            schedule_file::save(&target.path, &items)
+                .map(|()| target.path)
                 .map_err(work::describe)
         })
         .map(move |result| Message::ScheduleSaved(revision, result))
