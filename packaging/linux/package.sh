@@ -30,6 +30,7 @@ install -m 755 "$here/install.sh" "$stage/install.sh"
 install -m 644 "$here/solideoworship.desktop" "$stage/solideoworship.desktop"
 install -m 644 "$root/LICENSE" "$stage/LICENSE"
 install -m 644 "$root/assets/fonts/Inter-LICENSE.txt" "$stage/LICENSE-Inter.txt"
+install -m 644 "$root/assets/fonts/JetBrainsMono-LICENSE.txt" "$stage/LICENSE-JetBrainsMono.txt"
 install -m 644 "$root/assets/fonts/Lucide-LICENSE.txt" "$stage/LICENSE-Lucide.txt"
 mkdir -p "$stage/icons"
 for size in 16 24 32 48 64 128 256; do
