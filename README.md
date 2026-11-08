@@ -14,7 +14,7 @@ SolideoWorship lahir dari masalah sederhana: aplikasi seperti EasyWorship memaka
 - **Editor lagu.** Tambah, ubah, dan hapus lagu dengan preview slide yang langsung berubah saat mengetik. Lagu yang diubah ikut diperbarui di susunan acara.
 - **Alkitab.** Terjemahan diimpor dari file Zefania XML lalu dicari dengan referensi seperti `Yoh 3:16-18`, `1 Kor 13:4-7`, atau `Mzm 23`. Nama kitab memakai nama dan singkatan Indonesia, ayat langsung tampil saat referensi diketik, dan perikop dibagi ke beberapa slide tanpa memotong ayat di tengah.
 - **Pengaturan tema.** Satu tema untuk lagu dan satu untuk Alkitab: warna latar, teks, dan footer, ukuran huruf, jarak baris, margin, perataan, serta batas baris atau karakter per slide. Perubahan langsung terlihat di preview dialog. Tema baru tampil di proyektor saat item ditayangkan berikutnya, jadi mengubah tema di tengah ibadah tidak mengejutkan jemaat.
-- **File susunan acara `.sdw`.** Isi lagu dan ayat ikut tersimpan di dalam file, jadi susunan acara bisa disiapkan di rumah lalu dibuka di laptop gereja walau library-nya berbeda. Perubahan yang belum disimpan ditandai, dan aplikasi meminta konfirmasi sebelum membuangnya.
+- **File susunan acara `.sdw`.** Isi lagu dan ayat ikut tersimpan di dalam file, jadi susunan acara bisa disiapkan di rumah lalu dibuka di laptop gereja walau library-nya berbeda. Perubahan yang belum disimpan ditandai, dan aplikasi meminta konfirmasi sebelum membuangnya. Bila aplikasi tertutup paksa sebelum sempat disimpan (crash, listrik padam, atau `Cmd+Q` di macOS), susunan acara dipulihkan otomatis saat aplikasi dibuka lagi.
 - **Pemilihan layar proyektor.** Mendeteksi semua monitor dan mendahulukan layar eksternal. Output bisa dipindah ke layar lain, dan bila layar output tidak lagi terdeteksi saat daftar layar dimuat ulang, jendela output ditutup.
 - **Status output Tampil / Hitam / Kosong.** Kosong menyembunyikan teks tapi tetap menampilkan latar belakang.
 - **Kompiler lagu.** Bait dipecah otomatis per jumlah baris maksimum. Potongan lanjutan diberi nomor, misalnya "Verse 1 (2)".
@@ -49,6 +49,8 @@ Teks Alkitab tidak disertakan di aplikasi karena hak cipta penerbitnya (misalnya
 3. Periksa singkatannya (diisi otomatis dari nama file, misalnya `TB`), lalu klik **Impor**.
 
 Catatan kaki dan referensi silang di dalam file diabaikan, jadi tidak ikut tampil di proyektor. Satu Alkitab lengkap (sekitar 31 ribu ayat) menambah kira-kira 4 MB ke database library.
+
+Untuk kitab yang hanya punya satu pasal (Obaja, Filemon, 2 Yohanes, 3 Yohanes, Yudas), angka tunggal dibaca sebagai nomor ayat: `Yud 3` sama dengan `Yud 1:3`.
 
 Referensi lintas pasal (misalnya `Yoh 3:16-4:2`) belum didukung; tambahkan tiap pasal sebagai item terpisah.
 
@@ -111,6 +113,8 @@ Library lagu, terjemahan Alkitab, dan pengaturan tema disimpan di satu file SQLi
 | Windows | `%LOCALAPPDATA%\SolideoWorship` |
 | macOS | `~/Library/Application Support/SolideoWorship` |
 | Linux | `$XDG_DATA_HOME/solideoworship` (biasanya `~/.local/share/solideoworship`) |
+
+Di folder yang sama ada `recovery.sdw` selama susunan acara punya perubahan yang belum disimpan. File ini dihapus otomatis begitu susunan acara disimpan.
 
 Variabel lingkungan `SDW_DATA_DIR` mengganti folder itu, berguna untuk mencoba aplikasi tanpa menyentuh library utama.
 

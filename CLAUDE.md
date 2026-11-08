@@ -46,7 +46,7 @@ Songs and scripture both compile into a `SlideDeck` of `Slide`s. A schedule entr
 1. Never load the whole library into memory. Song lists hold `(id, title)`; full lyrics load on selection. Bible verses are queried per displayed range.
 2. Prefer `Box<str>`/`Arc<str>` over `String` for immutable text; share decks with `Arc`, do not clone contents.
 3. `view` must borrow, not clone: `text(&slide.body)` yields `Fragment::Borrowed`; `text(slide.body.clone())` allocates on every redraw.
-4. `scrollable` does not virtualize — every child is laid out. Bound search results, and wrap long lists in `lazy`.
+4. `scrollable` does not virtualize — every child is laid out. Bound result lists (`SONG_LIMIT` for song search, `PREVIEW_LIMIT` for the Bible tab). Do not reach for `lazy` to fix a long list: in 0.14 it only skips rebuilding the subtree, layout still runs every pass (`Widget::layout` in `iced_widget-0.14.2/src/lazy.rs`), and its content must be owned, which breaks rule 3.
 5. Reactive rendering is on by default in 0.14. Do not add per-frame subscriptions unless animating, and never enable the `unconditional-rendering` feature.
 
 ## Platform pitfalls already hit (verified by testing, not assumed)
@@ -54,6 +54,8 @@ Songs and scripture both compile into a `SlideDeck` of `Slide`s. A schedule entr
 **Projector fullscreen must be set at window creation.** `window::open` with windowed settings followed by `window::set_mode(id, Mode::Fullscreen)` is flaky on macOS: winit's `set_fullscreen` silently returns for `Fullscreen::Borderless(None)` when `current_monitor_inner()` is still `None`, which happens when the window is not yet attached to a screen. Measured 1 failure in 3 runs. Setting `fullscreen: true` together with `position` in `window::Settings` succeeded 3 of 3. See [windows.rs](crates/app/src/windows.rs). Do not set `level` or `resizable` on the output window — macOS resets the level and forces a `Titled|Resizable` style mask when entering fullscreen.
 
 **`display-info` coordinate units differ by platform.** macOS reports `CGDisplayBounds` (logical points) and Linux divides by scale factor itself, but Windows reports `DEVMODE` physical pixels. iced always treats `Position::Specific` as logical points, so only Windows needs dividing. See [display.rs](crates/app/src/display.rs).
+
+**`Cmd+Q` on macOS cannot be intercepted.** winit's default app menu (iced never disables it) calls `-[NSApp terminate:]`; winit then closes every window directly and exits without a `CloseRequested`, so the unsaved-changes prompt never runs. That is why the schedule is mirrored to `recovery.sdw` whenever it is dirty ([recovery.rs](crates/app/src/recovery.rs)) and restored on the next start.
 
 **iced has no monitor enumeration** — only `window::monitor_size` for the window's current monitor. Hence the `display-info` dependency.
 
@@ -69,7 +71,8 @@ Most iced material online targets 0.12/0.13 and will not compile here.
 - Borrowed widget trees need an explicit lifetime: `Column<'_, Message>`.
 - **Never block inside `Task::perform`.** With the `smol` feature, task futures, subscription streams, and event forwarding share smol's single executor thread, and events reach `listen_with` through a bounded channel that drops on overflow. A slow query there loses operator key presses. SQLite goes through `work::Store::run` (one dedicated thread, FIFO); other blocking work goes through `work::background`.
 - Native file dialogs (`rfd`) are built inside `window::run(control_id, ..)`. That closure runs on the event-loop thread, which macOS requires for AppKit, and it parents the dialog to the control window. The returned future is then awaited with `Task::perform`.
-- `text_input` without `on_submit` lets Enter through as `Status::Ignored`, and `text_editor` never captures Escape. Global shortcuts would fire while typing, so every `text_input` in the operator window gets an `on_submit`, and while a dialog is open the subscription swaps to dialog-only shortcuts (no Escape mapping).
+- `text_input` without `on_submit` lets Enter through as `Status::Ignored`, and `text_editor` never captures Escape. Global shortcuts would fire while typing, so every `text_input` gets an `on_submit` (in dialogs it submits the form), and while a dialog is open the subscription swaps to dialog-only shortcuts (no Escape mapping).
+- Async results that belong to a dialog carry `App::modal_ticket` from when the request was sent. Apply them to the open dialog only when the ticket still matches; the operator may have closed it and opened another meanwhile.
 
 Check the version resolved in `Cargo.lock` and read the crate source in `~/.cargo/registry` rather than assuming an API exists.
 
