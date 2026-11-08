@@ -1,5 +1,6 @@
 mod error;
 mod migrate;
+mod settings;
 mod songs;
 
 use std::fs;

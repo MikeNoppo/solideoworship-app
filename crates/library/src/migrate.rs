@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::Error;
 
-const MIGRATIONS: &[&str] = &[V1_SONGS];
+const MIGRATIONS: &[&str] = &[V1_SONGS, V2_SETTINGS];
 
 const V1_SONGS: &str = "
 CREATE TABLE songs (
@@ -37,6 +37,13 @@ CREATE TRIGGER songs_au AFTER UPDATE OF title, lyrics ON songs BEGIN
     VALUES ('delete', old.id, old.title, old.lyrics);
     INSERT INTO songs_fts (rowid, title, lyrics) VALUES (new.id, new.title, new.lyrics);
 END;
+";
+
+const V2_SETTINGS: &str = "
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;
 ";
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<(), Error> {
