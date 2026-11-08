@@ -221,7 +221,16 @@ impl App {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        let is_resize = matches!(
+            message,
+            Message::WindowResized(..) | Message::RowHovered(_) | Message::DragOver(_)
+        );
         let task = self.handle(message);
+
+        if is_resize {
+            return task;
+        }
+
         self.sync_recovery();
 
         let mut captions = std::mem::take(&mut self.captions);
