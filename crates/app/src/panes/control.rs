@@ -6,7 +6,7 @@ use crate::message::Message;
 use crate::panes::{library, live, preview, schedule, toolbar, unsaved, welcome};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
-use crate::{App, Modal, Notice, icon};
+use crate::{App, Modal, Notice, Toast, icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let top: Element<'_, Message> = match app.schedule.preview() {
@@ -48,6 +48,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .height(library_height),
     ]
     .width(Fill);
+
+    let middle: Element<'_, Message> = match &app.toast {
+        Some(toast) => stack![
+            middle,
+            container(self::toast(toast))
+                .padding(Padding::ZERO.bottom(40))
+                .align_bottom(Fill)
+                .center_x(Fill),
+        ]
+        .into(),
+        None => middle.into(),
+    };
 
     let body = row![
         schedule::view(app),
@@ -147,6 +159,45 @@ fn notices(app: &App) -> Vec<Element<'_, Message>> {
         })
         .chain(library_error)
         .collect()
+}
+
+fn toast(toast: &Toast) -> Element<'_, Message> {
+    let (glyph, trailing): (&str, Element<'_, Message>) = match toast {
+        Toast::Saved { .. } => (
+            icon::CIRCLE_CHECK,
+            action(
+                Tone::Secondary,
+                Some(icon::PLUS),
+                t().library.add,
+                None,
+                Some(Message::ToastAccepted),
+            )
+            .height(28)
+            .into(),
+        ),
+        Toast::Deleted(_) => (
+            icon::TRASH_2,
+            ui::icon_button(icon::X, style::TEXT_3, 28.0, Some(Message::ToastDismissed)).into(),
+        ),
+    };
+
+    container(
+        row![
+            icon::view(glyph, 14.0, style::TEXT_2),
+            label(toast.text(), 13.0, style::INTER, style::TEXT),
+            trailing,
+        ]
+        .spacing(12)
+        .align_y(Center),
+    )
+    .padding(Padding {
+        top: 6.0,
+        right: 6.0,
+        bottom: 6.0,
+        left: 14.0,
+    })
+    .style(style::toast)
+    .into()
 }
 
 fn reload<'a>() -> Element<'a, Message> {

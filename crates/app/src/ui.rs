@@ -10,6 +10,11 @@ use crate::style::{self, Tone};
 
 const HINT_DELAY: Duration = Duration::from_millis(600);
 pub const SCROLL_GUTTER: f32 = 8.0;
+pub const SAVE_KEY: &str = if cfg!(target_os = "macos") {
+    "Cmd S"
+} else {
+    "Ctrl S"
+};
 
 pub fn label<'a>(content: &'a str, size: f32, font: Font, color: Color) -> Text<'a> {
     text(content).size(size).font(font).color(color)
@@ -29,6 +34,8 @@ pub fn action<'a, M: 'a>(
     let enabled = on_press.is_some();
     let (icon_color, caption_color, font) = match tone {
         Tone::Primary => (style::ON_INVERSE, style::ON_INVERSE, style::SEMIBOLD),
+        Tone::Danger => (Color::WHITE, Color::WHITE, style::SEMIBOLD),
+        Tone::Destructive => (style::LIVE, style::LIVE, style::MEDIUM),
         _ => (style::TEXT_2, style::TEXT, style::MEDIUM),
     };
 
@@ -263,4 +270,76 @@ pub fn empty<'a, M: 'a>(
         .spacing(10)
         .align_x(Center)
         .into()
+}
+
+pub fn sheet<'a, M: 'a>(
+    content: impl Into<Element<'a, M>>,
+    max_width: f32,
+    max_height: f32,
+) -> Element<'a, M> {
+    container(content)
+        .width(Fill)
+        .height(Fill)
+        .max_width(max_width)
+        .max_height(max_height)
+        .clip(true)
+        .style(style::sheet)
+        .into()
+}
+
+pub fn sheet_header<'a, M: Clone + 'a>(
+    title: &'a str,
+    subtitle: &'a str,
+    on_close: M,
+) -> Element<'a, M> {
+    column![
+        container(
+            row![
+                column![
+                    label(title, 16.0, style::SEMIBOLD, style::TEXT),
+                    label(subtitle, 12.0, style::INTER, style::TEXT_3),
+                ]
+                .spacing(3)
+                .width(Fill),
+                kbd("Esc", 20.0, 11.0, true),
+                icon_button(icon::X, style::TEXT_2, 32.0, Some(on_close)),
+            ]
+            .spacing(12)
+            .align_y(Center),
+        )
+        .padding(Padding {
+            top: 0.0,
+            right: 16.0,
+            bottom: 0.0,
+            left: 24.0,
+        })
+        .center_y(64),
+        hrule(style::BORDER),
+    ]
+    .into()
+}
+
+pub fn sheet_footer<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Element<'a, M> {
+    column![
+        hrule(style::BORDER),
+        container(content)
+            .padding(Padding {
+                top: 0.0,
+                right: 16.0,
+                bottom: 0.0,
+                left: 24.0,
+            })
+            .center_y(64),
+    ]
+    .into()
+}
+
+pub fn note<'a, M: 'a>(glyph: &'static str, caption: &'a str, color: Color) -> Element<'a, M> {
+    row![
+        icon::view(glyph, 14.0, color),
+        label(caption, 12.0, style::INTER, color),
+    ]
+    .spacing(8)
+    .align_y(Center)
+    .into()
 }

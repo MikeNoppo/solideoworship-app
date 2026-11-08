@@ -99,6 +99,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 fn search(app: &App, enabled: bool) -> Element<'_, Message> {
+    let is_searching = !app.search.trim().is_empty();
+
     let input = text_input(t().library.search, &app.search)
         .id(SEARCH)
         .on_input_maybe(enabled.then_some(Message::SearchChanged))
@@ -114,16 +116,36 @@ fn search(app: &App, enabled: bool) -> Element<'_, Message> {
         .line_height(Pixels(18.0))
         .padding(Padding {
             top: 6.0,
-            right: 34.0,
+            right: if is_searching { 120.0 } else { 34.0 },
             bottom: 6.0,
             left: 10.0,
         })
         .style(style::field);
 
+    let trailing: Element<'_, Message> = if is_searching {
+        row![
+            label(&app.captions.results, 11.0, style::INTER, style::TEXT_3),
+            ui::hint(
+                icon_button(
+                    icon::X,
+                    style::TEXT_3,
+                    24.0,
+                    Some(Message::SearchChanged(String::new())),
+                ),
+                t().library.clear,
+            ),
+        ]
+        .spacing(6)
+        .align_y(Center)
+        .into()
+    } else {
+        ui::kbd("/", 20.0, 11.0, enabled)
+    };
+
     stack![
         input,
-        container(ui::kbd("/", 20.0, 11.0, enabled))
-            .padding(Padding::ZERO.right(6))
+        container(trailing)
+            .padding(Padding::ZERO.right(if is_searching { 4.0 } else { 6.0 }))
             .align_right(Fill)
             .center_y(Fill),
     ]
@@ -142,40 +164,47 @@ fn songs(app: &App) -> Element<'_, Message> {
         ));
     }
 
+    let is_searching = !app.search.trim().is_empty();
+
     if app.song_results.is_empty() {
-        return placeholder(if app.search.trim().is_empty() {
+        return placeholder(if is_searching {
+            ui::empty(
+                icon::SEARCH_X,
+                false,
+                &app.captions.no_match,
+                Some(t().library.no_match_body),
+            )
+        } else {
             ui::empty(
                 icon::LIBRARY,
                 false,
                 t().library.empty_title,
                 Some(t().library.empty_body),
             )
-        } else {
-            ui::empty(icon::SEARCH_X, false, t().library.no_match, None)
         });
     }
 
     let results = app
         .song_results
         .iter()
-        .fold(Column::new().spacing(2), |list, song| {
-            list.push(song_row(app, song))
-        })
-        .push(app.songs_truncated.then(|| {
-            container(label(
-                t().library.truncated,
-                12.0,
-                style::INTER,
-                style::TEXT_3,
-            ))
-            .padding([8, 10])
-        }));
+        .enumerate()
+        .fold(Column::new().spacing(2), |list, (index, song)| {
+            list.push(song_row(app, song, is_searching && index == 0))
+        });
+
+    let (glyph, footer) = if app.songs_truncated {
+        (icon::INFO, t().library.truncated)
+    } else if is_searching {
+        (icon::CORNER_DOWN_LEFT, t().library.search_hint)
+    } else {
+        (icon::MOUSE_POINTER_CLICK, t().library.song_hint)
+    };
 
     column![
         ui::scroll(results),
         row![
-            icon::view(icon::MOUSE_POINTER_CLICK, 12.0, style::TEXT_3),
-            label(t().library.song_hint, 12.0, style::INTER, style::TEXT_3),
+            icon::view(glyph, 12.0, style::TEXT_3),
+            label(footer, 12.0, style::INTER, style::TEXT_3),
         ]
         .spacing(6)
         .padding(Padding::ZERO.left(10))
@@ -185,17 +214,35 @@ fn songs(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn song_row<'a>(app: &'a App, song: &'a SongSummary) -> Element<'a, Message> {
+fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a, Message> {
+    let meta: Option<Element<'a, Message>> = if is_top {
+        Some(
+            row![
+                icon::view(icon::CORNER_DOWN_LEFT, 12.0, style::TEXT_3),
+                label(t().library.add, 12.0, style::INTER, style::TEXT_2),
+            ]
+            .spacing(6)
+            .align_y(Center)
+            .into(),
+        )
+    } else if app
+        .toast
+        .as_ref()
+        .is_some_and(|toast| toast.saved() == Some(song.id))
+    {
+        Some(label(t().library.just_saved, 12.0, style::INTER, style::TEXT_3).into())
+    } else {
+        app.schedule
+            .contains_song(song.id)
+            .then(|| label(t().library.in_schedule, 12.0, style::INTER, style::TEXT_3).into())
+    };
+
     let base = button(
         row![
             icon::view(icon::MUSIC, 14.0, style::TEXT_3),
             label(&song.title, 13.0, style::INTER, style::TEXT).width(Fill),
         ]
-        .push(
-            app.schedule
-                .contains_song(song.id)
-                .then(|| label(t().library.in_schedule, 12.0, style::INTER, style::TEXT_3)),
-        )
+        .push(meta)
         .spacing(10)
         .height(Fill)
         .align_y(Center),
@@ -204,8 +251,10 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary) -> Element<'a, Message> {
     .height(40)
     .padding([0, 10])
     .on_press(Message::SongPicked(song.id))
-    .style(style::pressable(Tone::Row, 6.0));
-
+    .style(style::pressable(
+        if is_top { Tone::Highlighted } else { Tone::Row },
+        6.0,
+    ));
     let actions = container(
         row![
             ui::hint(

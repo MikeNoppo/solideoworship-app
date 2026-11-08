@@ -19,6 +19,8 @@ pub struct Captions {
     pub disconnected_title: Box<str>,
     pub disconnected_step: Box<str>,
     pub disconnected_frame: Box<str>,
+    pub results: Box<str>,
+    pub no_match: Box<str>,
     pub numbers: Vec<Box<str>>,
 }
 
@@ -85,6 +87,22 @@ impl Captions {
         self.disconnected_title = fill(t().notice.disconnected_title, &lost).into_boxed_str();
         self.disconnected_step = fill(t().welcome.output_disconnected, &lost).into_boxed_str();
         self.disconnected_frame = fill(t().slides.disconnected_body, &lost).into_boxed_str();
+
+        let query = app.search.trim();
+        self.results = if query.is_empty() {
+            Box::default()
+        } else if app.songs_truncated {
+            t().library.top_results.into()
+        } else if app.song_results.is_empty() {
+            t().library.no_results.into()
+        } else {
+            count(
+                app.song_results.len(),
+                t().library.results_one,
+                t().library.results_other,
+            )
+        };
+        self.no_match = fill(t().library.no_match_title, &[("query", &query)]).into_boxed_str();
 
         let lines = usize::from(app.styles.song.max_lines);
         self.song_body = count(

@@ -57,6 +57,8 @@ const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
 
 const SONG_LIMIT: usize = 100;
 
+const TOAST_TIME: Duration = Duration::from_secs(6);
+
 const IMPORT_BUFFER: usize = 64 * 1024;
 
 const QUIT_FLUSH: Duration = Duration::from_secs(2);
@@ -98,6 +100,26 @@ enum Notice {
     Failure(Box<str>),
 }
 
+enum Toast {
+    Saved { id: SongId, text: Box<str> },
+    Deleted(Box<str>),
+}
+
+impl Toast {
+    fn saved(&self) -> Option<SongId> {
+        match self {
+            Self::Saved { id, .. } => Some(*id),
+            Self::Deleted(_) => None,
+        }
+    }
+
+    fn text(&self) -> &str {
+        match self {
+            Self::Saved { text, .. } | Self::Deleted(text) => text,
+        }
+    }
+}
+
 enum Modal {
     Editor(Box<Editor>),
     Theme(Box<ThemeDialog>),
@@ -137,6 +159,7 @@ struct App {
     songs_truncated: bool,
     pick_first_song: bool,
     modal: Option<Modal>,
+    toast: Option<Toast>,
     modal_ticket: u64,
     after_save: Option<Pending>,
     bible: BibleTab,
@@ -495,27 +518,51 @@ impl App {
                         },
                         move |result| Message::SongSaved(ticket, result),
                     ),
-                    editor::Action::Delete(id) => self.store.run(
-                        move |library| library.delete_song(id),
-                        move |result| Message::SongDeleted(ticket, id, result),
-                    ),
+                    editor::Action::Delete(id) => {
+                        let title: Box<str> = editor.name().into();
+
+                        self.store.run(
+                            move |library| library.delete_song(id),
+                            move |result| Message::SongDeleted(ticket, id, title.clone(), result),
+                        )
+                    }
                 }
             }
             Message::SongSaved(ticket, result) => match result {
                 Ok((id, song)) => {
                     self.close_modal(ticket);
+                    self.toast = Some(Toast::Saved {
+                        id,
+                        text: fill(t().library.saved, &[("title", &song.title())]).into_boxed_str(),
+                    });
                     self.schedule.replace_song(id, &song, &self.styles);
                     Task::batch([self.search_songs(), self.count_songs()])
                 }
                 Err(error) => self.editor_failed(ticket, error),
             },
-            Message::SongDeleted(ticket, id, result) => match result {
+            Message::SongDeleted(ticket, id, title, result) => match result {
                 Ok(()) => {
                     self.close_modal(ticket);
+                    self.toast = Some(Toast::Deleted(
+                        fill(t().library.deleted, &[("title", &title)]).into_boxed_str(),
+                    ));
                     self.schedule.forget_song(id);
                     Task::batch([self.search_songs(), self.count_songs()])
                 }
                 Err(error) => self.editor_failed(ticket, error),
+            },
+            Message::ToastDismissed => {
+                self.toast = None;
+                Task::none()
+            }
+            Message::ToastAccepted => match self.toast.take() {
+                Some(Toast::Saved { id, .. }) => self.update(Message::SongPicked(id)),
+                _ => Task::none(),
+            },
+            Message::ModalDismissed => match &self.modal {
+                Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Dismiss)),
+                Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Cancel)),
+                _ => Task::none(),
             },
             Message::ThemeRequested => {
                 if self.modal.is_none() {
@@ -770,6 +817,10 @@ impl App {
                     iced::Event::Keyboard(keyboard::Event::KeyPressed {
                         key, modifiers, ..
                     }) if modifiers.command() => save_shortcut(key),
+                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(Named::Escape),
+                        ..
+                    }) => Some(Message::ModalDismissed),
                     _ => None,
                 }));
             }
@@ -793,6 +844,10 @@ impl App {
                     _ => None,
                 }
             })),
+        }
+
+        if self.toast.is_some() {
+            subscriptions.push(iced::time::every(TOAST_TIME).map(|_| Message::ToastDismissed));
         }
 
         Subscription::batch(subscriptions)
@@ -1598,5 +1653,30 @@ mod tests {
 
         assert_eq!(app.selected, Some(2));
         assert!(app.disconnected.is_none());
+    }
+
+    #[test]
+    fn saved_song_shows_a_toast_that_adds_it() {
+        let (id, song) = library_song();
+        let mut app = App::default();
+        let _ = app.open_editor(None, &song);
+        let ticket = app.modal_ticket;
+
+        let _ = app.update(Message::SongSaved(ticket, Ok((id, song))));
+        assert_eq!(app.toast.as_ref().and_then(super::Toast::saved), Some(id));
+
+        let _ = app.update(Message::ToastAccepted);
+        assert!(app.toast.is_none());
+    }
+
+    #[test]
+    fn escape_cancels_the_unsaved_prompt() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+
+        let _ = app.update(Message::ModalDismissed);
+
+        assert!(app.modal.is_none());
+        assert!(!app.schedule.is_empty());
     }
 }

@@ -9,14 +9,14 @@ pub mod unsaved;
 pub mod welcome;
 
 use iced::widget::{button, column, container, grid, row, text};
-use iced::{Center, Element, Fill};
+use iced::{Border, Center, Element, Fill};
 use sdw_core::slide::Slide;
 use sdw_core::theme::SlideTheme;
 
 use crate::i18n::t;
-use crate::message::Message;
 use crate::render::slide;
-use crate::{style, ui};
+use crate::style::{self, Tone};
+use crate::ui;
 
 const THUMBNAIL_WIDTH: f32 = 146.0;
 const COMPACT_BELOW: f32 = 1360.0;
@@ -40,7 +40,7 @@ pub fn columns(window_width: f32) -> Columns {
     }
 }
 
-pub fn live_badge<'a>() -> Element<'a, Message> {
+pub fn live_badge<'a, M: 'a>() -> Element<'a, M> {
     container(
         row![
             ui::dot(6.0, style::LIVE),
@@ -53,6 +53,71 @@ pub fn live_badge<'a>() -> Element<'a, Message> {
     .center_y(18)
     .style(style::rounded(style::LIVE_SOFT, 4.0))
     .into()
+}
+
+const FRAME: f32 = 2.0;
+
+pub struct Card<'a> {
+    pub slide: &'a Slide,
+    pub theme: &'a SlideTheme,
+    pub number: &'a str,
+    pub width: f32,
+    pub is_selected: bool,
+    pub is_live: bool,
+    pub compact: bool,
+}
+
+pub fn slide_card<'a, M: Clone + 'a>(card: Card<'a>, on_press: M) -> Element<'a, M> {
+    let (border, border_width) = if card.is_selected {
+        (style::INVERSE, FRAME)
+    } else {
+        (style::BORDER_STRONG, 1.0)
+    };
+    let (number_size, label_size, gap) = if card.compact {
+        (10.0, 11.0, 6.0)
+    } else {
+        (11.0, 12.0, 8.0)
+    };
+
+    let frame = container(slide::thumbnail(
+        card.slide,
+        card.theme,
+        card.width - FRAME * 2.0,
+        4.0,
+    ))
+    .padding(FRAME)
+    .style(move |_theme| container::Style {
+        border: Border {
+            color: border,
+            width: border_width,
+            radius: 6.0.into(),
+        },
+        ..container::Style::default()
+    });
+
+    let caption = row![
+        ui::label(card.number, number_size, style::SEMIBOLD, style::TEXT_3),
+        ui::label(
+            card.slide
+                .label
+                .as_deref()
+                .unwrap_or(t().slides.fallback_label),
+            label_size,
+            style::MEDIUM,
+            style::TEXT_2,
+        )
+        .width(Fill),
+    ]
+    .push(card.is_live.then(live_badge))
+    .spacing(8)
+    .align_y(Center);
+
+    button(column![frame, caption].spacing(gap))
+        .width(card.width)
+        .padding(0)
+        .on_press(on_press)
+        .style(style::pressable(Tone::Ghost, 6.0))
+        .into()
 }
 
 pub fn notice<'a, M: 'a>(message: &'a str) -> Element<'a, M> {

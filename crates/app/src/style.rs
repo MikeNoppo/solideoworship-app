@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use iced::font::Weight;
 use iced::theme::Palette;
-use iced::widget::{button, container, scrollable, text, text_input};
+use iced::widget::{button, container, scrollable, text, text_editor, text_input};
 use iced::{Background, Border, Color, Font, Shadow, Theme, Vector};
 
 pub const BG: Color = Color::from_rgb8(0x0A, 0x0A, 0x0B);
@@ -37,13 +37,15 @@ pub const BOLD: Font = Font {
     weight: Weight::Bold,
     ..INTER
 };
+pub const MONO: Font = Font::with_name("JetBrains Mono");
 pub const ICONS: Font = Font::with_name("lucide");
 
-pub const FONTS: [&[u8]; 5] = [
+pub const FONTS: [&[u8]; 6] = [
     include_bytes!("../../../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../../../assets/fonts/Inter-Medium.ttf"),
     include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/Inter-Bold.ttf"),
+    include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../../../assets/fonts/lucide.ttf"),
 ];
 
@@ -120,6 +122,23 @@ pub fn menu(_theme: &Theme) -> container::Style {
     }
 }
 
+pub fn toast(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(RAISED.into()),
+        border: Border {
+            color: BORDER_STRONG,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+            offset: Vector::new(0.0, 8.0),
+            blur_radius: 24.0,
+        },
+        ..container::Style::default()
+    }
+}
+
 pub fn tooltip(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(ACTIVE.into()),
@@ -141,6 +160,10 @@ pub enum Tone {
     Row,
     Selected,
     Toggled,
+    Danger,
+    Destructive,
+    Outline,
+    Highlighted,
 }
 
 pub fn pressable(tone: Tone, radius: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
@@ -152,8 +175,16 @@ pub fn pressable(tone: Tone, radius: f32) -> impl Fn(&Theme, button::Status) -> 
                 Some(Color::from_rgb8(0xD4, 0xD4, 0xD8)),
             ),
             Tone::Secondary => (Some(RAISED), Some(ACTIVE), Some(BORDER_STRONG)),
-            Tone::Ghost | Tone::Row => (None, Some(RAISED), Some(ACTIVE)),
+            Tone::Ghost | Tone::Row | Tone::Destructive | Tone::Outline => {
+                (None, Some(RAISED), Some(ACTIVE))
+            }
+            Tone::Danger => (
+                Some(LIVE),
+                Some(Color::from_rgb8(0xEC, 0x5D, 0x62)),
+                Some(Color::from_rgb8(0xC9, 0x3C, 0x41)),
+            ),
             Tone::Selected | Tone::Toggled => (Some(ACTIVE), Some(ACTIVE), Some(ACTIVE)),
+            Tone::Highlighted => (Some(RAISED), Some(ACTIVE), Some(ACTIVE)),
         };
 
         let background = match status {
@@ -164,7 +195,7 @@ pub fn pressable(tone: Tone, radius: f32) -> impl Fn(&Theme, button::Status) -> 
         };
 
         let border = match tone {
-            Tone::Secondary | Tone::Toggled => Border {
+            Tone::Secondary | Tone::Toggled | Tone::Outline => Border {
                 color: fade(BORDER_STRONG, status != button::Status::Disabled),
                 width: 1.0,
                 radius: radius.into(),
@@ -209,6 +240,40 @@ pub fn scrollbar(theme: &Theme, status: scrollable::Status) -> scrollable::Style
         vertical_rail: rail,
         horizontal_rail: rail,
         ..scrollable::default(theme, status)
+    }
+}
+
+pub fn sheet(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(BG.into()),
+        border: Border {
+            color: BORDER_STRONG,
+            width: 1.0,
+            radius: 14.0.into(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.6),
+            offset: Vector::new(0.0, 24.0),
+            blur_radius: 64.0,
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn lyrics(_theme: &Theme, status: text_editor::Status) -> text_editor::Style {
+    text_editor::Style {
+        background: SURFACE.into(),
+        border: Border {
+            color: match status {
+                text_editor::Status::Focused { .. } => TEXT_3,
+                _ => BORDER_STRONG,
+            },
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        placeholder: TEXT_3,
+        value: TEXT,
+        selection: BORDER_STRONG,
     }
 }
 
