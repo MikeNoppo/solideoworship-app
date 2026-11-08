@@ -18,10 +18,16 @@ pub fn language_file() -> PathBuf {
     data_dir().join(LANGUAGE_FILE)
 }
 
+#[cfg(windows)]
 pub fn installed_language_file() -> Option<PathBuf> {
     let executable = env::current_exe().ok()?;
 
     Some(executable.parent()?.join(LANGUAGE_FILE))
+}
+
+#[cfg(not(windows))]
+pub fn installed_language_file() -> Option<PathBuf> {
+    None
 }
 
 fn data_dir() -> PathBuf {
