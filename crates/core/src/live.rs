@@ -23,6 +23,10 @@ impl Presentation {
         Arc::clone(&self.deck)
     }
 
+    pub fn shares(&self, deck: &Arc<SlideDeck>) -> bool {
+        Arc::ptr_eq(&self.deck, deck)
+    }
+
     pub fn slides(&self) -> &[Slide] {
         &self.deck.slides
     }
@@ -108,6 +112,15 @@ mod tests {
                 })
                 .collect(),
         })
+    }
+
+    #[test]
+    fn shares_only_the_same_deck() {
+        let shown = deck(2);
+        let presentation = Presentation::new(Arc::clone(&shown)).unwrap();
+
+        assert!(presentation.shares(&shown));
+        assert!(!presentation.shares(&deck(2)));
     }
 
     #[test]
