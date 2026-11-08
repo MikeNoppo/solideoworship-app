@@ -1,5 +1,6 @@
 mod error;
 mod migrate;
+pub mod schedule_file;
 mod settings;
 mod songs;
 
@@ -45,19 +46,23 @@ impl Library {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
+mod test_support {
+    use std::path::{Path, PathBuf};
     use std::{env, fs, process};
 
-    use sdw_core::Song;
-
-    use super::Library;
-
-    struct TempDir(PathBuf);
+    pub struct TempDir(PathBuf);
 
     impl TempDir {
-        fn new(name: &str) -> Self {
-            Self(env::temp_dir().join(format!("sdw-library-{name}-{}", process::id())))
+        pub fn new(name: &str) -> Self {
+            let path = env::temp_dir().join(format!("sdw-library-{name}-{}", process::id()));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
+
+            Self(path)
+        }
+
+        pub fn path(&self) -> &Path {
+            &self.0
         }
     }
 
@@ -66,11 +71,19 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use sdw_core::Song;
+
+    use super::Library;
+    use crate::test_support::TempDir;
 
     #[test]
     fn library_di_file_bertahan_setelah_dibuka_ulang() {
         let dir = TempDir::new("persist");
-        let path = dir.0.join("nested").join("library.sqlite3");
+        let path = dir.path().join("nested").join("library.sqlite3");
         let song = Song::new("Uji", "satu", None);
 
         let id = Library::open(&path).unwrap().insert_song(&song).unwrap();
