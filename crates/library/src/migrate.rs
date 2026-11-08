@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::Error;
 
-const MIGRATIONS: &[&str] = &[V1_SONGS, V2_SETTINGS];
+const MIGRATIONS: &[&str] = &[V1_SONGS, V2_SETTINGS, V3_BIBLES];
 
 const V1_SONGS: &str = "
 CREATE TABLE songs (
@@ -43,6 +43,24 @@ const V2_SETTINGS: &str = "
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+) WITHOUT ROWID;
+";
+
+const V3_BIBLES: &str = "
+CREATE TABLE bibles (
+    id INTEGER PRIMARY KEY,
+    abbreviation TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    title TEXT NOT NULL,
+    imported_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE verses (
+    bible_id INTEGER NOT NULL REFERENCES bibles (id) ON DELETE CASCADE,
+    book INTEGER NOT NULL CHECK (book BETWEEN 1 AND 66),
+    chapter INTEGER NOT NULL CHECK (chapter >= 1),
+    verse INTEGER NOT NULL CHECK (verse >= 1),
+    text TEXT NOT NULL,
+    PRIMARY KEY (bible_id, book, chapter, verse)
 ) WITHOUT ROWID;
 ";
 

@@ -6,6 +6,12 @@ pub enum Error {
     NotFound,
     EmptyTitle,
     NewerSchema { found: u32, supported: u32 },
+    BibleExists(Box<str>),
+    EmptyAbbreviation,
+    NotZefania,
+    EmptyBible,
+    Xml { position: u64, message: Box<str> },
+    Encoding,
     Storage(StorageError),
     Io(io::Error),
 }
@@ -20,6 +26,19 @@ impl fmt::Display for Error {
                 "Library ini dibuat oleh versi SolideoWorship yang lebih baru \
                  (skema {found}, aplikasi ini mendukung sampai {supported}). \
                  Perbarui aplikasi untuk membukanya."
+            ),
+            Self::BibleExists(abbreviation) => write!(
+                f,
+                "Terjemahan dengan singkatan \"{abbreviation}\" sudah ada di library."
+            ),
+            Self::EmptyAbbreviation => f.write_str("Singkatan terjemahan tidak boleh kosong."),
+            Self::NotZefania => f.write_str("File ini bukan Alkitab berformat Zefania XML."),
+            Self::EmptyBible => f.write_str("Tidak ada ayat yang bisa dibaca dari file ini."),
+            Self::Xml { position, message } => {
+                write!(f, "File Alkitab rusak di posisi byte {position}: {message}")
+            }
+            Self::Encoding => f.write_str(
+                "File Alkitab harus berenkoding UTF-8. Simpan ulang file sebagai UTF-8 lalu coba lagi.",
             ),
             Self::Storage(error) => write!(f, "Gagal mengakses database library: {error}"),
             Self::Io(error) => write!(f, "Gagal membuka file library: {error}"),

@@ -2659,6 +2659,7 @@ version = "0.1.0"
 name = "sdw-library"
 version = "0.1.0"
 dependencies = [
+ "quick-xml",
  "rusqlite",
  "sdw-core",
  "serde",

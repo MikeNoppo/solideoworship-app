@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+quick-xml.workspace = true
 rusqlite.workspace = true
 sdw-core.workspace = true
 serde.workspace = true
