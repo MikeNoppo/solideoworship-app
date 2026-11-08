@@ -884,7 +884,12 @@ impl App {
 
         // The splash closes only after the control window has actually opened, so there
         // is never a gap with no window at all.
-        opened.discard().chain(Task::done(Message::ControlOpened))
+        opened.then(move |_| {
+            Task::batch([
+                Task::done(Message::ControlOpened),
+                window::size(id).map(move |size| Message::WindowResized(id, size)),
+            ])
+        })
     }
 
     fn notify(&mut self, notice: Notice) {
