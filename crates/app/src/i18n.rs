@@ -3,10 +3,15 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::{env, fs};
 
+use sdw_core::OutputState;
 use sdw_core::bible::ReferenceError;
 use sdw_core::slide::ContentKind;
+use sdw_core::theme::TextAlign;
 use sdw_library::Error;
 use sdw_library::schedule_file::ScheduleFileError;
+
+use crate::message::LibraryTab;
+use crate::theme_dialog::ColorSlot;
 
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 
@@ -41,10 +46,55 @@ pub fn t() -> &'static Strings {
     ACTIVE.get().copied().unwrap_or(&EN)
 }
 
-pub fn kind_label(kind: ContentKind) -> &'static str {
-    match kind {
-        ContentKind::Song => t().schedule.song,
-        ContentKind::Scripture => t().common.bible,
+pub trait Label {
+    fn label(self) -> &'static str;
+}
+
+impl Label for ContentKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Song => t().schedule.song,
+            Self::Scripture => t().common.bible,
+        }
+    }
+}
+
+impl Label for LibraryTab {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Songs => t().library.songs,
+            Self::Scripture => t().common.bible,
+        }
+    }
+}
+
+impl Label for OutputState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Show => t().toolbar.show,
+            Self::Black => t().toolbar.black,
+            Self::Clear => t().toolbar.clear,
+        }
+    }
+}
+
+impl Label for TextAlign {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Left => t().theme.left,
+            Self::Center => t().theme.center,
+            Self::Right => t().theme.right,
+        }
+    }
+}
+
+impl Label for ColorSlot {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Background => t().theme.background,
+            Self::Body => t().theme.text,
+            Self::Footer => t().theme.footer,
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Center, Element, Fill};
 
-use crate::i18n::t;
+use crate::i18n::{Label, t};
 use crate::message::{LibraryTab, Message};
 use crate::panes::{banner, dismissible_banner, notice, pane, title};
 use crate::{App, style};

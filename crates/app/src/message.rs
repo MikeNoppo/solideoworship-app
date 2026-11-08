@@ -7,7 +7,6 @@ use sdw_library::{BibleId, BibleSummary, ImportReport, SongId, SongSummary};
 
 use crate::display::Display;
 use crate::files::SaveTarget;
-use crate::i18n::t;
 use crate::theme_dialog;
 use crate::work::Outcome;
 use crate::{bible_manager, bible_tab, editor};
@@ -36,13 +35,6 @@ pub enum LibraryTab {
 
 impl LibraryTab {
     pub const ALL: [Self; 2] = [Self::Songs, Self::Scripture];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Songs => t().library.songs,
-            Self::Scripture => t().common.bible,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

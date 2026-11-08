@@ -5,7 +5,7 @@ use iced::widget::{button, column, row, scrollable, text};
 use iced::{Center, Element, Fill};
 
 use crate::App;
-use crate::i18n::{kind_label, t};
+use crate::i18n::{Label, t};
 use crate::message::Message;
 use crate::panes::{notice, pane, title};
 use crate::style;
@@ -23,7 +23,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     button(
                         column![
                             text(&*entry.deck().title).size(14),
-                            text(kind_label(entry.item().kind()))
+                            text(entry.item().kind().label())
                                 .size(11)
                                 .style(style::caption(is_selected)),
                         ]

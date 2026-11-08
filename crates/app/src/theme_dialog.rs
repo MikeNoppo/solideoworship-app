@@ -7,7 +7,7 @@ use sdw_core::theme::{
 };
 use sdw_core::{ScheduleItem, Song, Styles};
 
-use crate::i18n::{kind_label, t};
+use crate::i18n::{Label, t};
 use crate::panes::{dialog, thumbnails};
 use crate::render::slide::{self, Visibility, color};
 use crate::style;
@@ -34,14 +34,6 @@ pub enum ColorSlot {
 
 impl ColorSlot {
     const ALL: [Self; 3] = [Self::Background, Self::Body, Self::Footer];
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Background => t().theme.background,
-            Self::Body => t().theme.text,
-            Self::Footer => t().theme.footer,
-        }
-    }
 
     fn index(self) -> usize {
         match self {
@@ -201,7 +193,7 @@ impl ThemeDialog {
             .into_iter()
             .fold(row![].spacing(6), |list, kind| {
                 list.push(
-                    button(text(kind_label(kind)).size(13))
+                    button(text(kind.label()).size(13))
                         .padding([4, 14])
                         .on_press(Message::KindSelected(kind))
                         .style(if self.kind == kind {
@@ -218,24 +210,20 @@ impl ThemeDialog {
                 list.push(self.color_row(slot, slot.get(theme)))
             });
 
-        let align = [
-            (TextAlign::Left, t().theme.left),
-            (TextAlign::Center, t().theme.center),
-            (TextAlign::Right, t().theme.right),
-        ]
-        .into_iter()
-        .fold(row![].spacing(6), |list, (align, label)| {
-            list.push(
-                button(text(label).size(13))
-                    .padding([4, 12])
-                    .on_press(Message::Align(align))
-                    .style(if theme.align == align {
-                        button::primary
-                    } else {
-                        button::secondary
-                    }),
-            )
-        });
+        let align = [TextAlign::Left, TextAlign::Center, TextAlign::Right]
+            .into_iter()
+            .fold(row![].spacing(6), |list, align| {
+                list.push(
+                    button(text(align.label()).size(13))
+                        .padding([4, 12])
+                        .on_press(Message::Align(align))
+                        .style(if theme.align == align {
+                            button::primary
+                        } else {
+                            button::secondary
+                        }),
+                )
+            });
 
         let limit = match self.kind {
             ContentKind::Song => control(

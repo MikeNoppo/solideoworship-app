@@ -3,7 +3,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::OutputState;
 
 use crate::App;
-use crate::i18n::t;
+use crate::i18n::{Label, t};
 use crate::message::Message;
 use crate::style;
 
@@ -21,19 +21,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
     };
 
     let state_button = |state: OutputState| {
-        button(text(match state {
-            OutputState::Show => t().toolbar.show,
-            OutputState::Black => t().toolbar.black,
-            OutputState::Clear => t().toolbar.clear,
-        }))
-        .on_press_maybe(is_open.then_some(Message::OutputStateChanged(state)))
-        // While the output is closed no state is in effect, so no button may
-        // look active.
-        .style(if is_open && app.output_state == state {
-            button::primary
-        } else {
-            button::secondary
-        })
+        button(text(state.label()))
+            .on_press_maybe(is_open.then_some(Message::OutputStateChanged(state)))
+            // While the output is closed no state is in effect, so no button may
+            // look active.
+            .style(if is_open && app.output_state == state {
+                button::primary
+            } else {
+                button::secondary
+            })
     };
 
     container(
