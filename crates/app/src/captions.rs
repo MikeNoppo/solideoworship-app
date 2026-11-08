@@ -16,6 +16,9 @@ pub struct Captions {
     pub bible_done: Box<str>,
     pub output_body: Box<str>,
     pub output_done: Box<str>,
+    pub disconnected_title: Box<str>,
+    pub disconnected_step: Box<str>,
+    pub disconnected_frame: Box<str>,
     pub numbers: Vec<Box<str>>,
 }
 
@@ -75,6 +78,14 @@ impl Captions {
         )
         .into_boxed_str();
 
+        let lost = [(
+            "screen",
+            &app.disconnected.as_deref().unwrap_or_default() as &dyn std::fmt::Display,
+        )];
+        self.disconnected_title = fill(t().notice.disconnected_title, &lost).into_boxed_str();
+        self.disconnected_step = fill(t().welcome.output_disconnected, &lost).into_boxed_str();
+        self.disconnected_frame = fill(t().slides.disconnected_body, &lost).into_boxed_str();
+
         let lines = usize::from(app.styles.song.max_lines);
         self.song_body = count(
             lines,
@@ -118,6 +129,18 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
 
     if app.screens_error.is_some() {
         return format!("{} · {}", status.screens, status.screens_detail);
+    }
+
+    if let Some(screen) = &app.disconnected {
+        return format!(
+            "{} · {}",
+            status.closed,
+            fill(status.disconnected, &[("screen", screen)])
+        );
+    }
+
+    if app.displays.is_empty() {
+        return status.no_screens.to_owned();
     }
 
     if app.output.is_some() {

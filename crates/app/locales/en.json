@@ -9,7 +9,8 @@
     "preview": "Preview",
     "bible": "Bible",
     "new_song": "New song",
-    "manage_bibles": "Manage Bibles"
+    "manage_bibles": "Manage Bibles",
+    "disconnected": "Disconnected"
   },
   "app": {
     "output_window_title": "SolideoWorship — Output",
@@ -17,7 +18,6 @@
     "checking_screens": "Checking available screens…",
     "opening_library": "Opening the song library…",
     "preparing_window": "Preparing the operator window…",
-    "output_disconnected": "The output screen was disconnected — the output window was closed.",
     "no_screen_selected": "No screen selected.",
     "job_stopped": "The background job stopped without a result.",
     "job_panicked": "An internal error occurred while accessing the library.",
@@ -31,7 +31,9 @@
     "screens_title": "Could not read the list of screens.",
     "screens_body": "{error}. Output stays unavailable until screens are detected.",
     "recovered_title": "Schedule recovered.",
-    "recovered_body": "SolideoWorship closed before this schedule was saved, so it was restored from recovery.sdw. Save it to keep it."
+    "recovered_body": "SolideoWorship closed before this schedule was saved, so it was restored from recovery.sdw. Save it to keep it.",
+    "disconnected_title": "{screen} was disconnected.",
+    "disconnected_body": "The output window was closed. Reconnect the cable and reload screens, or pick another screen."
   },
   "toolbar": {
     "new": "New schedule",
@@ -53,7 +55,10 @@
     "external": "External",
     "builtin": "Built-in",
     "external_note": "external",
-    "builtin_note": "built-in"
+    "builtin_note": "built-in",
+    "screens_none": "None found",
+    "menu_empty_title": "No screens detected yet",
+    "menu_empty_body": "Connect a projector or TV, then reload."
   },
   "schedule": {
     "title": "Schedule",
@@ -91,9 +96,10 @@
     "output_title": "Open the output",
     "output_body": "{screen} is already selected. Slides appear there when you go live.",
     "output_failed": "Screens could not be detected. Use Reload screens in the message above.",
-    "output_missing": "No output screen is connected. Connect the projector, then reload screens.",
+    "output_missing": "No screens detected. Connect a projector or TV, then reload screens.",
     "output_done": "Output is open on {screen}",
-    "output_done_body": "Slides appear there when you go live."
+    "output_done_body": "Slides appear there when you go live.",
+    "output_disconnected": "{screen} was disconnected. Reconnect it, then reload screens."
   },
   "slides": {
     "position": "{position} / {total}",
@@ -119,7 +125,8 @@
     "jump_hint": "Click a slide to jump to it",
     "list_empty": "Slides appear here once something is live.",
     "previous": "Previous",
-    "next": "Next slide"
+    "next": "Next slide",
+    "disconnected_body": "Closed because {screen} was disconnected"
   },
   "status": {
     "ready": "Ready",
@@ -136,7 +143,10 @@
     "showing": "showing slide {position} of {title}",
     "nothing_live": "nothing is live",
     "search": "Search",
-    "slides": "Slides"
+    "slides": "Slides",
+    "no_screens": "No output screens detected",
+    "closed": "Output closed",
+    "disconnected": "{screen} disconnected"
   },
   "unsaved": {
     "title": "The schedule has not been saved",

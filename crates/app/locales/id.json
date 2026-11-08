@@ -9,7 +9,8 @@
     "preview": "Preview",
     "bible": "Alkitab",
     "new_song": "Lagu baru",
-    "manage_bibles": "Kelola Alkitab"
+    "manage_bibles": "Kelola Alkitab",
+    "disconnected": "Terputus"
   },
   "app": {
     "output_window_title": "SolideoWorship — Output",
@@ -17,7 +18,6 @@
     "checking_screens": "Memeriksa layar yang tersedia…",
     "opening_library": "Membuka library lagu…",
     "preparing_window": "Menyiapkan jendela operator…",
-    "output_disconnected": "Layar output terputus — jendela output ditutup.",
     "no_screen_selected": "Tidak ada layar yang dipilih.",
     "job_stopped": "Pekerjaan latar berhenti tanpa hasil.",
     "job_panicked": "Terjadi kesalahan internal saat mengakses library.",
@@ -31,7 +31,9 @@
     "screens_title": "Gagal membaca daftar layar.",
     "screens_body": "{error}. Output tidak tersedia sampai layar terdeteksi.",
     "recovered_title": "Susunan acara dipulihkan.",
-    "recovered_body": "SolideoWorship tertutup sebelum susunan acara ini disimpan, jadi dipulihkan dari recovery.sdw. Simpan agar tidak hilang."
+    "recovered_body": "SolideoWorship tertutup sebelum susunan acara ini disimpan, jadi dipulihkan dari recovery.sdw. Simpan agar tidak hilang.",
+    "disconnected_title": "{screen} terputus.",
+    "disconnected_body": "Jendela output ditutup. Sambungkan kembali kabelnya lalu muat ulang layar, atau pilih layar lain."
   },
   "toolbar": {
     "new": "Susunan acara baru",
@@ -53,7 +55,10 @@
     "external": "Eksternal",
     "builtin": "Bawaan",
     "external_note": "eksternal",
-    "builtin_note": "bawaan"
+    "builtin_note": "bawaan",
+    "screens_none": "Tidak ditemukan",
+    "menu_empty_title": "Belum ada layar terdeteksi",
+    "menu_empty_body": "Sambungkan proyektor atau TV, lalu muat ulang."
   },
   "schedule": {
     "title": "Susunan Acara",
@@ -91,9 +96,10 @@
     "output_title": "Buka output",
     "output_body": "{screen} sudah dipilih. Slide muncul di sana saat Anda menayangkan.",
     "output_failed": "Layar tidak terdeteksi. Gunakan Muat ulang layar pada pesan di atas.",
-    "output_missing": "Tidak ada layar output tersambung. Sambungkan proyektor, lalu muat ulang layar.",
+    "output_missing": "Tidak ada layar terdeteksi. Sambungkan proyektor atau TV, lalu muat ulang layar.",
     "output_done": "Output terbuka di {screen}",
-    "output_done_body": "Slide muncul di sana saat Anda menayangkan."
+    "output_done_body": "Slide muncul di sana saat Anda menayangkan.",
+    "output_disconnected": "{screen} terputus. Sambungkan kembali, lalu muat ulang layar."
   },
   "slides": {
     "position": "{position} / {total}",
@@ -119,7 +125,8 @@
     "jump_hint": "Klik slide untuk lompat ke sana",
     "list_empty": "Slide muncul di sini setelah ada yang tayang.",
     "previous": "Sebelumnya",
-    "next": "Slide berikutnya"
+    "next": "Slide berikutnya",
+    "disconnected_body": "Ditutup karena {screen} terputus"
   },
   "status": {
     "ready": "Siap",
@@ -136,7 +143,10 @@
     "showing": "menampilkan slide {position} dari {title}",
     "nothing_live": "belum ada yang tayang",
     "search": "Cari",
-    "slides": "Slide"
+    "slides": "Slide",
+    "no_screens": "Tidak ada layar output terdeteksi",
+    "closed": "Output tertutup",
+    "disconnected": "{screen} terputus"
   },
   "unsaved": {
     "title": "Susunan acara belum disimpan",

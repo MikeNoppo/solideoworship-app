@@ -150,15 +150,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 fn picker(app: &App) -> Element<'_, Message> {
-    let content = match app.selected_display() {
-        Some(display) => row![
+    let content = match (app.selected_display(), &app.disconnected) {
+        (Some(display), _) => row![
             icon::view(icon::MONITOR, 14.0, style::TEXT_2),
             label(&display.name, 13.0, style::MEDIUM, style::TEXT),
             label(&display.resolution, 12.0, style::INTER, style::TEXT_3),
         ],
-        None => row![
-            icon::view(icon::MONITOR_X, 14.0, style::TEXT_2),
-            label(t().toolbar.no_screens, 13.0, style::MEDIUM, style::TEXT_2),
+        (None, Some(screen)) => row![
+            icon::view(icon::MONITOR_OFF, 14.0, style::TEXT_3),
+            label(screen, 13.0, style::MEDIUM, style::TEXT_3),
+            label(t().common.disconnected, 12.0, style::INTER, style::TEXT_3),
+        ],
+        (None, None) => row![
+            icon::view(icon::MONITOR_X, 14.0, style::TEXT_3),
+            label(t().toolbar.no_screens, 13.0, style::MEDIUM, style::TEXT_3),
         ],
     };
 
@@ -179,7 +184,16 @@ fn picker(app: &App) -> Element<'_, Message> {
 fn screens_menu(app: &App) -> Element<'_, Message> {
     let header = row![
         ui::eyebrow(t().toolbar.output_screen).width(Fill),
-        label(t().toolbar.screens_order, 11.0, style::INTER, style::TEXT_3),
+        label(
+            if app.displays.is_empty() {
+                t().toolbar.screens_none
+            } else {
+                t().toolbar.screens_order
+            },
+            11.0,
+            style::INTER,
+            style::TEXT_3,
+        ),
     ]
     .padding(Padding {
         top: 8.0,
@@ -197,13 +211,27 @@ fn screens_menu(app: &App) -> Element<'_, Message> {
         });
 
     let screens: Element<'_, Message> = if app.displays.is_empty() {
-        container(label(
-            t().toolbar.no_screens,
-            12.0,
-            style::INTER,
-            style::TEXT_3,
-        ))
-        .padding([8, 10])
+        container(
+            column![
+                icon::view(icon::MONITOR_X, 20.0, style::TEXT_3),
+                label(
+                    t().toolbar.menu_empty_title,
+                    13.0,
+                    style::SEMIBOLD,
+                    style::TEXT
+                ),
+                label(
+                    t().toolbar.menu_empty_body,
+                    12.0,
+                    style::INTER,
+                    style::TEXT_3
+                ),
+            ]
+            .spacing(6)
+            .align_x(Center),
+        )
+        .padding([14, 10])
+        .center_x(Fill)
         .into()
     } else {
         screens.into()

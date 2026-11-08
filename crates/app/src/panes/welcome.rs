@@ -42,6 +42,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let output_body = if app.screens_error.is_some() {
         welcome.output_failed
+    } else if app.disconnected.is_some() {
+        &app.captions.disconnected_step
     } else if app.displays.is_empty() {
         welcome.output_missing
     } else if output {

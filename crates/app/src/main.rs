@@ -94,6 +94,7 @@ enum Notice {
     Recovered,
     Library,
     Screens,
+    Disconnected,
     Failure(Box<str>),
 }
 
@@ -120,6 +121,7 @@ struct App {
     splash_elapsed: bool,
     selected: Option<u32>,
     screens_error: Option<Box<str>>,
+    disconnected: Option<Box<str>>,
     menu: Option<Menu>,
     notices: Vec<Notice>,
 
@@ -278,6 +280,7 @@ impl App {
             }
             Message::DisplaySelected(id) => {
                 self.menu = None;
+                self.reconnected();
                 self.select_display(id)
             }
             Message::MenuToggled(menu) => {
@@ -984,11 +987,29 @@ impl App {
     }
 
     fn apply_displays(&mut self, displays: Vec<Display>) -> Task<Message> {
-        let output_display_lost = self
+        let lost = self
             .output_display
-            .is_some_and(|id| !displays.iter().any(|display| display.id == id));
+            .and_then(|id| self.displays.iter().find(|display| display.id == id))
+            .filter(|output| !displays.iter().any(|display| display.name == output.name))
+            .map(|output| output.name.clone());
 
-        if !displays
+        if lost.is_some() {
+            self.disconnected = lost.clone();
+        }
+
+        let returned = self.disconnected.as_ref().and_then(|name| {
+            displays
+                .iter()
+                .find(|display| display.name == *name)
+                .map(|display| display.id)
+        });
+
+        if let Some(id) = returned {
+            self.selected = Some(id);
+            self.reconnected();
+        } else if self.disconnected.is_some() {
+            self.selected = None;
+        } else if !displays
             .iter()
             .any(|display| Some(display.id) == self.selected)
         {
@@ -997,13 +1018,19 @@ impl App {
 
         self.displays = displays;
 
-        if output_display_lost {
+        if lost.is_some() {
             self.reopen_output = false;
-            self.notify(Notice::Failure(t().app.output_disconnected.into()));
+            self.notify(Notice::Disconnected);
             return self.close_output();
         }
 
         Task::none()
+    }
+
+    fn reconnected(&mut self) {
+        self.disconnected = None;
+        self.notices
+            .retain(|notice| *notice != Notice::Disconnected);
     }
 
     fn selected_display(&self) -> Option<&Display> {
@@ -1134,7 +1161,10 @@ mod tests {
 
     use sdw_library::{Library, SongSummary};
 
+    use iced::{Point, Size};
+
     use super::{App, Modal, Notice};
+    use crate::display::Display;
     use crate::editor;
     use crate::message::{Message, Pending, UnsavedChoice};
     use crate::theme_dialog::ThemeDialog;
@@ -1506,5 +1536,67 @@ mod tests {
 
         assert!(app.schedule.is_empty());
         assert!(!app.schedule.is_dirty());
+    }
+
+    fn screen(id: u32, name: &str) -> Display {
+        Display {
+            id,
+            name: name.into(),
+            title: name.into(),
+            resolution: "1920×1080".into(),
+            detail: "1920×1080 · External".into(),
+            origin: Point::ORIGIN,
+            size: Size::new(1920.0, 1080.0),
+            is_primary: false,
+            is_builtin: false,
+        }
+    }
+
+    fn app_on_air() -> App {
+        let mut app = App::default();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![
+            screen(1, "HDMI-1"),
+            screen(2, "eDP-1"),
+        ])));
+        app.output = Some(window::Id::unique());
+        app.output_display = Some(1);
+        app
+    }
+
+    #[test]
+    fn unplugged_output_screen_is_not_replaced_silently() {
+        let mut app = app_on_air();
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(2, "eDP-1")])));
+
+        assert_eq!(app.disconnected.as_deref(), Some("HDMI-1"));
+        assert_eq!(app.selected, None);
+        assert!(app.notices.contains(&Notice::Disconnected));
+    }
+
+    #[test]
+    fn reconnected_screen_is_selected_again() {
+        let mut app = app_on_air();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(2, "eDP-1")])));
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![
+            screen(7, "HDMI-1"),
+            screen(2, "eDP-1"),
+        ])));
+
+        assert_eq!(app.selected, Some(7));
+        assert!(app.disconnected.is_none());
+        assert!(!app.notices.contains(&Notice::Disconnected));
+    }
+
+    #[test]
+    fn picking_another_screen_clears_the_disconnect() {
+        let mut app = app_on_air();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(2, "eDP-1")])));
+
+        let _ = app.update(Message::DisplaySelected(2));
+
+        assert_eq!(app.selected, Some(2));
+        assert!(app.disconnected.is_none());
     }
 }

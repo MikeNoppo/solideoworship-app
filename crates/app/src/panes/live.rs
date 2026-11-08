@@ -42,6 +42,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         None if is_open => app
             .selected_display()
             .map_or(t().slides.no_screen, |display| &display.name),
+        None if app.disconnected.is_some() => t().common.disconnected,
         None if app.displays.is_empty() => t().slides.no_screen,
         None => t().slides.output_closed,
     };
@@ -87,6 +88,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         None => {
             let (title, body) = if is_open {
                 (t().slides.ready_title, t().slides.ready_body)
+            } else if app.disconnected.is_some() {
+                (t().slides.closed_title, &*app.captions.disconnected_frame)
             } else if app.displays.is_empty() {
                 (t().slides.closed_title, t().slides.no_screen_body)
             } else {

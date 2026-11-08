@@ -35,6 +35,7 @@ pub const SAVE: &str = "\u{e14d}";
 pub const SEARCH: &str = "\u{e151}";
 pub const SEARCH_X: &str = "\u{e4ad}";
 pub const SQUARE: &str = "\u{e167}";
+pub const UNPLUG: &str = "\u{e45d}";
 pub const X: &str = "\u{e1b2}";
 
 pub fn view<'a>(glyph: &'a str, size: f32, color: Color) -> Text<'a> {

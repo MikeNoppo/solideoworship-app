@@ -130,17 +130,14 @@ fn notices(app: &App) -> Vec<Element<'_, Message>> {
                     icon::MONITOR_X,
                     t().notice.screens_title,
                     app.screens_error.as_deref(),
-                    Some(
-                        action(
-                            Tone::Secondary,
-                            Some(icon::REFRESH_CW),
-                            t().toolbar.reload,
-                            None,
-                            Some(Message::DisplaysRequested),
-                        )
-                        .height(28)
-                        .into(),
-                    ),
+                    Some(reload()),
+                    dismiss,
+                ),
+                Notice::Disconnected => ui::banner(
+                    icon::UNPLUG,
+                    &app.captions.disconnected_title,
+                    Some(t().notice.disconnected_body),
+                    Some(reload()),
                     dismiss,
                 ),
                 Notice::Failure(message) => {
@@ -150,6 +147,18 @@ fn notices(app: &App) -> Vec<Element<'_, Message>> {
         })
         .chain(library_error)
         .collect()
+}
+
+fn reload<'a>() -> Element<'a, Message> {
+    action(
+        Tone::Secondary,
+        Some(icon::REFRESH_CW),
+        t().toolbar.reload,
+        None,
+        Some(Message::DisplaysRequested),
+    )
+    .height(28)
+    .into()
 }
 
 fn status_bar(app: &App) -> Element<'_, Message> {
