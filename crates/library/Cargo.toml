@@ -1,0 +1,9 @@
+[package]
+name = "sdw-library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+sdw-core.workspace = true
