@@ -7,6 +7,14 @@ use serde_json::{Map, Value};
 
 const LOCALES: &str = "locales";
 const SOURCE: &str = "en";
+const KEYWORDS: [&str; 48] = [
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
+    "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl", "in", "let",
+    "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return",
+    "static", "struct", "trait", "true", "try", "type", "typeof", "unsafe", "unsized", "use",
+    "virtual", "where", "while", "yield",
+];
+const UNUSABLE: [&str; 3] = ["self", "super", "crate"];
 
 struct Locale {
     code: String,
@@ -118,7 +126,7 @@ fn placeholders(text: &str) -> BTreeSet<&str> {
 }
 
 fn write_structs(out: &mut String, name: &str, table: &Map<String, Value>) {
-    let _ = writeln!(out, "pub struct {name} {{");
+    let _ = writeln!(out, "#[allow(non_camel_case_types)]\npub struct {name} {{");
     for (key, value) in table {
         let field = field_name(key);
         match value {
@@ -226,15 +234,25 @@ fn field_name(key: &str) -> String {
             .is_some_and(|byte| byte.is_ascii_lowercase())
             && key
                 .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'),
-        "{SOURCE}: key `{key}` must be snake_case"
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            && !key.contains("__")
+            && !key.ends_with('_'),
+        "{SOURCE}: key `{key}` must be snake_case without double or trailing underscores"
     );
-    key.to_owned()
+    assert!(
+        !UNUSABLE.contains(&key),
+        "{SOURCE}: `{key}` cannot be used as a key"
+    );
+
+    if KEYWORDS.contains(&key) {
+        format!("r#{key}")
+    } else {
+        key.to_owned()
+    }
 }
 
 fn nested_name(parent: &str, key: &str) -> String {
-    let parent = parent.strip_suffix("Strings").unwrap_or(parent);
-    format!("{parent}{}Strings", camel_case(key))
+    format!("{parent}__{key}")
 }
 
 fn variant_name(code: &str) -> String {
