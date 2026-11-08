@@ -64,12 +64,15 @@ pub fn save(path: &Path, items: &[ScheduleItem]) -> Result<(), ScheduleFileError
     let json = serde_json::to_string_pretty(&file).map_err(io::Error::from)?;
     let temporary = temporary_path(path);
 
-    if fs::write(&temporary, &json)
-        .and_then(|()| fs::rename(&temporary, path))
-        .is_err()
-    {
+    if let Err(error) = fs::write(&temporary, &json) {
         let _ = fs::remove_file(&temporary);
-        fs::write(path, json)?;
+        return Err(error.into());
+    }
+
+    if fs::rename(&temporary, path).is_err() {
+        let written = fs::write(path, &json);
+        let _ = fs::remove_file(&temporary);
+        written?;
     }
 
     Ok(())
@@ -263,6 +266,19 @@ mod tests {
 
         assert_eq!(open(&path).unwrap().len(), 1);
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn gagal_menulis_file_sementara_tidak_menyentuh_file_lama() {
+        let dir = TempDir::new("schedule-temp-fails");
+        let path = dir.path().join("minggu.sdw");
+        save(&path, &items()).unwrap();
+        fs::create_dir(dir.path().join("minggu.sdw.tmp")).unwrap();
+
+        let result = save(&path, &items()[..1]);
+
+        assert!(matches!(result, Err(ScheduleFileError::Io(_))));
+        assert_eq!(open(&path).unwrap(), items());
     }
 
     #[test]
