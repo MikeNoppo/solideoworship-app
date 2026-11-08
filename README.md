@@ -160,8 +160,14 @@ cargo fmt                    # format kode
 
 `cargo clippy` memunculkan peringatan *future-incompatibility* untuk `block v0.1.6`. Peringatan itu berasal dari dependensi macOS milik `display-info`, bukan dari kode proyek ini.
 
+Setiap push ke `main` dan setiap pull request diperiksa CI di Linux, Windows, dan macOS: format, clippy tanpa peringatan, seluruh test, build dengan Rust 1.92, serta lisensi dan celah keamanan dependency lewat [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). Dependency baru wajib memakai lisensi yang cocok dengan GPL-3.0; daftarnya ada di `deny.toml`. Di Linux, build membutuhkan paket `libxcb1-dev` (atau padanannya di distro kamu).
+
 Kontribusi sangat diterima. Commit memakai format [Conventional Commits](https://www.conventionalcommits.org), dan komentar kode serta teks antarmuka ditulis dalam Bahasa Indonesia.
 
 ## Lisensi
 
-Belum ditentukan.
+Hak cipta © 2026 MikeNoppo.
+
+SolideoWorship dirilis di bawah [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
+
+Kamu bebas memakai, mempelajari, mengubah, dan membagikan aplikasi ini, termasuk untuk gereja dan pelayanan apa pun. Siapa pun yang membagikan aplikasi ini atau versi turunannya, gratis maupun berbayar, wajib menyediakan source code lengkapnya di bawah lisensi yang sama dan mempertahankan pemberitahuan hak cipta. Versi tertutup tidak diizinkan.
