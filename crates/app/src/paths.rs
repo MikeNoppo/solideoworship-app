@@ -18,6 +18,12 @@ pub fn language_file() -> PathBuf {
     data_dir().join(LANGUAGE_FILE)
 }
 
+pub fn installed_language_file() -> Option<PathBuf> {
+    let executable = env::current_exe().ok()?;
+
+    Some(executable.parent()?.join(LANGUAGE_FILE))
+}
+
 fn data_dir() -> PathBuf {
     non_empty_var("SDW_DATA_DIR")
         .map(PathBuf::from)

@@ -54,7 +54,10 @@ const IMPORT_BUFFER: usize = 64 * 1024;
 const QUIT_FLUSH: Duration = Duration::from_secs(2);
 
 fn main() -> iced::Result {
-    i18n::init(&paths::language_file());
+    i18n::init(
+        &paths::language_file(),
+        paths::installed_language_file().as_deref(),
+    );
 
     iced::daemon(App::boot, App::update, App::view)
         .title(App::title)
