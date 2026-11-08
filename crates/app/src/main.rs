@@ -87,6 +87,8 @@ struct App {
     library_error: Option<Box<str>>,
 
     song_results: Vec<SongSummary>,
+    song_results_query: Box<str>,
+    pick_first_song: bool,
     modal: Option<Modal>,
     after_save: Option<Pending>,
     bible: BibleTab,
@@ -277,23 +279,39 @@ impl App {
             }
             Message::SearchChanged(query) => {
                 self.search = query;
+                self.pick_first_song = false;
                 self.search_songs()
             }
-            Message::SearchSubmitted => match self.library_tab {
-                LibraryTab::Songs => match self.song_results.first() {
-                    Some(song) => self.update(Message::SongPicked(song.id)),
-                    None => Task::none(),
-                },
-                LibraryTab::Scripture => Task::none(),
-            },
+            Message::SearchSubmitted => {
+                if self.library_tab != LibraryTab::Songs {
+                    return Task::none();
+                }
+
+                if *self.song_results_query == *self.search.trim() {
+                    return self.pick_first_song();
+                }
+
+                self.pick_first_song = true;
+                Task::none()
+            }
             Message::SongsFound(query, result) => {
-                if *query == *self.search.trim() {
-                    match result {
-                        Ok(songs) => {
-                            self.song_results = songs;
-                            self.library_error = None;
+                if *query != *self.search.trim() {
+                    return Task::none();
+                }
+
+                match result {
+                    Ok(songs) => {
+                        self.song_results = songs;
+                        self.song_results_query = query;
+                        self.library_error = None;
+
+                        if std::mem::take(&mut self.pick_first_song) {
+                            return self.pick_first_song();
                         }
-                        Err(error) => self.library_error = Some(error),
+                    }
+                    Err(error) => {
+                        self.pick_first_song = false;
+                        self.library_error = Some(error);
                     }
                 }
                 Task::none()
@@ -734,6 +752,13 @@ impl App {
         )
     }
 
+    fn pick_first_song(&mut self) -> Task<Message> {
+        match self.song_results.first() {
+            Some(song) => self.update(Message::SongPicked(song.id)),
+            None => Task::none(),
+        }
+    }
+
     fn load_bibles(&self) -> Task<Message> {
         self.store
             .run(|library| library.bibles(), Message::BiblesLoaded)
@@ -907,6 +932,8 @@ mod tests {
     use iced::window;
     use sdw_core::{ScheduleItem, Song};
 
+    use sdw_library::{Library, SongSummary};
+
     use super::{App, Modal};
     use crate::message::{Message, Pending, UnsavedChoice};
     use crate::theme_dialog::ThemeDialog;
@@ -1031,5 +1058,72 @@ mod tests {
         let _ = app.update(Message::WindowCloseRequested(control));
 
         assert!(matches!(app.modal, Some(Modal::Theme(_))));
+    }
+
+    fn summaries(titles: &[&str]) -> Vec<SongSummary> {
+        let mut library = Library::open_in_memory().unwrap();
+
+        for title in titles {
+            library
+                .insert_song(&Song::new(title, "satu", None))
+                .unwrap();
+        }
+
+        library.search_songs("", 100).unwrap()
+    }
+
+    #[test]
+    fn enter_dengan_hasil_basi_menunggu_hasil_query_sekarang() {
+        let mut app = App {
+            song_results: summaries(&["Allah Peduli"]),
+            search: "kasih".into(),
+            ..App::default()
+        };
+
+        let _ = app.update(Message::SearchSubmitted);
+
+        assert!(app.pick_first_song);
+    }
+
+    #[test]
+    fn hasil_untuk_query_sekarang_memenuhi_enter_yang_tertunda() {
+        let mut app = App {
+            search: "kasih".into(),
+            ..App::default()
+        };
+        let _ = app.update(Message::SearchSubmitted);
+
+        let _ = app.update(Message::SongsFound(
+            "kasih".into(),
+            Ok(summaries(&["Kasih"])),
+        ));
+
+        assert!(!app.pick_first_song);
+        assert_eq!(&*app.song_results_query, "kasih");
+    }
+
+    #[test]
+    fn mengetik_lagi_membatalkan_enter_yang_tertunda() {
+        let mut app = App {
+            search: "kas".into(),
+            ..App::default()
+        };
+        let _ = app.update(Message::SearchSubmitted);
+
+        let _ = app.update(Message::SearchChanged("kasih".into()));
+
+        assert!(!app.pick_first_song);
+    }
+
+    #[test]
+    fn hasil_query_lama_tidak_dipakai() {
+        let mut app = App {
+            search: "kasih".into(),
+            ..App::default()
+        };
+
+        let _ = app.update(Message::SongsFound("ka".into(), Ok(summaries(&["Kami"]))));
+
+        assert!(app.song_results.is_empty());
     }
 }
