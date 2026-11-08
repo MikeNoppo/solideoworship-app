@@ -19,29 +19,31 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound => f.write_str("Data tidak ditemukan di library."),
-            Self::EmptyTitle => f.write_str("Judul lagu tidak boleh kosong."),
+            Self::NotFound => f.write_str("Not found in the library."),
+            Self::EmptyTitle => f.write_str("The song title must not be empty."),
             Self::NewerSchema { found, supported } => write!(
                 f,
-                "Library ini dibuat oleh versi SolideoWorship yang lebih baru \
-                 (skema {found}, aplikasi ini mendukung sampai {supported}). \
-                 Perbarui aplikasi untuk membukanya."
+                "This library was created by a newer version of SolideoWorship \
+                 (schema {found}, this app supports up to {supported}). \
+                 Update the app to open it."
             ),
             Self::BibleExists(abbreviation) => write!(
                 f,
-                "Terjemahan dengan singkatan \"{abbreviation}\" sudah ada di library."
+                "A translation with abbreviation \"{abbreviation}\" already exists in the library."
             ),
-            Self::EmptyAbbreviation => f.write_str("Singkatan terjemahan tidak boleh kosong."),
-            Self::NotZefania => f.write_str("File ini bukan Alkitab berformat Zefania XML."),
-            Self::EmptyBible => f.write_str("Tidak ada ayat yang bisa dibaca dari file ini."),
+            Self::EmptyAbbreviation => {
+                f.write_str("The translation abbreviation must not be empty.")
+            }
+            Self::NotZefania => f.write_str("This file is not a Zefania XML Bible."),
+            Self::EmptyBible => f.write_str("No verses could be read from this file."),
             Self::Xml { position, message } => {
-                write!(f, "File Alkitab rusak di posisi byte {position}: {message}")
+                write!(f, "The Bible file is broken at byte {position}: {message}")
             }
             Self::Encoding => f.write_str(
-                "File Alkitab harus berenkoding UTF-8. Simpan ulang file sebagai UTF-8 lalu coba lagi.",
+                "The Bible file must be UTF-8 encoded. Save the file again as UTF-8 and retry.",
             ),
-            Self::Storage(error) => write!(f, "Gagal mengakses database library: {error}"),
-            Self::Io(error) => write!(f, "Gagal mengakses file: {error}"),
+            Self::Storage(error) => write!(f, "Could not access the library database: {error}"),
+            Self::Io(error) => write!(f, "Could not access the file: {error}"),
         }
     }
 }

@@ -184,7 +184,7 @@ impl<R: BufRead> ZefaniaReader<R> {
                 Event::Eof => {
                     return Err(Error::Xml {
                         position: self.reader.buffer_position(),
-                        message: "file berakhir di tengah ayat".into(),
+                        message: "file ended in the middle of a verse".into(),
                     });
                 }
                 _ => {}

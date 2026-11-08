@@ -84,10 +84,10 @@ mod tests {
     use crate::test_support::TempDir;
 
     #[test]
-    fn library_di_file_bertahan_setelah_dibuka_ulang() {
+    fn file_library_survives_reopening() {
         let dir = TempDir::new("persist");
         let path = dir.path().join("nested").join("library.sqlite3");
-        let song = Song::new("Uji", "satu", None);
+        let song = Song::new("Test", "one", None);
 
         let id = Library::open(&path).unwrap().insert_song(&song).unwrap();
         let reopened = Library::open(&path).unwrap();

@@ -181,7 +181,7 @@ mod tests {
 
     const SAMPLE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <!-- Alkitab sintetis untuk pengujian -->
-<XMLBIBLE biblename="Alkitab Uji" type="x-bible">
+<XMLBIBLE biblename="Test Bible" type="x-bible">
   <INFORMATION><title>Informasi yang diabaikan</title></INFORMATION>
   <BIBLEBOOK bnumber="43" bname="Yohanes">
     <CHAPTER cnumber="3">
@@ -223,21 +223,21 @@ mod tests {
     }
 
     #[test]
-    fn impor_menghitung_ayat_dan_yang_dilewati() {
+    fn import_counts_verses_and_skipped() {
         let mut library = Library::open_in_memory().unwrap();
 
-        let report = library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        let report = library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
         assert_eq!(report.verses, 5);
         assert_eq!(report.skipped, 3);
-        assert_eq!(&*report.bible.title, "Alkitab Uji");
+        assert_eq!(&*report.bible.title, "Test Bible");
         assert_eq!(library.bibles().unwrap(), vec![report.bible]);
     }
 
     #[test]
-    fn teks_ayat_dibersihkan() {
+    fn verse_text_is_cleaned() {
         let mut library = Library::open_in_memory().unwrap();
-        library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
         assert_eq!(
             verse(&library, 43, 3, 16).as_deref(),
@@ -253,27 +253,27 @@ mod tests {
     }
 
     #[test]
-    fn kitab_tanpa_nomor_dikenali_dari_namanya() {
+    fn book_without_number_is_recognized_by_name() {
         let mut library = Library::open_in_memory().unwrap();
-        library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
         assert_eq!(verse(&library, 1, 1, 1).as_deref(), Some("Pada mulanya"));
     }
 
     #[test]
-    fn kitab_tak_dikenal_dilewati_apa_pun_penulisan_tagnya() {
+    fn unknown_book_is_skipped_regardless_of_tag_spelling() {
         let lowercase = r#"<xmlbible><biblebook bnumber="70"><chapter cnumber="1">
             <vers vnumber="1">deuterokanonika</vers></chapter></biblebook>
-            <biblebook bnumber="43"><chapter cnumber="3"><vers vnumber="16">satu</vers>
+            <biblebook bnumber="43"><chapter cnumber="3"><vers vnumber="16">one</vers>
             </chapter></biblebook></xmlbible>"#;
         let prefixed = r#"<zef:XMLBIBLE xmlns:zef="urn:zefania">
             <zef:BIBLEBOOK bnumber="70"><zef:CHAPTER cnumber="1"><zef:VERS vnumber="1">x</zef:VERS>
             </zef:CHAPTER></zef:BIBLEBOOK>
             <zef:BIBLEBOOK bnumber="43"><zef:CHAPTER cnumber="0"><zef:VERS vnumber="1">y</zef:VERS>
-            </zef:CHAPTER><zef:CHAPTER cnumber="3"><zef:VERS vnumber="16">satu</zef:VERS>
+            </zef:CHAPTER><zef:CHAPTER cnumber="3"><zef:VERS vnumber="16">one</zef:VERS>
             </zef:CHAPTER></zef:BIBLEBOOK></zef:XMLBIBLE>"#;
 
-        for (abbreviation, source) in [("KECIL", lowercase), ("PREFIX", prefixed)] {
+        for (abbreviation, source) in [("LOWER", lowercase), ("PREFIX", prefixed)] {
             let mut library = Library::open_in_memory().unwrap();
 
             let report = library
@@ -281,12 +281,12 @@ mod tests {
                 .unwrap();
 
             assert_eq!(report.verses, 1, "{abbreviation}");
-            assert_eq!(verse(&library, 43, 3, 16).as_deref(), Some("satu"));
+            assert_eq!(verse(&library, 43, 3, 16).as_deref(), Some("one"));
         }
     }
 
     #[test]
-    fn entitas_html_diterjemahkan_dan_yang_asing_tidak_menempelkan_kata() {
+    fn html_entities_are_decoded_and_unknown_ones_do_not_join_words() {
         let mut library = Library::open_in_memory().unwrap();
         let source = r#"<XMLBIBLE><BIBLEBOOK bnumber="43"><CHAPTER cnumber="3">
             <VERS vnumber="1">kasih&nbsp;setia</VERS>
@@ -294,7 +294,7 @@ mod tests {
             <VERS vnumber="3">kasih&entitasasing;setia</VERS>
             </CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
 
-        library.import_zefania(source.as_bytes(), "UJI").unwrap();
+        library.import_zefania(source.as_bytes(), "TST").unwrap();
 
         assert_eq!(verse(&library, 43, 3, 1).as_deref(), Some("kasih setia"));
         assert_eq!(
@@ -305,26 +305,26 @@ mod tests {
     }
 
     #[test]
-    fn file_dengan_bom_tetap_terbaca() {
+    fn file_with_bom_is_still_read() {
         let mut library = Library::open_in_memory().unwrap();
         let source = format!("\u{feff}{SAMPLE}");
 
-        assert!(library.import_zefania(source.as_bytes(), "UJI").is_ok());
+        assert!(library.import_zefania(source.as_bytes(), "TST").is_ok());
     }
 
     #[test]
-    fn singkatan_ganda_ditolak_tanpa_membedakan_huruf() {
+    fn duplicate_abbreviation_is_rejected_case_insensitively() {
         let mut library = Library::open_in_memory().unwrap();
-        library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
-        let result = library.import_zefania(SAMPLE.as_bytes(), " uji ");
+        let result = library.import_zefania(SAMPLE.as_bytes(), " tst ");
 
         assert!(matches!(result, Err(Error::BibleExists(_))));
         assert_eq!(library.bibles().unwrap().len(), 1);
     }
 
     #[test]
-    fn singkatan_kosong_ditolak() {
+    fn empty_abbreviation_is_rejected() {
         let mut library = Library::open_in_memory().unwrap();
 
         assert!(matches!(
@@ -334,13 +334,13 @@ mod tests {
     }
 
     #[test]
-    fn file_bukan_zefania_ditolak_tanpa_menulis_apa_pun() {
+    fn non_zefania_file_is_rejected_without_writing_anything() {
         let mut library = Library::open_in_memory().unwrap();
 
-        for source in ["<html><body>bukan</body></html>", "teks biasa", ""] {
+        for source in ["<html><body>not</body></html>", "plain text", ""] {
             assert!(
                 matches!(
-                    library.import_zefania(source.as_bytes(), "UJI"),
+                    library.import_zefania(source.as_bytes(), "TST"),
                     Err(Error::NotZefania)
                 ),
                 "{source}"
@@ -351,12 +351,12 @@ mod tests {
     }
 
     #[test]
-    fn xml_rusak_membatalkan_seluruh_impor() {
+    fn broken_xml_aborts_whole_import() {
         let mut library = Library::open_in_memory().unwrap();
         let broken = r#"<XMLBIBLE><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
-            <VERS vnumber="1">satu</VERS><VERS vnumber="2">dua</CHAPTER></XMLBIBLE>"#;
+            <VERS vnumber="1">one</VERS><VERS vnumber="2">two</CHAPTER></XMLBIBLE>"#;
 
-        let result = library.import_zefania(broken.as_bytes(), "UJI");
+        let result = library.import_zefania(broken.as_bytes(), "TST");
 
         assert!(matches!(result, Err(Error::Xml { .. })), "{result:?}");
         assert!(library.bibles().unwrap().is_empty());
@@ -364,34 +364,34 @@ mod tests {
     }
 
     #[test]
-    fn file_tanpa_ayat_ditolak() {
+    fn file_without_verses_is_rejected() {
         let mut library = Library::open_in_memory().unwrap();
         let empty =
             r#"<XMLBIBLE biblename="Kosong"><BIBLEBOOK bnumber="1"></BIBLEBOOK></XMLBIBLE>"#;
 
         assert!(matches!(
-            library.import_zefania(empty.as_bytes(), "UJI"),
+            library.import_zefania(empty.as_bytes(), "TST"),
             Err(Error::EmptyBible)
         ));
         assert!(library.bibles().unwrap().is_empty());
     }
 
     #[test]
-    fn file_bukan_utf8_ditolak() {
+    fn non_utf8_file_is_rejected() {
         let mut library = Library::open_in_memory().unwrap();
         let latin1: &[u8] = b"<XMLBIBLE><BIBLEBOOK bnumber=\"1\"><CHAPTER cnumber=\"1\">\
             <VERS vnumber=\"1\">caf\xe9</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>";
 
         assert!(matches!(
-            library.import_zefania(latin1, "UJI"),
+            library.import_zefania(latin1, "TST"),
             Err(Error::Encoding)
         ));
     }
 
     #[test]
-    fn menghapus_terjemahan_ikut_menghapus_ayatnya() {
+    fn deleting_translation_deletes_its_verses() {
         let mut library = Library::open_in_memory().unwrap();
-        let report = library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        let report = library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
         library.delete_bible(report.bible.id).unwrap();
 
@@ -400,16 +400,16 @@ mod tests {
     }
 
     #[test]
-    fn nama_terjemahan_tampil_dengan_singkatannya() {
+    fn translation_name_is_shown_with_abbreviation() {
         let mut library = Library::open_in_memory().unwrap();
-        let report = library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        let report = library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
-        assert_eq!(report.bible.to_string(), "UJI — Alkitab Uji");
+        assert_eq!(report.bible.to_string(), "TST — Test Bible");
     }
 
     fn imported() -> (Library, BibleId) {
         let mut library = Library::open_in_memory().unwrap();
-        let report = library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+        let report = library.import_zefania(SAMPLE.as_bytes(), "TST").unwrap();
 
         (library, report.bible.id)
     }
@@ -425,14 +425,14 @@ mod tests {
     }
 
     #[test]
-    fn satu_pasal_mengambil_semua_ayat_berurutan() {
+    fn whole_chapter_fetches_all_verses_in_order() {
         let (library, bible) = imported();
 
         assert_eq!(numbers(&library, bible, "Yoh 3"), [16, 17, 19, 20]);
     }
 
     #[test]
-    fn rentang_hanya_mengambil_ayat_di_dalamnya() {
+    fn range_fetches_only_verses_inside_it() {
         let (library, bible) = imported();
 
         assert_eq!(numbers(&library, bible, "Yoh 3:17-19"), [17, 19]);
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn rentang_disempitkan_ke_ayat_yang_ada() {
+    fn range_is_narrowed_to_existing_verses() {
         let (library, bible) = imported();
 
         let passage = library
@@ -448,11 +448,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(passage.reference().to_string(), "Yohanes 3:16-20");
-        assert_eq!(passage.translation(), "UJI");
+        assert_eq!(passage.translation(), "TST");
     }
 
     #[test]
-    fn ayat_yang_tidak_ada_tidak_ditemukan() {
+    fn missing_verses_are_not_found() {
         let (library, bible) = imported();
 
         for reference in ["Yoh 3:40-50", "Yoh 4", "Why 1"] {
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn terjemahan_yang_dihapus_tidak_ditemukan() {
+    fn deleted_translation_is_not_found() {
         let (mut library, bible) = imported();
         library.delete_bible(bible).unwrap();
 
@@ -478,12 +478,12 @@ mod tests {
     }
 
     #[test]
-    fn perikop_diambil_dari_terjemahan_yang_dipilih() {
+    fn passage_comes_from_selected_translation() {
         let (mut library, first) = imported();
         let other = r#"<XMLBIBLE><BIBLEBOOK bnumber="43"><CHAPTER cnumber="3">
-            <VERS vnumber="16">versi lain</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+            <VERS vnumber="16">other version</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
         let second = library
-            .import_zefania(other.as_bytes(), "LAIN")
+            .import_zefania(other.as_bytes(), "OTHER")
             .unwrap()
             .bible
             .id;
@@ -496,7 +496,7 @@ mod tests {
             &*first.verses()[0].text,
             "Karena begitu besar kasih & setia!"
         );
-        assert_eq!(&*second.verses()[0].text, "versi lain");
-        assert_eq!(second.translation(), "LAIN");
+        assert_eq!(&*second.verses()[0].text, "other version");
+        assert_eq!(second.translation(), "OTHER");
     }
 }
