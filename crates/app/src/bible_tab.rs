@@ -5,12 +5,10 @@ use iced::{Center, Element, Fill};
 use sdw_core::bible::{Passage, Reference, ReferenceError};
 use sdw_library::{BibleId, BibleSummary};
 
+use crate::i18n::{fill, t};
 use crate::panes::{alert, notice};
 use crate::work::Outcome;
 
-const HINT: &str =
-    "Ketik referensi seperti Yoh 3:16-18, lalu tekan Enter untuk menambahkannya ke susunan acara.";
-const NOT_FOUND: &str = "Ayat ini tidak ada di terjemahan yang dipilih.";
 const PREVIEW_LIMIT: usize = 30;
 
 pub struct BibleTab {
@@ -131,16 +129,13 @@ impl BibleTab {
                         .checked_sub(PREVIEW_LIMIT)
                         .filter(|&remaining| remaining > 0)
                         .map(|remaining| {
-                            format!(
-                                "…dan {remaining} ayat lagi. Semua ayat ikut ditambahkan ke susunan acara."
-                            )
-                            .into_boxed_str()
+                            fill(t().bible.remaining, &[("count", &remaining)]).into_boxed_str()
                         }),
                     passage,
                 });
                 self.lookup_error = None;
             }
-            Ok(None) => self.lookup_error = Some(NOT_FOUND.into()),
+            Ok(None) => self.lookup_error = Some(t().bible.not_found.into()),
             Err(error) => self.lookup_error = Some(error),
         }
 
@@ -161,9 +156,9 @@ impl BibleTab {
 
         row![
             pick_list(&self.bibles[..], selected, Message::BibleSelected)
-                .placeholder("Terjemahan")
+                .placeholder(t().bible.translation)
                 .text_size(13),
-            text_input("Referensi, mis. Yoh 3:16-18", &self.input)
+            text_input(t().bible.reference_placeholder, &self.input)
                 .on_input(Message::InputChanged)
                 .on_submit(Message::Submitted)
                 .size(13)
@@ -176,9 +171,7 @@ impl BibleTab {
 
     pub fn body(&self) -> Element<'_, Message> {
         if self.bibles.is_empty() {
-            return notice(
-                "Belum ada terjemahan Alkitab. Klik Kelola Alkitab untuk mengimpor file Zefania XML.",
-            );
+            return notice(t().bible.no_bibles);
         }
 
         if let Some(invalid) = &self.invalid {
@@ -186,7 +179,7 @@ impl BibleTab {
         }
 
         if self.reference.is_err() {
-            return notice(HINT);
+            return notice(t().bible.hint);
         }
 
         if let Some(error) = &self.lookup_error {
@@ -194,7 +187,7 @@ impl BibleTab {
         }
 
         let Some(found) = self.current() else {
-            return notice("Mencari ayat…");
+            return notice(t().bible.searching);
         };
 
         let verses = found
@@ -222,7 +215,7 @@ impl BibleTab {
             row![
                 text(&*found.summary).size(13),
                 space::horizontal(),
-                button(text("Tambahkan ke susunan acara").size(12))
+                button(text(t().bible.add).size(12))
                     .padding([4, 12])
                     .on_press(Message::Submitted)
                     .style(button::primary),
@@ -288,7 +281,7 @@ mod tests {
     fn lookup(action: Action) -> (BibleId, Reference) {
         match action {
             Action::Lookup(bible, reference) => (bible, reference),
-            other => panic!("seharusnya mencari, bukan {other:?}"),
+            other => panic!("expected a lookup, got {other:?}"),
         }
     }
 
@@ -400,7 +393,7 @@ mod tests {
         let verses = (1..=176)
             .map(|number| Verse {
                 number,
-                text: "ayat".into(),
+                text: "verse".into(),
             })
             .collect();
         let passage = Passage::new(reference.clone(), "TB", verses).unwrap();
@@ -414,11 +407,11 @@ mod tests {
                 .remaining
                 .as_deref()
                 .unwrap()
-                .contains("146 ayat lagi")
+                .contains("146 more verses")
         );
 
         let Action::Add(added) = tab.update(Message::Submitted) else {
-            panic!("seharusnya menambahkan");
+            panic!("expected an add action");
         };
         assert_eq!(added.verses().len(), 176);
     }

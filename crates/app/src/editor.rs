@@ -7,16 +7,12 @@ use sdw_core::theme::SlideTheme;
 use sdw_core::{Song, compile};
 use sdw_library::SongId;
 
+use crate::i18n::t;
 use crate::panes::{dialog, thumbnails};
 use crate::render::slide::{self, Visibility};
 use crate::style;
 
 pub const TITLE_INPUT: &str = "editor-title";
-
-const LYRICS_PLACEHOLDER: &str = "[Verse 1]\nTulis lirik di sini…\n\n[Reff]\n…";
-const LYRICS_HINT: &str = "Tulis judul bagian dalam kurung siku di barisnya sendiri, misalnya \
-                           [Verse 1] atau [Reff]. Baris kosong memulai slide baru.";
-const EMPTY_TITLE: &str = "Judul lagu tidak boleh kosong.";
 
 pub struct Editor {
     origin: Option<SongId>,
@@ -118,15 +114,15 @@ impl Editor {
 
     pub fn view<'a>(&'a self, theme: &'a SlideTheme) -> Element<'a, Message> {
         let heading = if self.origin.is_some() {
-            "Ubah lagu"
+            t().editor.edit_title
         } else {
-            "Lagu baru"
+            t().editor.new_title
         };
 
         let fields = row![
             column![
-                text("Judul").size(12).style(text::secondary),
-                text_input("Judul lagu", &self.title)
+                text(t().editor.title).size(12).style(text::secondary),
+                text_input(t().editor.title_placeholder, &self.title)
                     .id(TITLE_INPUT)
                     .on_input(Message::TitleChanged)
                     .on_submit(Message::Save),
@@ -134,8 +130,8 @@ impl Editor {
             .spacing(4)
             .width(FillPortion(3)),
             column![
-                text("Copyright / CCLI").size(12).style(text::secondary),
-                text_input("Opsional", &self.copyright)
+                text(t().editor.copyright).size(12).style(text::secondary),
+                text_input(t().editor.optional, &self.copyright)
                     .on_input(Message::CopyrightChanged)
                     .on_submit(Message::Save),
             ]
@@ -145,26 +141,22 @@ impl Editor {
         .spacing(12);
 
         let lyrics = column![
-            text("Lirik").size(12).style(text::secondary),
+            text(t().editor.lyrics).size(12).style(text::secondary),
             text_editor(&self.lyrics)
-                .placeholder(LYRICS_PLACEHOLDER)
+                .placeholder(t().editor.lyrics_placeholder)
                 .on_action(Message::LyricsEdited)
                 .size(15)
                 .height(Fill),
-            text(LYRICS_HINT).size(11).style(text::secondary),
+            text(t().editor.lyrics_hint).size(11).style(text::secondary),
         ]
         .spacing(4)
         .width(FillPortion(3))
         .height(Fill);
 
         let slides: Element<'_, Message> = if self.deck.is_empty() {
-            container(
-                text("Belum ada slide. Mulai tulis lirik di sebelah kiri.")
-                    .size(13)
-                    .style(text::secondary),
-            )
-            .padding(8)
-            .into()
+            container(text(t().editor.no_slides).size(13).style(text::secondary))
+                .padding(8)
+                .into()
         } else {
             scrollable(thumbnails(
                 &self.deck.slides,
@@ -177,7 +169,7 @@ impl Editor {
         };
 
         let preview = column![
-            text("Preview").size(12).style(text::secondary),
+            text(t().common.preview).size(12).style(text::secondary),
             container(slide::stage(
                 self.deck.slides.get(self.selected),
                 theme,
@@ -207,16 +199,16 @@ impl Editor {
     fn footer(&self) -> Element<'_, Message> {
         let delete: Element<'_, Message> = match (self.origin, self.confirm_delete) {
             (None, _) => space::horizontal().width(0).into(),
-            (Some(_), false) => button("Hapus lagu")
+            (Some(_), false) => button(t().editor.delete_song)
                 .on_press_maybe((!self.busy).then_some(Message::Delete))
                 .style(button::danger)
                 .into(),
             (Some(_), true) => row![
-                text("Hapus lagu ini dari library?").size(13),
-                button("Ya, hapus")
+                text(t().editor.confirm_delete).size(13),
+                button(t().common.confirm_delete)
                     .on_press_maybe((!self.busy).then_some(Message::DeleteConfirmed))
                     .style(button::danger),
-                button("Tidak")
+                button(t().editor.keep)
                     .on_press(Message::DeleteCancelled)
                     .style(button::secondary),
             ]
@@ -233,12 +225,16 @@ impl Editor {
                 .as_deref()
                 .map(|error| text(error).size(13).style(text::danger)),
             space::horizontal(),
-            button("Batal")
+            button(t().common.cancel)
                 .on_press(Message::Cancel)
                 .style(button::secondary),
-            button(if self.busy { "Menyimpan…" } else { "Simpan" })
-                .on_press_maybe(can_save.then_some(Message::Save))
-                .style(button::primary),
+            button(if self.busy {
+                t().common.saving
+            } else {
+                t().common.save
+            })
+            .on_press_maybe(can_save.then_some(Message::Save))
+            .style(button::primary),
         ]
         .spacing(10)
         .align_y(Center)
@@ -262,7 +258,7 @@ impl Editor {
         let song = self.song();
 
         if song.title().is_empty() {
-            self.error = Some(EMPTY_TITLE.into());
+            self.error = Some(t().errors.empty_title.into());
             return Action::None;
         }
 
@@ -370,7 +366,7 @@ mod tests {
         let mut editor = editor("one");
         let _ = editor.update(Message::Save);
 
-        editor.fail("rusak".into());
+        editor.fail("broken".into());
 
         assert!(matches!(editor.update(Message::Save), Action::Save { .. }));
     }

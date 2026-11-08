@@ -5,6 +5,7 @@ use iced::widget::{button, column, row, scrollable, text};
 use iced::{Center, Element, Fill};
 
 use crate::App;
+use crate::i18n::{kind_label, t};
 use crate::message::Message;
 use crate::panes::{notice, pane, title};
 use crate::style;
@@ -22,7 +23,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     button(
                         column![
                             text(&*entry.deck().title).size(14),
-                            text(entry.item().kind().label())
+                            text(kind_label(entry.item().kind()))
                                 .size(11)
                                 .style(style::caption(is_selected)),
                         ]
@@ -44,7 +45,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     );
 
     let body: Element<'_, Message> = if app.schedule.is_empty() {
-        notice("Susunan acara masih kosong.\nTambahkan dari library di bawah.")
+        notice(t().schedule.empty)
     } else {
         scrollable(items).height(Fill).into()
     };
@@ -55,12 +56,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .and_then(Path::file_stem)
         .and_then(OsStr::to_str);
 
-    let header = row![title("Susunan Acara", name)]
+    let header = row![title(t().schedule.title, name)]
         .push(app.schedule.is_dirty().then(|| {
             text(if app.schedule.is_recovered() {
-                " ● dipulihkan, belum disimpan"
+                t().schedule.recovered
             } else {
-                " ● belum disimpan"
+                t().schedule.unsaved
             })
             .size(11)
             .style(text::warning)

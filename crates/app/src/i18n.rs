@@ -3,6 +3,8 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::{env, fs};
 
+use sdw_core::slide::ContentKind;
+
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 
 static ACTIVE: OnceLock<&'static Strings> = OnceLock::new();
@@ -34,6 +36,13 @@ fn choose(variable: Option<&str>, file: Option<&str>) -> Language {
 
 pub fn t() -> &'static Strings {
     ACTIVE.get().copied().unwrap_or(&EN)
+}
+
+pub fn kind_label(kind: ContentKind) -> &'static str {
+    match kind {
+        ContentKind::Song => t().schedule.song,
+        ContentKind::Scripture => t().schedule.scripture,
+    }
 }
 
 pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {

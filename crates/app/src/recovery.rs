@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use sdw_core::ScheduleItem;
 use sdw_library::schedule_file::{self, ScheduleFileError};
 
+use crate::i18n::{fill, t};
 use crate::schedule::Schedule;
-use crate::work::{self, Outcome};
+use crate::work::Outcome;
 
 #[derive(Default)]
 pub struct Recovery {
@@ -76,9 +77,7 @@ pub fn load(path: &Path) -> Outcome<Option<Vec<ScheduleItem>>> {
     match schedule_file::open(path) {
         Ok(items) => Ok(Some(items).filter(|items| !items.is_empty())),
         Err(ScheduleFileError::Io(error)) if error.kind() == ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(work::describe(format_args!(
-            "Susunan acara pemulihan tidak bisa dibaca dan dibuang: {error}"
-        ))),
+        Err(error) => Err(fill(t().app.recovery_unreadable, &[("error", &error)]).into_boxed_str()),
     }
 }
 
@@ -166,7 +165,7 @@ mod tests {
         let dir = env::temp_dir().join(format!("sdw-recovery-bad-{}", process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("recovery.sdw");
-        fs::write(&path, "rusak").unwrap();
+        fs::write(&path, "broken").unwrap();
 
         assert!(load(&path).is_err());
 

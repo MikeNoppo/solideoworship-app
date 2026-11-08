@@ -1,29 +1,30 @@
 use iced::widget::{button, column, container, row, space, text};
 use iced::{Center, Element};
 
+use crate::i18n::t;
 use crate::message::{Message, Pending, UnsavedChoice};
 use crate::style;
 
 pub fn view(pending: Pending) -> Element<'static, Message> {
     let consequence = match pending {
-        Pending::New => "Perubahan akan hilang bila Anda membuat susunan acara baru.",
-        Pending::Open => "Perubahan akan hilang bila Anda membuka file lain.",
-        Pending::Quit => "Perubahan akan hilang bila aplikasi ditutup.",
+        Pending::New => t().unsaved.on_new,
+        Pending::Open => t().unsaved.on_open,
+        Pending::Quit => t().unsaved.on_quit,
     };
 
     container(
         column![
-            text("Susunan acara belum disimpan").size(18),
+            text(t().unsaved.title).size(18),
             text(consequence).size(14).style(text::secondary),
             row![
                 space::horizontal(),
-                button("Batal")
+                button(t().common.cancel)
                     .on_press(Message::Unsaved(UnsavedChoice::Cancel))
                     .style(button::secondary),
-                button("Jangan simpan")
+                button(t().unsaved.discard)
                     .on_press(Message::Unsaved(UnsavedChoice::Discard))
                     .style(button::danger),
-                button("Simpan")
+                button(t().common.save)
                     .on_press(Message::Unsaved(UnsavedChoice::Save))
                     .style(button::primary),
             ]

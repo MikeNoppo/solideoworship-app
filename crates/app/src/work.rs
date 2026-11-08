@@ -9,9 +9,9 @@ use iced::Task;
 use iced::futures::channel::oneshot;
 use sdw_library::Library;
 
-pub type Outcome<T> = Result<T, Box<str>>;
+use crate::i18n::t;
 
-const STOPPED: &str = "Pekerjaan latar berhenti tanpa hasil.";
+pub type Outcome<T> = Result<T, Box<str>>;
 
 pub fn describe(error: impl Display) -> Box<str> {
     error.to_string().into_boxed_str()
@@ -31,13 +31,11 @@ where
         });
 
     Task::perform(receiver, |received| {
-        received.unwrap_or_else(|_| Err(STOPPED.into()))
+        received.unwrap_or_else(|_| Err(t().app.job_stopped.into()))
     })
 }
 
 type Job = Box<dyn FnOnce(Result<&mut Library, &str>) + Send>;
-
-const PANICKED: &str = "Terjadi kesalahan internal saat mengakses library.";
 
 #[derive(Clone)]
 pub struct Store {
@@ -105,7 +103,7 @@ impl Store {
             let outcome = match library {
                 Ok(library) => match panic::catch_unwind(AssertUnwindSafe(|| job(library))) {
                     Ok(result) => result.map_err(describe),
-                    Err(_) => Err(PANICKED.into()),
+                    Err(_) => Err(t().app.job_panicked.into()),
                 },
                 Err(error) => Err(error.into()),
             };
@@ -116,7 +114,7 @@ impl Store {
         let _ = self.jobs.send(job);
 
         Task::perform(receiver, move |received| {
-            done(received.unwrap_or_else(|_| Err(STOPPED.into())))
+            done(received.unwrap_or_else(|_| Err(t().app.job_stopped.into())))
         })
     }
 }

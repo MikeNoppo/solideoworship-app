@@ -32,6 +32,7 @@ use crate::bible_tab::BibleTab;
 use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::SaveTarget;
+use crate::i18n::{fill, t};
 use crate::message::{LibraryTab, Message, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
 use crate::schedule::Schedule;
@@ -145,7 +146,7 @@ impl App {
 
     fn title(&self, window: window::Id) -> String {
         if self.output == Some(window) {
-            return "SolideoWorship — Output".to_owned();
+            return t().app.output_window_title.to_owned();
         }
 
         let marker = if self.schedule.is_dirty() { "● " } else { "" };
@@ -191,8 +192,10 @@ impl App {
                         Task::batch([self.search_songs(), self.load_bibles()])
                     }
                     Err(error) => {
-                        self.library_unavailable =
-                            Some(format!("Library tidak bisa dibuka: {error}").into_boxed_str());
+                        self.library_unavailable = Some(
+                            fill(t().app.library_unavailable, &[("error", &error)])
+                                .into_boxed_str(),
+                        );
                         Task::none()
                     }
                 };
@@ -224,7 +227,8 @@ impl App {
                 self.displays_loaded = true;
                 self.displays.clear();
                 self.selected = None;
-                self.status = Some(format!("Gagal membaca daftar layar: {error}").into_boxed_str());
+                self.status =
+                    Some(fill(t().app.screens_failed, &[("error", &error)]).into_boxed_str());
 
                 self.leave_splash()
             }
@@ -695,11 +699,11 @@ impl App {
 
     fn splash_status(&self) -> &'static str {
         if !self.displays_loaded {
-            "Memeriksa layar yang tersedia…"
+            t().app.checking_screens
         } else if !self.library_ready {
-            "Membuka library lagu…"
+            t().app.opening_library
         } else {
-            "Menyiapkan jendela operator…"
+            t().app.preparing_window
         }
     }
 
@@ -884,7 +888,7 @@ impl App {
 
         if output_display_lost {
             self.reopen_output = false;
-            self.status = Some("Layar output terputus — jendela output ditutup.".into());
+            self.status = Some(t().app.output_disconnected.into());
             return self.close_output();
         }
 
@@ -922,7 +926,7 @@ impl App {
         }
 
         let Some(display) = self.selected_display() else {
-            self.status = Some("Tidak ada layar yang dipilih.".into());
+            self.status = Some(t().app.no_screen_selected.into());
             return Task::none();
         };
 
@@ -1087,7 +1091,7 @@ mod tests {
 
         let _ = app.update(Message::ScheduleSaved(
             revision,
-            Ok(PathBuf::from("minggu.sdw")),
+            Ok(PathBuf::from("sunday.sdw")),
         ));
 
         assert!(app.schedule.is_empty());
@@ -1100,7 +1104,7 @@ mod tests {
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
         let revision = app.schedule.revision();
 
-        let _ = app.update(Message::ScheduleSaved(revision, Err("rusak".into())));
+        let _ = app.update(Message::ScheduleSaved(revision, Err("broken".into())));
 
         assert!(!app.schedule.is_empty());
         assert!(app.after_save.is_none());
@@ -1276,29 +1280,29 @@ mod tests {
         let ticket = app.modal_ticket;
         let _ = app.update(Message::Theme(crate::theme_dialog::Message::Cancel));
 
-        let _ = app.update(Message::SongSaved(ticket, Err("rusak".into())));
+        let _ = app.update(Message::SongSaved(ticket, Err("broken".into())));
 
-        assert_eq!(app.library_error.as_deref(), Some("rusak"));
+        assert_eq!(app.library_error.as_deref(), Some("broken"));
     }
 
     #[test]
     fn library_error_survives_other_successful_operations() {
         let mut app = App {
             search: "a".into(),
-            library_error: Some("impor gagal".into()),
+            library_error: Some("import failed".into()),
             ..App::default()
         };
 
         let _ = app.update(Message::SongsFound("a".into(), Ok(summaries(&["A"]))));
         let _ = app.update(Message::BibleDeleted(app.modal_ticket, Ok(())));
 
-        assert_eq!(app.library_error.as_deref(), Some("impor gagal"));
+        assert_eq!(app.library_error.as_deref(), Some("import failed"));
     }
 
     #[test]
     fn library_error_can_be_dismissed() {
         let mut app = App {
-            library_error: Some("impor gagal".into()),
+            library_error: Some("import failed".into()),
             ..App::default()
         };
 
@@ -1311,20 +1315,20 @@ mod tests {
     fn library_open_failure_is_reported_clearly() {
         let mut app = App::default();
 
-        let _ = app.update(Message::LibraryOpened(Err("disk penuh".into())));
+        let _ = app.update(Message::LibraryOpened(Err("disk full".into())));
         let _ = app.update(Message::SongLoaded(
             library_song().0,
-            Err("disk penuh".into()),
+            Err("disk full".into()),
         ));
 
         assert_eq!(
             app.library_unavailable.as_deref(),
-            Some("Library tidak bisa dibuka: disk penuh")
+            Some("The library could not be opened: disk full")
         );
     }
 
     fn numbered_summaries(count: usize) -> Vec<SongSummary> {
-        let titles: Vec<String> = (0..count).map(|index| format!("Lagu {index:03}")).collect();
+        let titles: Vec<String> = (0..count).map(|index| format!("Song {index:03}")).collect();
         let titles: Vec<&str> = titles.iter().map(String::as_str).collect();
 
         summaries(&titles)
@@ -1354,7 +1358,7 @@ mod tests {
         let mut app = App::default();
 
         let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Pulih", "one", None),
+            Song::new("Recovered", "one", None),
         )]))));
 
         assert_eq!(app.schedule.entries().len(), 1);
@@ -1366,7 +1370,7 @@ mod tests {
         let mut app = dirty_app();
 
         let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Pulih", "one", None),
+            Song::new("Recovered", "one", None),
         )]))));
 
         assert!(!app.schedule.is_recovered());

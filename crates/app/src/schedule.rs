@@ -324,7 +324,7 @@ mod tests {
         let mut schedule = Schedule::default();
 
         schedule.push(
-            ScheduleItem::Song(Song::new("Kosong", "", None)),
+            ScheduleItem::Song(Song::new("Empty", "", None)),
             None,
             &Styles::default(),
         );
@@ -465,7 +465,7 @@ mod tests {
         let mut schedule = schedule(&["A", "B"]);
 
         schedule.load(
-            PathBuf::from("minggu.sdw"),
+            PathBuf::from("sunday.sdw"),
             vec![song("C")],
             &Styles::default(),
         );
@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(schedule.selected(), None);
         assert!(schedule.preview().is_none());
         assert!(!schedule.is_dirty());
-        assert_eq!(schedule.path(), Some(Path::new("minggu.sdw")));
+        assert_eq!(schedule.path(), Some(Path::new("sunday.sdw")));
     }
 
     #[test]
@@ -483,7 +483,7 @@ mod tests {
         let mut schedule = Schedule::default();
         schedule.load(PathBuf::from("a.sdw"), vec![song("A")], &Styles::default());
 
-        schedule.replace_song(ids[0], &Song::new("Lain", "", None), &Styles::default());
+        schedule.replace_song(ids[0], &Song::new("Other", "", None), &Styles::default());
 
         assert_eq!(&*schedule.entries()[0].deck().title, "A");
     }

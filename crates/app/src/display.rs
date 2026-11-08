@@ -1,5 +1,7 @@
 use iced::{Point, Size};
 
+use crate::i18n::t;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Display {
     pub id: u32,
@@ -31,7 +33,11 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
                     "{name} — {}×{}{}",
                     info.width,
                     info.height,
-                    if info.is_primary { " (utama)" } else { "" }
+                    if info.is_primary {
+                        t().toolbar.primary_screen
+                    } else {
+                        ""
+                    }
                 )
                 .into_boxed_str(),
                 origin: Point::new(info.x as f32 / divisor, info.y as f32 / divisor),

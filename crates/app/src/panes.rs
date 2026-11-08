@@ -12,6 +12,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::slide::Slide;
 use sdw_core::theme::SlideTheme;
 
+use crate::i18n::{fill, t};
 use crate::message::Message;
 use crate::render::slide;
 use crate::style;
@@ -57,9 +58,12 @@ pub fn transport(
     on_next: Message,
 ) -> Element<'static, Message> {
     row![
-        text(format!("Slide {position} dari {total}"))
-            .size(12)
-            .style(text::secondary),
+        text(fill(
+            t().slides.position,
+            &[("position", &position), ("total", &total)],
+        ))
+        .size(12)
+        .style(text::secondary),
         iced::widget::space::horizontal(),
         button("‹")
             .on_press_maybe((position > 1).then_some(on_previous))
