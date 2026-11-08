@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use iced::advanced::text::Highlighter;
 use iced::advanced::text::highlighter::Format;
-use iced::widget::text_editor::{Action as EditorAction, Edit};
+use iced::widget::text_editor::{Action as EditorAction, Edit, Motion};
 use iced::widget::{Column, Row, button, column, container, row, text_editor, text_input};
 use iced::{Center, Element, Fill, Padding, Pixels, Theme};
 use sdw_core::slide::SlideDeck;
@@ -11,7 +11,7 @@ use sdw_core::theme::SlideTheme;
 use sdw_core::{Song, compile};
 use sdw_library::SongId;
 
-use crate::i18n::{fill, plural, t};
+use crate::i18n::{count, fill, t};
 use crate::icon;
 use crate::panes::{Card, slide_card};
 use crate::render::slide::{self, Visibility};
@@ -465,7 +465,7 @@ impl Editor {
         .into()
     }
 
-    fn heading(&self, section: Section) -> String {
+    fn heading(&mut self, section: Section) -> String {
         let name = section.name();
         let label = if section == Section::Verse {
             let verses = self
@@ -484,18 +484,29 @@ impl Editor {
             name.to_owned()
         };
 
-        let line = self.lyrics.cursor().position.line;
-        let is_blank = |index: usize| {
-            self.lyrics
-                .line(index)
-                .is_none_or(|line| line.text.trim().is_empty())
-        };
+        let mut line = self.lyrics.cursor().position.line;
 
-        let separator = match (is_blank(line), line.checked_sub(1).is_none_or(is_blank)) {
+        if !blank(&self.lyrics, line) {
+            while line + 1 < self.lyrics.line_count() && !blank(&self.lyrics, line + 1) {
+                line += 1;
+            }
+        }
+
+        let separator = match (
+            blank(&self.lyrics, line),
+            line.checked_sub(1)
+                .is_none_or(|previous| blank(&self.lyrics, previous)),
+        ) {
             (true, true) => "",
             (true, false) => "\n",
             (false, _) => "\n\n",
         };
+
+        self.lyrics.move_to(text_editor::Cursor {
+            position: text_editor::Position { line, column: 0 },
+            selection: None,
+        });
+        self.lyrics.perform(EditorAction::Move(Motion::End));
 
         format!("{separator}[{label}]\n")
     }
@@ -576,8 +587,10 @@ impl Editor {
     }
 }
 
-fn count(value: usize, one: &'static str, other: &'static str) -> Box<str> {
-    fill(plural(value as u64, one, other), &[("count", &value)]).into_boxed_str()
+fn blank(lyrics: &text_editor::Content, index: usize) -> bool {
+    lyrics
+        .line(index)
+        .is_none_or(|line| line.text.trim().is_empty())
 }
 
 fn field<'a>(
@@ -818,5 +831,24 @@ mod tests {
         let _ = editor.update(Message::Insert(super::Section::Chorus));
 
         assert_eq!(editor.lyrics.text(), "one\n\n[Chorus]\n");
+    }
+
+    #[test]
+    fn insert_goes_after_the_current_section_and_keeps_selected_text() {
+        let mut editor = editor("[Verse 1]\none\ntwo\n\n[Verse 2]\nthree");
+        editor.lyrics.perform(EditorAction::SelectAll);
+        editor.lyrics.perform(EditorAction::Move(
+            iced::widget::text_editor::Motion::DocumentStart,
+        ));
+        editor.lyrics.perform(EditorAction::Select(
+            iced::widget::text_editor::Motion::Right,
+        ));
+
+        let _ = editor.update(Message::Insert(super::Section::Chorus));
+
+        assert_eq!(
+            editor.lyrics.text(),
+            "[Verse 1]\none\ntwo\n\n[Chorus]\n\n\n[Verse 2]\nthree"
+        );
     }
 }
