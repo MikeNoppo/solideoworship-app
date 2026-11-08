@@ -29,6 +29,8 @@ Cargo workspace. The split exists to keep iced out of the domain layer's rebuild
 - `crates/app` (`sdw-app`) — the iced daemon binary.
 - `crates/library` (`sdw-library`) — SQLite storage via `rusqlite` (`bundled` feature, FTS5). One `Library` struct is the whole interface; `rusqlite` types never appear in it. Tests go through `Library::open_in_memory()`, not a trait.
 
+Bibles are imported from Zefania XML by a streaming `quick-xml` reader (`zefania.rs`) inside one transaction, so a broken file leaves nothing behind. `NOTE`/`XREF` content is dropped so footnotes never reach the projector. Verses live in a `WITHOUT ROWID` table keyed by `(bible_id, book, chapter, verse)`; a passage lookup is one primary-key range scan.
+
 Schema changes are appended to `MIGRATIONS` in `migrate.rs` and tracked with `PRAGMA user_version`. Never edit a migration that has shipped — testers keep their databases between milestones.
 
 ### Two windows, one state

@@ -4,7 +4,7 @@ Aplikasi presentasi ibadah (lirik lagu dan ayat Alkitab) yang ringan, cepat, dan
 
 SolideoWorship lahir dari masalah sederhana: aplikasi seperti EasyWorship memakan banyak RAM dan terasa lambat di laptop spesifikasi rendah, padahal laptop seperti itulah yang paling sering dipakai operator multimedia di gereja. Tujuan proyek ini adalah alur kerja yang akrab bagi pengguna EasyWorship, dengan **performa dan efisiensi memori sebagai prioritas utama**.
 
-> **Status: tahap awal pengembangan.** Library lagu, editor lagu, pengaturan tema, dan file susunan acara sudah berjalan. Alkitab masih berupa data contoh. Belum siap dipakai untuk ibadah sungguhan.
+> **Status: tahap awal pengembangan.** Semua fitur MVP (lagu dan Alkitab) sudah tersedia, tetapi belum diuji di ibadah sungguhan maupun di Windows dan macOS.
 
 ## Yang sudah berjalan
 
@@ -12,6 +12,7 @@ SolideoWorship lahir dari masalah sederhana: aplikasi seperti EasyWorship memaka
 - **Tata letak operator ala EasyWorship.** Susunan acara, Preview, dan Live berdampingan, dengan panel Library (tab Lagu/Alkitab dan pencarian) di bawahnya.
 - **Library lagu di SQLite.** Pencarian full-text atas judul dan lirik langsung saat mengetik, dengan awalan kata dan toleran terhadap diakritik. Daftar hanya memuat judul; lirik lengkap baru dibaca saat lagu dipilih.
 - **Editor lagu.** Tambah, ubah, dan hapus lagu dengan preview slide yang langsung berubah saat mengetik. Lagu yang diubah ikut diperbarui di susunan acara.
+- **Alkitab.** Terjemahan diimpor dari file Zefania XML lalu dicari dengan referensi seperti `Yoh 3:16-18`, `1 Kor 13:4-7`, atau `Mzm 23`. Nama kitab memakai nama dan singkatan Indonesia, ayat langsung tampil saat referensi diketik, dan perikop dibagi ke beberapa slide tanpa memotong ayat di tengah.
 - **Pengaturan tema.** Satu tema untuk lagu dan satu untuk Alkitab: warna latar, teks, dan footer, ukuran huruf, jarak baris, margin, perataan, serta batas baris atau karakter per slide. Perubahan langsung terlihat di preview dialog. Tema baru tampil di proyektor saat item ditayangkan berikutnya, jadi mengubah tema di tengah ibadah tidak mengejutkan jemaat.
 - **File susunan acara `.sdw`.** Isi lagu dan ayat ikut tersimpan di dalam file, jadi susunan acara bisa disiapkan di rumah lalu dibuka di laptop gereja walau library-nya berbeda. Perubahan yang belum disimpan ditandai, dan aplikasi meminta konfirmasi sebelum membuangnya.
 - **Pemilihan layar proyektor.** Mendeteksi semua monitor dan mendahulukan layar eksternal. Output bisa dipindah ke layar lain, dan bila layar output tidak lagi terdeteksi saat daftar layar dimuat ulang, jendela output ditutup.
@@ -39,6 +40,18 @@ Kaulah kekuatan saat ku lemah
 
 Contoh di atas menghasilkan tiga slide: "Verse 1", "Verse 1 (2)", dan "Reff".
 
+## Mengimpor Alkitab
+
+Teks Alkitab tidak disertakan di aplikasi karena hak cipta penerbitnya (misalnya LAI untuk Terjemahan Baru). Gunakan file Zefania XML yang Anda punya haknya:
+
+1. Buka tab **Alkitab** di panel Library, lalu klik **Kelola Alkitab**.
+2. Klik **Pilih file…** dan pilih file `.xml` berformat Zefania (`XMLBIBLE` → `BIBLEBOOK` → `CHAPTER` → `VERS`), berenkoding UTF-8.
+3. Periksa singkatannya (diisi otomatis dari nama file, misalnya `TB`), lalu klik **Impor**.
+
+Catatan kaki dan referensi silang di dalam file diabaikan, jadi tidak ikut tampil di proyektor. Satu Alkitab lengkap (sekitar 31 ribu ayat) menambah kira-kira 4 MB ke database library.
+
+Referensi lintas pasal (misalnya `Yoh 3:16-4:2`) belum didukung; tambahkan tiap pasal sebagai item terpisah.
+
 ## Pintasan keyboard
 
 | Tombol | Aksi |
@@ -50,7 +63,8 @@ Contoh di atas menghasilkan tiga slide: "Verse 1", "Verse 1 (2)", dan "Reff".
 | `C` | Kosongkan teks (tekan lagi untuk kembali) |
 | `F5` | Buka jendela output |
 | `Esc` | Tutup jendela output |
-| `Enter` di kotak pencarian | Tambahkan hasil teratas ke susunan acara |
+| `Enter` di kotak pencarian lagu | Tambahkan hasil teratas ke susunan acara |
+| `Enter` di kotak referensi ayat | Tambahkan perikop ke susunan acara |
 | `Ctrl+S` / `Cmd+S` | Simpan susunan acara, atau simpan isi dialog yang sedang terbuka |
 | `Ctrl+O` / `Cmd+O` | Buka file susunan acara |
 
@@ -64,7 +78,7 @@ Cakupan MVP sengaja dibatasi pada **lagu dan ayat Alkitab**.
 - [x] Tampilan operator: susunan acara, preview, live, library
 - [x] Library lagu tersimpan di SQLite dengan pencarian full-text (FTS5)
 - [x] Editor lagu (tambah, ubah, hapus)
-- [ ] Importer dan pencarian Alkitab per pasal/ayat
+- [x] Importer dan pencarian Alkitab per pasal/ayat
 - [x] Pengaturan tema (warna, ukuran, perataan, pembagian slide)
 - [x] Simpan dan buka susunan acara
 
@@ -90,7 +104,7 @@ Prinsip-prinsip ini ditetapkan sejak awal dan sengaja dijaga:
 
 ## Lokasi data
 
-Library lagu dan pengaturan tema disimpan di satu file SQLite, `library.sqlite3`:
+Library lagu, terjemahan Alkitab, dan pengaturan tema disimpan di satu file SQLite, `library.sqlite3`:
 
 | Platform | Folder |
 | --- | --- |
@@ -125,7 +139,7 @@ Hasilnya ada di `target/release/sdw-app` (atau `sdw-app.exe` di Windows).
 ```
 crates/
 ├── core/     sdw-core    — tipe domain dan logika murni (lagu, ayat, slide, tema, kompiler, navigasi live)
-├── library/  sdw-library — penyimpanan SQLite (lagu, pencarian full-text, tema, migrasi) dan format file .sdw
+├── library/  sdw-library — penyimpanan SQLite (lagu, Alkitab, tema, migrasi), importer Zefania, dan format file .sdw
 └── app/      sdw-app     — aplikasi GUI berbasis iced
 ```
 
