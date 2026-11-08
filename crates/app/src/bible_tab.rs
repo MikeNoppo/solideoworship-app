@@ -11,6 +11,7 @@ use crate::work::Outcome;
 const HINT: &str =
     "Ketik referensi seperti Yoh 3:16-18, lalu tekan Enter untuk menambahkannya ke susunan acara.";
 const NOT_FOUND: &str = "Ayat ini tidak ada di terjemahan yang dipilih.";
+const PREVIEW_LIMIT: usize = 30;
 
 pub struct BibleTab {
     bibles: Vec<BibleSummary>,
@@ -27,6 +28,7 @@ struct Found {
     passage: Passage,
     summary: Box<str>,
     numbers: Box<[Box<str>]>,
+    remaining: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone)]
@@ -120,8 +122,20 @@ impl BibleTab {
                     numbers: passage
                         .verses()
                         .iter()
+                        .take(PREVIEW_LIMIT)
                         .map(|verse| verse.number.to_string().into_boxed_str())
                         .collect(),
+                    remaining: passage
+                        .verses()
+                        .len()
+                        .checked_sub(PREVIEW_LIMIT)
+                        .filter(|&remaining| remaining > 0)
+                        .map(|remaining| {
+                            format!(
+                                "…dan {remaining} ayat lagi. Semua ayat ikut ditambahkan ke susunan acara."
+                            )
+                            .into_boxed_str()
+                        }),
                     passage,
                 });
                 self.lookup_error = None;
@@ -183,9 +197,12 @@ impl BibleTab {
             return notice("Mencari ayat…");
         };
 
-        let verses = found.passage.verses().iter().zip(&found.numbers).fold(
-            column![].spacing(6),
-            |list, (verse, number)| {
+        let verses = found
+            .passage
+            .verses()
+            .iter()
+            .zip(&found.numbers)
+            .fold(column![].spacing(6), |list, (verse, number)| {
                 list.push(
                     row![
                         text(&**number).size(12).style(text::secondary).width(28),
@@ -193,8 +210,13 @@ impl BibleTab {
                     ]
                     .spacing(6),
                 )
-            },
-        );
+            })
+            .push(
+                found
+                    .remaining
+                    .as_deref()
+                    .map(|remaining| text(remaining).size(12).style(text::secondary)),
+            );
 
         column![
             row![
@@ -369,5 +391,45 @@ mod tests {
         let _ = tab.set_bibles(list.clone());
 
         assert_eq!(tab.selected, Some(list[1].id));
+    }
+
+    #[test]
+    fn pratinjau_pasal_panjang_dibatasi_tapi_perikop_tetap_utuh() {
+        let mut tab = tab_with(&["TB"]);
+        let (bible, reference) = lookup(tab.update(Message::InputChanged("Mzm 119".into())));
+        let verses = (1..=176)
+            .map(|number| Verse {
+                number,
+                text: "ayat".into(),
+            })
+            .collect();
+        let passage = Passage::new(reference.clone(), "TB", verses).unwrap();
+
+        let _ = tab.found(bible, &reference, Ok(Some(passage)));
+
+        let found = tab.found.as_ref().unwrap();
+        assert_eq!(found.numbers.len(), super::PREVIEW_LIMIT);
+        assert!(
+            found
+                .remaining
+                .as_deref()
+                .unwrap()
+                .contains("146 ayat lagi")
+        );
+
+        let Action::Add(added) = tab.update(Message::Submitted) else {
+            panic!("seharusnya menambahkan");
+        };
+        assert_eq!(added.verses().len(), 176);
+    }
+
+    #[test]
+    fn pratinjau_pendek_tanpa_keterangan_sisa() {
+        let mut tab = tab_with(&["TB"]);
+        let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
+
+        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))));
+
+        assert!(tab.found.as_ref().unwrap().remaining.is_none());
     }
 }
