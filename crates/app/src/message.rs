@@ -91,6 +91,7 @@ pub enum Message {
     SearchChanged(String),
     SearchSubmitted,
     SongsFound(Box<str>, Outcome<Vec<SongSummary>>),
+    LibraryErrorDismissed,
     SongPicked(SongId),
     SongLoaded(SongId, Outcome<Song>),
     SongCreateRequested,

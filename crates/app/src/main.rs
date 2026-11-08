@@ -85,6 +85,7 @@ struct App {
 
     store: Store,
     library_ready: bool,
+    library_unavailable: Option<Box<str>>,
     library_error: Option<Box<str>>,
 
     song_results: Vec<SongSummary>,
@@ -170,9 +171,8 @@ impl App {
                         Task::batch([self.search_songs(), self.load_bibles()])
                     }
                     Err(error) => {
-                        self.library_error = Some(
-                            format!("Library lagu tidak bisa dibuka: {error}").into_boxed_str(),
-                        );
+                        self.library_unavailable =
+                            Some(format!("Library tidak bisa dibuka: {error}").into_boxed_str());
                         Task::none()
                     }
                 };
@@ -305,7 +305,6 @@ impl App {
                     Ok(songs) => {
                         self.song_results = songs;
                         self.song_results_query = query;
-                        self.library_error = None;
 
                         if std::mem::take(&mut self.pick_first_song) {
                             return self.pick_first_song();
@@ -316,6 +315,10 @@ impl App {
                         self.library_error = Some(error);
                     }
                 }
+                Task::none()
+            }
+            Message::LibraryErrorDismissed => {
+                self.library_error = None;
                 Task::none()
             }
             Message::SongPicked(id) => self.store.run(
@@ -759,7 +762,10 @@ impl App {
     }
 
     fn search_songs(&self) -> Task<Message> {
-        if self.library_tab != LibraryTab::Songs || !self.library_ready {
+        if self.library_tab != LibraryTab::Songs
+            || !self.library_ready
+            || self.library_unavailable.is_some()
+        {
             return Task::none();
         }
 
@@ -780,6 +786,10 @@ impl App {
     }
 
     fn load_bibles(&self) -> Task<Message> {
+        if self.library_unavailable.is_some() {
+            return Task::none();
+        }
+
         self.store
             .run(|library| library.bibles(), Message::BiblesLoaded)
     }
@@ -1220,5 +1230,47 @@ mod tests {
         let _ = app.update(Message::SongSaved(ticket, Err("rusak".into())));
 
         assert_eq!(app.library_error.as_deref(), Some("rusak"));
+    }
+
+    #[test]
+    fn error_library_tidak_hilang_oleh_operasi_lain_yang_berhasil() {
+        let mut app = App {
+            search: "a".into(),
+            library_error: Some("impor gagal".into()),
+            ..App::default()
+        };
+
+        let _ = app.update(Message::SongsFound("a".into(), Ok(summaries(&["A"]))));
+        let _ = app.update(Message::BibleDeleted(app.modal_ticket, Ok(())));
+
+        assert_eq!(app.library_error.as_deref(), Some("impor gagal"));
+    }
+
+    #[test]
+    fn error_library_bisa_ditutup_operator() {
+        let mut app = App {
+            library_error: Some("impor gagal".into()),
+            ..App::default()
+        };
+
+        let _ = app.update(Message::LibraryErrorDismissed);
+
+        assert!(app.library_error.is_none());
+    }
+
+    #[test]
+    fn library_gagal_dibuka_tetap_dilaporkan_dengan_jelas() {
+        let mut app = App::default();
+
+        let _ = app.update(Message::LibraryOpened(Err("disk penuh".into())));
+        let _ = app.update(Message::SongLoaded(
+            library_song().0,
+            Err("disk penuh".into()),
+        ));
+
+        assert_eq!(
+            app.library_unavailable.as_deref(),
+            Some("Library tidak bisa dibuka: disk penuh")
+        );
     }
 }

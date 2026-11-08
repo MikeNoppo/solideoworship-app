@@ -91,6 +91,24 @@ pub fn banner<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
         .into()
 }
 
+pub fn dismissible_banner<'a, M>(message: &'a str, on_dismiss: M) -> Element<'a, M>
+where
+    M: Clone + 'a,
+{
+    container(
+        row![
+            text(message).size(12).style(text::danger).width(Fill),
+            button(text("×").size(12))
+                .padding([0, 8])
+                .on_press(on_dismiss)
+                .style(button::text),
+        ]
+        .align_y(Center),
+    )
+    .padding([4, 12])
+    .into()
+}
+
 pub fn dialog<'a, M>(content: impl Into<Element<'a, M>>) -> Element<'a, M>
 where
     M: 'a,
