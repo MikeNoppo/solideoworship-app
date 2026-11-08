@@ -51,6 +51,16 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - run: cargo build --release --locked -p sdw-app
+      - name: Check that the exe needs no MSVC runtime DLLs
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { throw 'dumpbin.exe not found' }
+          $dependents = & $dumpbin /nologo /dependents target\release\sdw-app.exe
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
+          $dependents
+          if ($dependents -match '(?i)^\s*(vcruntime|msvcp|ucrtbase|api-ms-win-crt)') { throw 'sdw-app.exe links the MSVC runtime dynamically' }
       - name: Install Inno Setup
         shell: pwsh
         run: |
