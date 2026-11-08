@@ -37,6 +37,15 @@ impl LibraryTab {
     pub const ALL: [Self; 2] = [Self::Songs, Self::Scripture];
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notice {
+    Recovered,
+    Library,
+    Screens,
+    Disconnected,
+    Failure(Box<str>),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Menu {
     Schedule,
@@ -70,7 +79,7 @@ pub enum Message {
     DisplaySelected(u32),
     MenuToggled(Menu),
     MenuDismissed,
-    NoticeDismissed(usize),
+    NoticeDismissed(Notice),
 
     OutputRequested,
     OutputOpened(window::Id),

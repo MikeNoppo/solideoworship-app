@@ -43,7 +43,7 @@ use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::SaveTarget;
 use crate::i18n::{fill, t};
-use crate::message::{LibraryTab, Menu, Message, Pending, Step, UnsavedChoice};
+use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
 use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
@@ -89,15 +89,6 @@ enum Phase {
     #[default]
     Splash,
     Operator,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Notice {
-    Recovered,
-    Library,
-    Screens,
-    Disconnected,
-    Failure(Box<str>),
 }
 
 enum Toast {
@@ -315,10 +306,8 @@ impl App {
                 self.menu = None;
                 Task::none()
             }
-            Message::NoticeDismissed(index) => {
-                if index < self.notices.len() {
-                    self.notices.remove(index);
-                }
+            Message::NoticeDismissed(notice) => {
+                self.notices.retain(|shown| *shown != notice);
                 Task::none()
             }
 

@@ -2,11 +2,11 @@ use iced::widget::{center, column, container, opaque, row, stack};
 use iced::{Center, Element, Fill, FillPortion, Padding};
 
 use crate::i18n::t;
-use crate::message::Message;
+use crate::message::{Message, Notice};
 use crate::panes::{library, live, preview, schedule, toolbar, unsaved, welcome};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
-use crate::{App, Modal, Notice, Toast, icon};
+use crate::{App, Modal, Toast, icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let top: Element<'_, Message> = match app.schedule.preview() {
@@ -109,9 +109,8 @@ fn notices(app: &App) -> Vec<Element<'_, Message>> {
 
     app.notices
         .iter()
-        .enumerate()
-        .map(|(index, notice)| {
-            let dismiss = Some(Message::NoticeDismissed(index));
+        .map(|notice| {
+            let dismiss = Some(Message::NoticeDismissed(notice.clone()));
 
             match notice {
                 Notice::Recovered => ui::banner(
