@@ -1,5 +1,7 @@
 use std::fmt;
 use std::num::NonZeroU8;
+use std::str::FromStr;
+use std::sync::LazyLock;
 
 const BOOKS: [(&str, &str); 66] = [
     ("Kejadian", "Kej"),
@@ -70,6 +72,66 @@ const BOOKS: [(&str, &str); 66] = [
     ("Wahyu", "Why"),
 ];
 
+const ALIASES: &[(u8, &str)] = &[
+    (1, "kj"),
+    (2, "kl"),
+    (3, "ima"),
+    (5, "ula"),
+    (7, "hakim"),
+    (9, "1sm"),
+    (10, "2sm"),
+    (11, "1rj"),
+    (11, "1raja"),
+    (12, "2rj"),
+    (12, "2raja"),
+    (13, "1tw"),
+    (14, "2tw"),
+    (18, "ay"),
+    (19, "maz"),
+    (19, "mz"),
+    (21, "peng"),
+    (21, "pengkotbah"),
+    (22, "kidung"),
+    (26, "yehez"),
+    (33, "mik"),
+    (38, "zak"),
+    (40, "mt"),
+    (41, "mr"),
+    (41, "mark"),
+    (42, "lk"),
+    (43, "yh"),
+    (44, "kpr"),
+    (44, "kisah"),
+    (45, "rom"),
+    (49, "efe"),
+    (50, "fil"),
+    (60, "1pet"),
+    (61, "2pet"),
+    (66, "wah"),
+];
+
+static EXACT_KEYS: LazyLock<Vec<(Box<str>, Book)>> = LazyLock::new(|| {
+    Book::all()
+        .flat_map(|book| [book.name(), book.abbreviation()].map(|text| (key(text), book)))
+        .chain(
+            ALIASES
+                .iter()
+                .filter_map(|&(number, alias)| Some((key(alias), Book::from_number(number)?))),
+        )
+        .collect()
+});
+
+static NAME_KEYS: LazyLock<Vec<(Box<str>, Book)>> =
+    LazyLock::new(|| Book::all().map(|book| (key(book.name()), book)).collect());
+
+fn key(text: &str) -> Box<str> {
+    text.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+        .into_boxed_str()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Book(NonZeroU8);
 
@@ -98,6 +160,33 @@ impl Book {
         self.entry().1
     }
 
+    pub fn parse(name: &str) -> Result<Self, ReferenceError> {
+        let wanted = key(name);
+
+        if !wanted.chars().any(char::is_alphabetic) {
+            return Err(ReferenceError::MissingBook);
+        }
+
+        if let Some(&(_, book)) = EXACT_KEYS.iter().find(|(key, _)| *key == wanted) {
+            return Ok(book);
+        }
+
+        let candidates: Box<[Book]> = NAME_KEYS
+            .iter()
+            .filter(|(key, _)| key.starts_with(&*wanted))
+            .map(|&(_, book)| book)
+            .collect();
+
+        match *candidates {
+            [] => Err(ReferenceError::UnknownBook(name.trim().into())),
+            [book] => Ok(book),
+            _ => Err(ReferenceError::AmbiguousBook {
+                input: name.trim().into(),
+                candidates,
+            }),
+        }
+    }
+
     fn entry(self) -> (&'static str, &'static str) {
         BOOKS[usize::from(self.0.get()) - 1]
     }
@@ -105,17 +194,57 @@ impl Book {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReferenceError {
+    Empty,
+    MissingBook,
+    UnknownBook(Box<str>),
+    AmbiguousBook {
+        input: Box<str>,
+        candidates: Box<[Book]>,
+    },
+    MissingChapter,
+    MissingVerse,
     InvalidNumber,
-    ReversedRange { start: u16, end: u16 },
+    ReversedRange {
+        start: u16,
+        end: u16,
+    },
+    CrossChapter,
+    Trailing(Box<str>),
 }
 
 impl fmt::Display for ReferenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Empty => f.write_str("Tulis referensi ayat, misalnya Yoh 3:16."),
+            Self::MissingBook => {
+                f.write_str("Referensi harus diawali nama kitab, misalnya Yoh 3:16.")
+            }
+            Self::UnknownBook(input) => write!(f, "Kitab \"{input}\" tidak dikenal."),
+            Self::AmbiguousBook { input, candidates } => {
+                write!(f, "\"{input}\" bisa berarti ")?;
+
+                for (index, book) in candidates.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(book.name())?;
+                }
+
+                f.write_str(". Ketik nama kitab lebih lengkap.")
+            }
+            Self::MissingChapter => f.write_str("Nomor pasal belum diisi."),
+            Self::MissingVerse => f.write_str("Nomor ayat belum diisi."),
             Self::InvalidNumber => f.write_str("Nomor pasal dan ayat harus dimulai dari 1."),
             Self::ReversedRange { start, end } => {
                 write!(f, "Rentang ayat terbalik: {start} lebih besar dari {end}.")
             }
+            Self::CrossChapter => f.write_str(
+                "Rentang lintas pasal belum didukung. Tambahkan tiap pasal sebagai item terpisah.",
+            ),
+            Self::Trailing(rest) => write!(
+                f,
+                "Bagian \"{rest}\" tidak dimengerti. Gunakan format seperti Yoh 3:16-18."
+            ),
         }
     }
 }
@@ -152,6 +281,47 @@ impl Reference {
         })
     }
 
+    pub fn parse(input: &str) -> Result<Self, ReferenceError> {
+        let input = input.trim();
+
+        if input.is_empty() {
+            return Err(ReferenceError::Empty);
+        }
+
+        let split = book_end(input);
+        let book = Book::parse(&input[..split])?;
+        let mut cursor = Cursor(input[split..].trim_start());
+
+        let chapter = cursor.number()?.ok_or(ReferenceError::MissingChapter)?;
+
+        if cursor.eat(DASHES) {
+            return Err(ReferenceError::CrossChapter);
+        }
+
+        let verses = if cursor.eat(&[':', '.']) {
+            let start = cursor.number()?.ok_or_else(|| cursor.trailing())?;
+            let end = if cursor.eat(DASHES) {
+                cursor.number()?.ok_or_else(|| cursor.trailing())?
+            } else {
+                start
+            };
+
+            if cursor.eat(&[':', '.']) {
+                return Err(ReferenceError::CrossChapter);
+            }
+
+            Some((start, end))
+        } else {
+            None
+        };
+
+        if !cursor.0.is_empty() {
+            return Err(cursor.trailing());
+        }
+
+        Self::new(book, chapter, verses)
+    }
+
     pub fn book(&self) -> Book {
         self.book
     }
@@ -173,6 +343,69 @@ impl fmt::Display for Reference {
             Some((start, end)) if start == end => write!(f, ":{start}"),
             Some((start, end)) => write!(f, ":{start}-{end}"),
             None => Ok(()),
+        }
+    }
+}
+
+impl FromStr for Reference {
+    type Err = ReferenceError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        Self::parse(input)
+    }
+}
+
+const DASHES: &[char] = &['-', '\u{2013}', '\u{2014}'];
+
+fn book_end(input: &str) -> usize {
+    let mut seen_letter = false;
+
+    for (index, character) in input.char_indices() {
+        if character.is_alphabetic() {
+            seen_letter = true;
+        } else if seen_letter && character.is_ascii_digit() {
+            return index;
+        }
+    }
+
+    input.len()
+}
+
+struct Cursor<'a>(&'a str);
+
+impl Cursor<'_> {
+    fn number(&mut self) -> Result<Option<u16>, ReferenceError> {
+        let rest = self.0.trim_start();
+        let digits = rest
+            .find(|character: char| !character.is_ascii_digit())
+            .unwrap_or(rest.len());
+
+        if digits == 0 {
+            return Ok(None);
+        }
+
+        let number = rest[..digits]
+            .parse::<u16>()
+            .map_err(|_| ReferenceError::InvalidNumber)?;
+        self.0 = rest[digits..].trim_start();
+
+        Ok(Some(number))
+    }
+
+    fn eat(&mut self, separators: &[char]) -> bool {
+        match self.0.trim_start().strip_prefix(separators) {
+            Some(rest) => {
+                self.0 = rest.trim_start();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn trailing(&self) -> ReferenceError {
+        match self.0.trim() {
+            "" => ReferenceError::MissingVerse,
+            rest => ReferenceError::Trailing(rest.into()),
         }
     }
 }
@@ -235,7 +468,7 @@ impl Passage {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{Book, Passage, Reference, ReferenceError, Verse};
+    use super::{ALIASES, Book, EXACT_KEYS, Passage, Reference, ReferenceError, Verse};
 
     fn book(number: u8) -> Book {
         Book::from_number(number).unwrap()
@@ -343,5 +576,141 @@ mod tests {
         let passage = Passage::new(reference, "TB", verses(&[1, 2])).unwrap();
 
         assert_eq!(passage.reference().verses(), None);
+    }
+
+    fn parsed(input: &str) -> (u8, u16, Option<(u16, u16)>) {
+        let reference = Reference::parse(input).unwrap();
+
+        (
+            reference.book().number(),
+            reference.chapter(),
+            reference.verses(),
+        )
+    }
+
+    #[test]
+    fn setiap_kitab_dikenali_dari_nama_dan_singkatannya() {
+        for book in Book::all() {
+            assert_eq!(Book::parse(book.name()), Ok(book), "{}", book.name());
+            assert_eq!(
+                Book::parse(book.abbreviation()),
+                Ok(book),
+                "{}",
+                book.abbreviation()
+            );
+            assert_eq!(
+                Book::parse(&book.name().to_uppercase()),
+                Ok(book),
+                "{}",
+                book.name()
+            );
+        }
+    }
+
+    #[test]
+    fn setiap_kunci_menunjuk_satu_kitab_saja() {
+        for (key, book) in EXACT_KEYS.iter() {
+            assert!(
+                EXACT_KEYS
+                    .iter()
+                    .all(|(other, other_book)| other != key || other_book == book),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn setiap_alias_menunjuk_kitab_yang_ada() {
+        for &(number, alias) in ALIASES {
+            assert_eq!(Book::parse(alias).map(Book::number), Ok(number), "{alias}");
+        }
+    }
+
+    #[test]
+    fn variasi_penulisan_kitab_bernomor() {
+        for input in ["1 Kor 13:4", "1Kor13:4", "1 kor. 13 : 4", "1 Korintus 13:4"] {
+            assert_eq!(parsed(input), (46, 13, Some((4, 4))), "{input}");
+        }
+    }
+
+    #[test]
+    fn referensi_lengkap_dengan_rentang() {
+        assert_eq!(parsed("Yoh 3:16-18"), (43, 3, Some((16, 18))));
+        assert_eq!(parsed("Mzm 23:1 – 3"), (19, 23, Some((1, 3))));
+        assert_eq!(parsed("yoh 3.16"), (43, 3, Some((16, 16))));
+    }
+
+    #[test]
+    fn referensi_satu_pasal() {
+        assert_eq!(parsed("Kej 1"), (1, 1, None));
+        assert_eq!(parsed("  Mazmur   23  "), (19, 23, None));
+    }
+
+    #[test]
+    fn kecocokan_persis_didahulukan_dari_awalan() {
+        assert_eq!(parsed("Am 1").0, 30);
+        assert_eq!(parsed("Yoh 1").0, 43);
+        assert_eq!(parsed("Fil 2").0, 50);
+    }
+
+    #[test]
+    fn awalan_nama_yang_unik_diterima() {
+        assert_eq!(parsed("Wahy 1").0, 66);
+        assert_eq!(parsed("Filip 2").0, 50);
+        assert_eq!(parsed("1 Yoha 1").0, 62);
+    }
+
+    #[test]
+    fn awalan_yang_ambigu_menyebut_kandidat() {
+        let Err(ReferenceError::AmbiguousBook { candidates, .. }) = Reference::parse("Ma 1") else {
+            panic!("seharusnya ambigu");
+        };
+
+        let names: Vec<&str> = candidates.iter().map(|book| book.name()).collect();
+        assert_eq!(names, ["Mazmur", "Maleakhi", "Matius", "Markus"]);
+    }
+
+    #[test]
+    fn referensi_tidak_valid_ditolak_dengan_alasan() {
+        let cases = [
+            ("  ", ReferenceError::Empty),
+            ("3:16", ReferenceError::MissingBook),
+            ("Xyz 1", ReferenceError::UnknownBook("Xyz".into())),
+            ("Yoh", ReferenceError::MissingChapter),
+            ("Yoh 3:", ReferenceError::MissingVerse),
+            ("Yoh 3:16-", ReferenceError::MissingVerse),
+            ("Yoh 0", ReferenceError::InvalidNumber),
+            ("Yoh 70000", ReferenceError::InvalidNumber),
+            ("Yoh 3:0", ReferenceError::InvalidNumber),
+            (
+                "Yoh 3:18-16",
+                ReferenceError::ReversedRange { start: 18, end: 16 },
+            ),
+            ("Yoh 3:16-4:2", ReferenceError::CrossChapter),
+            ("Mzm 23-24", ReferenceError::CrossChapter),
+            ("Yoh 3:16,18", ReferenceError::Trailing(",18".into())),
+            ("Yoh 3:16 abc", ReferenceError::Trailing("abc".into())),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(Reference::parse(input), Err(expected), "{input}");
+        }
+    }
+
+    #[test]
+    fn tampilan_referensi_bisa_dibaca_ulang() {
+        for input in ["Yoh 3:16-18", "Kej 1", "1 Kor 13:4", "Kid 2:1"] {
+            let reference = Reference::parse(input).unwrap();
+
+            assert_eq!(Reference::parse(&reference.to_string()), Ok(reference));
+        }
+    }
+
+    #[test]
+    fn pesan_error_dalam_bahasa_indonesia() {
+        let message = Reference::parse("Ma 1").unwrap_err().to_string();
+
+        assert!(message.contains("Mazmur"));
+        assert!(message.contains("lebih lengkap"));
     }
 }
