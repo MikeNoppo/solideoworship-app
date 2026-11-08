@@ -2,6 +2,7 @@ use std::fmt;
 use std::io::BufRead;
 
 use rusqlite::OptionalExtension;
+use sdw_core::bible::{Passage, Reference, Verse};
 
 use crate::zefania::ZefaniaReader;
 use crate::{Error, Library};
@@ -124,6 +125,46 @@ impl Library {
         })
     }
 
+    pub fn passage(&self, bible: BibleId, reference: &Reference) -> Result<Passage, Error> {
+        let translation: String = self
+            .conn
+            .query_row(
+                "SELECT abbreviation FROM bibles WHERE id = ?1",
+                [bible.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(Error::NotFound)?;
+
+        let (start, end) = reference.verses().unwrap_or((1, u16::MAX));
+
+        let verses = self
+            .conn
+            .prepare_cached(
+                "SELECT verse, text FROM verses
+                 WHERE bible_id = ?1 AND book = ?2 AND chapter = ?3 AND verse BETWEEN ?4 AND ?5
+                 ORDER BY verse",
+            )?
+            .query_map(
+                (
+                    bible.0,
+                    reference.book().number(),
+                    reference.chapter(),
+                    start,
+                    end,
+                ),
+                |row| {
+                    Ok(Verse {
+                        number: row.get(0)?,
+                        text: row.get::<_, String>(1)?.into_boxed_str(),
+                    })
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Passage::new(reference.clone(), &translation, verses).ok_or(Error::NotFound)
+    }
+
     pub fn delete_bible(&mut self, id: BibleId) -> Result<(), Error> {
         self.conn
             .execute("DELETE FROM bibles WHERE id = ?1", [id.0])?;
@@ -134,7 +175,9 @@ impl Library {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Error, Library};
+    use sdw_core::bible::Reference;
+
+    use crate::{BibleId, Error, Library};
 
     const SAMPLE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <!-- Alkitab sintetis untuk pengujian -->
@@ -318,5 +361,98 @@ mod tests {
         let report = library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
 
         assert_eq!(report.bible.to_string(), "UJI — Alkitab Uji");
+    }
+
+    fn imported() -> (Library, BibleId) {
+        let mut library = Library::open_in_memory().unwrap();
+        let report = library.import_zefania(SAMPLE.as_bytes(), "UJI").unwrap();
+
+        (library, report.bible.id)
+    }
+
+    fn numbers(library: &Library, bible: BibleId, reference: &str) -> Vec<u16> {
+        library
+            .passage(bible, &Reference::parse(reference).unwrap())
+            .unwrap()
+            .verses()
+            .iter()
+            .map(|verse| verse.number)
+            .collect()
+    }
+
+    #[test]
+    fn satu_pasal_mengambil_semua_ayat_berurutan() {
+        let (library, bible) = imported();
+
+        assert_eq!(numbers(&library, bible, "Yoh 3"), [16, 17, 19, 20]);
+    }
+
+    #[test]
+    fn rentang_hanya_mengambil_ayat_di_dalamnya() {
+        let (library, bible) = imported();
+
+        assert_eq!(numbers(&library, bible, "Yoh 3:17-19"), [17, 19]);
+        assert_eq!(numbers(&library, bible, "Yoh 3:16"), [16]);
+    }
+
+    #[test]
+    fn rentang_disempitkan_ke_ayat_yang_ada() {
+        let (library, bible) = imported();
+
+        let passage = library
+            .passage(bible, &Reference::parse("Yoh 3:1-40").unwrap())
+            .unwrap();
+
+        assert_eq!(passage.reference().to_string(), "Yohanes 3:16-20");
+        assert_eq!(passage.translation(), "UJI");
+    }
+
+    #[test]
+    fn ayat_yang_tidak_ada_tidak_ditemukan() {
+        let (library, bible) = imported();
+
+        for reference in ["Yoh 3:40-50", "Yoh 4", "Why 1"] {
+            assert!(
+                matches!(
+                    library.passage(bible, &Reference::parse(reference).unwrap()),
+                    Err(Error::NotFound)
+                ),
+                "{reference}"
+            );
+        }
+    }
+
+    #[test]
+    fn terjemahan_yang_dihapus_tidak_ditemukan() {
+        let (mut library, bible) = imported();
+        library.delete_bible(bible).unwrap();
+
+        assert!(matches!(
+            library.passage(bible, &Reference::parse("Yoh 3").unwrap()),
+            Err(Error::NotFound)
+        ));
+    }
+
+    #[test]
+    fn perikop_diambil_dari_terjemahan_yang_dipilih() {
+        let (mut library, first) = imported();
+        let other = r#"<XMLBIBLE><BIBLEBOOK bnumber="43"><CHAPTER cnumber="3">
+            <VERS vnumber="16">versi lain</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+        let second = library
+            .import_zefania(other.as_bytes(), "LAIN")
+            .unwrap()
+            .bible
+            .id;
+        let reference = Reference::parse("Yoh 3:16").unwrap();
+
+        let first = library.passage(first, &reference).unwrap();
+        let second = library.passage(second, &reference).unwrap();
+
+        assert_eq!(
+            &*first.verses()[0].text,
+            "Karena begitu besar kasih & setia!"
+        );
+        assert_eq!(&*second.verses()[0].text, "versi lain");
+        assert_eq!(second.translation(), "LAIN");
     }
 }
