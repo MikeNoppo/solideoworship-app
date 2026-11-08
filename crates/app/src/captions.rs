@@ -1,7 +1,7 @@
 use sdw_core::ContentKind;
 
 use crate::App;
-use crate::i18n::{fill, plural, t};
+use crate::i18n::{count, fill, t};
 
 #[derive(Default)]
 pub struct Captions {
@@ -132,10 +132,6 @@ impl Captions {
                 .extend((known + 1..=needed).map(|number| number.to_string().into_boxed_str()));
         }
     }
-}
-
-fn count(value: usize, one: &'static str, other: &'static str) -> Box<str> {
-    fill(plural(value as u64, one, other), &[("count", &value)]).into_boxed_str()
 }
 
 fn status(app: &App, screen_name: &str, screen_title: &str) -> String {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use sdw_core::{Presentation, ScheduleItem, SlideDeck, Song, Styles};
 use sdw_library::SongId;
 
-use crate::i18n::{Label, fill, plural, t};
+use crate::i18n::{Label, count, t};
 
 pub struct Entry {
     item: ScheduleItem,
@@ -52,11 +52,7 @@ impl Entry {
 
 fn compile(item: &ScheduleItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>) {
     let deck = item.compile(styles);
-    let count = deck.len();
-    let slides = fill(
-        plural(count as u64, t().slides.count_one, t().slides.count_other),
-        &[("count", &count)],
-    );
+    let slides = count(deck.len(), t().slides.count_one, t().slides.count_other);
 
     let meta = match item {
         ScheduleItem::Song(_) => format!("{} · {slides}", deck.kind.label()),

@@ -233,6 +233,10 @@ pub fn plural(count: u64, one: &'static str, other: &'static str) -> &'static st
     if count == 1 { one } else { other }
 }
 
+pub fn count(value: usize, one: &'static str, other: &'static str) -> Box<str> {
+    fill(plural(value as u64, one, other), &[("count", &value)]).into_boxed_str()
+}
+
 pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
     let mut filled = String::with_capacity(template.len());
     let mut rest = template;
