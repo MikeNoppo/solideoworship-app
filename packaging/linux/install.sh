@@ -71,7 +71,7 @@ refresh_icons() {
 remove_icons() {
     found=false
     for file in "$1"/*/apps/"$app".png "$1/scalable/apps/$app.svg"; do
-        if [ -e "$file" ]; then
+        if [ -e "$file" ] || [ -L "$file" ]; then
             rm -f "$file"
             found=true
         fi
