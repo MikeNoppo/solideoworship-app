@@ -1,7 +1,6 @@
 use std::{fmt, io};
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum Error {
     NotFound,
     EmptyTitle,

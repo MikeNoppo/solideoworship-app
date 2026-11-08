@@ -76,7 +76,6 @@ impl Localize for Error {
             Self::Encoding => errors.encoding.into(),
             Self::Storage(error) => fill(errors.storage, &[("error", error)]),
             Self::Io(error) => fill(errors.io, &[("error", error)]),
-            _ => self.to_string(),
         }
     }
 }
@@ -91,7 +90,6 @@ impl Localize for ScheduleFileError {
             Self::NewerVersion(version) => fill(errors.newer_schedule, &[("version", version)]),
             Self::Malformed(detail) => fill(errors.broken_schedule, &[("detail", detail)]),
             Self::InvalidItem { index } => fill(errors.invalid_item, &[("number", &(index + 1))]),
-            _ => self.to_string(),
         }
     }
 }

@@ -9,7 +9,6 @@ const FORMAT: &str = "solideoworship-schedule";
 const VERSION: u32 = 1;
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ScheduleFileError {
     Io(io::Error),
     NotSchedule,
