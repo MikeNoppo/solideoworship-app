@@ -2649,6 +2649,7 @@ dependencies = [
  "rfd",
  "sdw-core",
  "sdw-library",
+ "serde_json",
 ]
 
 [[package]]

@@ -11,3 +11,6 @@ sdw-core.workspace = true
 sdw-library.workspace = true
 display-info = "0.5.9"
 rfd = "0.18"
+
+[build-dependencies]
+serde_json.workspace = true
