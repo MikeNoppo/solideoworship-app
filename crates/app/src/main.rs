@@ -1042,11 +1042,20 @@ impl App {
     }
 
     fn apply_displays(&mut self, displays: Vec<Display>) -> Task<Message> {
-        let lost = self
-            .output_display
-            .and_then(|id| self.displays.iter().find(|display| display.id == id))
-            .filter(|output| !displays.iter().any(|display| display.name == output.name))
-            .map(|output| output.name.clone());
+        let lost = match self.output_display {
+            Some(id) => match same_screen(&self.displays, &displays, id) {
+                Some(current) => {
+                    self.output_display = Some(current);
+                    None
+                }
+                None => self
+                    .displays
+                    .iter()
+                    .find(|display| display.id == id)
+                    .map(|display| display.name.clone()),
+            },
+            None => None,
+        };
 
         if lost.is_some() {
             self.disconnected = lost.clone();
@@ -1055,20 +1064,22 @@ impl App {
         let returned = self.disconnected.as_ref().and_then(|name| {
             displays
                 .iter()
-                .find(|display| display.name == *name)
+                .find(|display| {
+                    display.name == *name && !self.displays.iter().any(|old| old.id == display.id)
+                })
                 .map(|display| display.id)
         });
+        let kept = self
+            .selected
+            .and_then(|id| same_screen(&self.displays, &displays, id));
 
         if let Some(id) = returned {
             self.selected = Some(id);
             self.reconnected();
         } else if self.disconnected.is_some() {
             self.selected = None;
-        } else if !displays
-            .iter()
-            .any(|display| Some(display.id) == self.selected)
-        {
-            self.selected = displays.first().map(|display| display.id);
+        } else {
+            self.selected = kept.or_else(|| displays.first().map(|display| display.id));
         }
 
         self.displays = displays;
@@ -1168,6 +1179,20 @@ impl App {
 // the event loop, including the projector output window.
 fn load_displays() -> Task<Message> {
     work::background(display::all).map(Message::DisplaysLoaded)
+}
+
+fn same_screen(old: &[Display], new: &[Display], id: u32) -> Option<u32> {
+    if new.iter().any(|display| display.id == id) {
+        return Some(id);
+    }
+
+    let name = &old.iter().find(|display| display.id == id)?.name;
+
+    new.iter()
+        .find(|display| {
+            display.name == *name && !old.iter().any(|previous| previous.id == display.id)
+        })
+        .map(|display| display.id)
 }
 
 fn sentence(template: &str, error: &str) -> Box<str> {
@@ -1678,5 +1703,36 @@ mod tests {
 
         assert!(app.modal.is_none());
         assert!(!app.schedule.is_empty());
+    }
+
+    #[test]
+    fn unplugging_one_of_two_identical_screens_is_detected() {
+        let mut app = App::default();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![
+            screen(1, "DELL P2419H"),
+            screen(2, "DELL P2419H"),
+        ])));
+        app.output = Some(window::Id::unique());
+        app.output_display = Some(1);
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(2, "DELL P2419H")])));
+
+        assert_eq!(app.disconnected.as_deref(), Some("DELL P2419H"));
+        assert_eq!(app.selected, None);
+    }
+
+    #[test]
+    fn a_new_id_for_the_same_screen_keeps_the_output_on_it() {
+        let mut app = app_on_air();
+        app.selected = Some(1);
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![
+            screen(9, "HDMI-1"),
+            screen(2, "eDP-1"),
+        ])));
+
+        assert_eq!(app.output_display, Some(9));
+        assert_eq!(app.selected, Some(9));
+        assert!(app.disconnected.is_none());
     }
 }
