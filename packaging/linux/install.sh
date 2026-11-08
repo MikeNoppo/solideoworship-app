@@ -54,9 +54,18 @@ install_app() {
         install -D -m 644 "$png" "$icons/${size}x$size/apps/$app.png"
     done
     install -D -m 644 "$here/icons/scalable.svg" "$icons/scalable/apps/$app.svg"
+    refresh_icons "$icons"
     echo "Installed $binary"
     echo "Installed $desktop"
     echo "Installed icons in $icons"
+}
+
+refresh_icons() {
+    [ -d "$1" ] || return 0
+    touch "$1"
+    if [ -f "$1/icon-theme.cache" ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t -f "$1" || true
+    fi
 }
 
 remove_icons() {
@@ -68,6 +77,7 @@ remove_icons() {
         fi
     done
     if [ "$found" = true ]; then
+        refresh_icons "$1"
         echo "Removed icons from $1"
         removed=true
     fi
