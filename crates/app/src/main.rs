@@ -6,6 +6,7 @@ mod sample;
 mod schedule;
 mod style;
 mod windows;
+mod work;
 
 use std::time::Duration;
 
@@ -403,7 +404,7 @@ impl App {
 // pembacaan EDID di Windows, NSScreen::localizedName di macOS — cukup lambat untuk
 // membekukan event loop, termasuk jendela output ke proyektor.
 fn load_displays() -> Task<Message> {
-    Task::perform(async { display::all() }, Message::DisplaysLoaded)
+    work::background(display::all).map(Message::DisplaysLoaded)
 }
 
 fn shortcut(key: keyboard::Key) -> Option<Message> {
