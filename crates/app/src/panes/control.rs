@@ -2,7 +2,7 @@ use iced::widget::{center, column, container, opaque, row, stack, text};
 use iced::{Element, Fill, FillPortion};
 
 use crate::message::Message;
-use crate::panes::{library, live, preview, schedule, toolbar};
+use crate::panes::{library, live, preview, schedule, toolbar, unsaved};
 use crate::style;
 use crate::{App, Modal};
 
@@ -37,6 +37,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let dialog = match &app.modal {
         Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
         Some(Modal::Theme(dialog)) => dialog.view().map(Message::Theme),
+        Some(Modal::Unsaved(pending)) => unsaved::view(*pending),
         None => return base.into(),
     };
 

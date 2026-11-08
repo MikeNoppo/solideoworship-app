@@ -50,6 +50,20 @@ impl LibraryTab {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pending {
+    New,
+    Open,
+    Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsavedChoice {
+    Save,
+    Discard,
+    Cancel,
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     SplashOpened,
@@ -103,5 +117,6 @@ pub enum Message {
     ScheduleSaveAsRequested,
     ScheduleSavePathChosen(Option<PathBuf>),
     ScheduleSaved(u64, Outcome<PathBuf>),
+    Unsaved(UnsavedChoice),
     LibraryAdded(usize),
 }

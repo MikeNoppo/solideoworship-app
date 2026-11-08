@@ -24,7 +24,7 @@ use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::display::Display;
 use crate::editor::Editor;
-use crate::message::{LibraryTab, Message, Step};
+use crate::message::{LibraryTab, Message, Pending, Step, UnsavedChoice};
 use crate::sample::Sample;
 use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
@@ -56,6 +56,7 @@ enum Phase {
 enum Modal {
     Editor(Box<Editor>),
     Theme(Box<ThemeDialog>),
+    Unsaved(Pending),
 }
 
 #[derive(Default)]
@@ -80,6 +81,7 @@ struct App {
 
     song_results: Vec<SongSummary>,
     modal: Option<Modal>,
+    after_save: Option<Pending>,
     catalogue: Vec<Sample>,
     schedule: Schedule,
     styles: Styles,
@@ -210,6 +212,9 @@ impl App {
                 Task::none()
             }
 
+            Message::WindowCloseRequested(id) if self.control == Some(id) => {
+                self.guard(Pending::Quit)
+            }
             Message::WindowCloseRequested(id) => window::close(id),
             Message::WindowClosed(id) => self.window_closed(id),
 
@@ -403,16 +408,27 @@ impl App {
             Message::SaveShortcut => match &self.modal {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Save)),
                 Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Save)),
+                Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Save)),
                 None => self.update(Message::ScheduleSaveRequested),
             },
-            Message::ScheduleNewRequested => {
-                self.schedule.clear();
-                Task::none()
+            Message::ScheduleNewRequested => self.guard(Pending::New),
+            Message::ScheduleOpenRequested => self.guard(Pending::Open),
+            Message::Unsaved(choice) => {
+                let Some(Modal::Unsaved(pending)) = self.modal else {
+                    return Task::none();
+                };
+
+                self.modal = None;
+
+                match choice {
+                    UnsavedChoice::Save => {
+                        self.after_save = Some(pending);
+                        self.update(Message::ScheduleSaveRequested)
+                    }
+                    UnsavedChoice::Discard => self.proceed(pending),
+                    UnsavedChoice::Cancel => Task::none(),
+                }
             }
-            Message::ScheduleOpenRequested => match self.control {
-                Some(control) => files::pick_schedule(control).map(Message::ScheduleFilePicked),
-                None => Task::none(),
-            },
             Message::ScheduleFilePicked(path) => match path {
                 Some(path) => work::background(move || {
                     schedule_file::open(&path)
@@ -440,14 +456,28 @@ impl App {
             },
             Message::ScheduleSavePathChosen(path) => match path {
                 Some(path) => self.write_schedule(path),
-                None => Task::none(),
+                None => {
+                    self.after_save = None;
+                    Task::none()
+                }
             },
             Message::ScheduleSaved(revision, result) => {
+                let pending = self.after_save.take();
+
                 match result {
-                    Ok(path) => self.schedule.mark_saved(path, revision),
-                    Err(error) => self.status = Some(error),
+                    Ok(path) => {
+                        self.schedule.mark_saved(path, revision);
+
+                        match pending {
+                            Some(pending) if !self.schedule.is_dirty() => self.proceed(pending),
+                            _ => Task::none(),
+                        }
+                    }
+                    Err(error) => {
+                        self.status = Some(error);
+                        Task::none()
+                    }
                 }
-                Task::none()
             }
             Message::LibraryAdded(index) => {
                 if let Some(sample) = self.catalogue.get(index) {
@@ -546,6 +576,36 @@ impl App {
         // Splash baru ditutup setelah jendela kontrol benar-benar terbuka, supaya tidak
         // ada jeda kosong tanpa jendela sama sekali.
         opened.discard().chain(Task::done(Message::ControlOpened))
+    }
+
+    fn guard(&mut self, pending: Pending) -> Task<Message> {
+        if self.modal.is_some() {
+            return Task::none();
+        }
+
+        if self.schedule.is_dirty() {
+            self.modal = Some(Modal::Unsaved(pending));
+            return Task::none();
+        }
+
+        self.proceed(pending)
+    }
+
+    fn proceed(&mut self, pending: Pending) -> Task<Message> {
+        match pending {
+            Pending::New => {
+                self.schedule.clear();
+                Task::none()
+            }
+            Pending::Open => match self.control {
+                Some(control) => files::pick_schedule(control).map(Message::ScheduleFilePicked),
+                None => Task::none(),
+            },
+            Pending::Quit => match self.control {
+                Some(control) => window::close(control),
+                None => iced::exit(),
+            },
+        }
     }
 
     fn write_schedule(&self, path: PathBuf) -> Task<Message> {
@@ -745,5 +805,139 @@ fn shortcut(key: keyboard::Key) -> Option<Message> {
         keyboard::Key::Named(Named::F5) => Some(Message::OutputRequested),
         keyboard::Key::Named(Named::Escape) => Some(Message::OutputDismissed),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use iced::window;
+    use sdw_core::{ScheduleItem, Song};
+
+    use super::{App, Modal};
+    use crate::message::{Message, Pending, UnsavedChoice};
+    use crate::theme_dialog::ThemeDialog;
+
+    fn dirty_app() -> App {
+        let mut app = App::default();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new("A", "satu", None)),
+            None,
+            &app.styles,
+        );
+        app
+    }
+
+    fn pending(app: &App) -> Option<Pending> {
+        match app.modal {
+            Some(Modal::Unsaved(pending)) => Some(pending),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn baru_tanpa_perubahan_tidak_meminta_konfirmasi() {
+        let mut app = App::default();
+
+        let _ = app.update(Message::ScheduleNewRequested);
+
+        assert!(app.modal.is_none());
+    }
+
+    #[test]
+    fn baru_saat_belum_disimpan_meminta_konfirmasi() {
+        let mut app = dirty_app();
+
+        let _ = app.update(Message::ScheduleNewRequested);
+
+        assert_eq!(pending(&app), Some(Pending::New));
+        assert!(!app.schedule.is_empty());
+    }
+
+    #[test]
+    fn jangan_simpan_menjalankan_aksi_tertunda() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Discard));
+
+        assert!(app.modal.is_none());
+        assert!(app.schedule.is_empty());
+    }
+
+    #[test]
+    fn batal_mempertahankan_susunan_acara() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Cancel));
+
+        assert!(app.modal.is_none());
+        assert!(!app.schedule.is_empty());
+    }
+
+    #[test]
+    fn simpan_berhasil_melanjutkan_aksi_tertunda() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+        let revision = app.schedule.revision();
+
+        let _ = app.update(Message::ScheduleSaved(
+            revision,
+            Ok(PathBuf::from("minggu.sdw")),
+        ));
+
+        assert!(app.schedule.is_empty());
+    }
+
+    #[test]
+    fn simpan_gagal_membatalkan_aksi_tertunda() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+        let revision = app.schedule.revision();
+
+        let _ = app.update(Message::ScheduleSaved(revision, Err("rusak".into())));
+
+        assert!(!app.schedule.is_empty());
+        assert!(app.after_save.is_none());
+        assert!(app.status.is_some());
+    }
+
+    #[test]
+    fn batal_memilih_lokasi_simpan_membatalkan_aksi_tertunda() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+
+        let _ = app.update(Message::ScheduleSavePathChosen(None));
+
+        assert!(app.after_save.is_none());
+        assert!(!app.schedule.is_empty());
+    }
+
+    #[test]
+    fn menutup_jendela_operator_saat_belum_disimpan_meminta_konfirmasi() {
+        let mut app = dirty_app();
+        let control = window::Id::unique();
+        app.control = Some(control);
+
+        let _ = app.update(Message::WindowCloseRequested(control));
+
+        assert_eq!(pending(&app), Some(Pending::Quit));
+    }
+
+    #[test]
+    fn permintaan_tutup_diabaikan_saat_dialog_lain_terbuka() {
+        let mut app = dirty_app();
+        let control = window::Id::unique();
+        app.control = Some(control);
+        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(&app.styles, None))));
+
+        let _ = app.update(Message::WindowCloseRequested(control));
+
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
     }
 }

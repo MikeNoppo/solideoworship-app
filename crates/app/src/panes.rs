@@ -5,6 +5,7 @@ pub mod preview;
 pub mod schedule;
 pub mod splash;
 pub mod toolbar;
+pub mod unsaved;
 
 use iced::widget::{button, column, container, grid, row, text};
 use iced::{Center, Element, Fill};
