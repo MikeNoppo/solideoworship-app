@@ -42,6 +42,15 @@ impl Library {
         Ok(summaries)
     }
 
+    pub fn song_count(&self) -> Result<usize, Error> {
+        let count: i64 = self
+            .conn
+            .prepare_cached("SELECT COUNT(*) FROM songs")?
+            .query_row([], |row| row.get(0))?;
+
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
     pub fn song(&self, id: SongId) -> Result<Song, Error> {
         self.conn
             .query_row(
@@ -151,6 +160,17 @@ mod tests {
         }
 
         library
+    }
+
+    #[test]
+    fn song_count_follows_inserts_and_deletes() {
+        let mut library = library_with(&[("A", "one"), ("B", "two")]);
+        assert_eq!(library.song_count().unwrap(), 2);
+
+        let id = library.search_songs("A", 1).unwrap()[0].id;
+        library.delete_song(id).unwrap();
+
+        assert_eq!(library.song_count().unwrap(), 1);
     }
 
     fn titles(library: &Library, query: &str) -> Vec<String> {
