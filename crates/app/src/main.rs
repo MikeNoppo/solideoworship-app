@@ -160,6 +160,7 @@ struct App {
     pick_first_song: bool,
     modal: Option<Modal>,
     toast: Option<Toast>,
+    toast_serial: u64,
     modal_ticket: u64,
     after_save: Option<Pending>,
     bible: BibleTab,
@@ -531,7 +532,7 @@ impl App {
             Message::SongSaved(ticket, result) => match result {
                 Ok((id, song)) => {
                     self.close_modal(ticket);
-                    self.toast = Some(Toast::Saved {
+                    self.show_toast(Toast::Saved {
                         id,
                         text: fill(t().library.saved, &[("title", &song.title())]).into_boxed_str(),
                     });
@@ -543,7 +544,7 @@ impl App {
             Message::SongDeleted(ticket, id, title, result) => match result {
                 Ok(()) => {
                     self.close_modal(ticket);
-                    self.toast = Some(Toast::Deleted(
+                    self.show_toast(Toast::Deleted(
                         fill(t().library.deleted, &[("title", &title)]).into_boxed_str(),
                     ));
                     self.schedule.forget_song(id);
@@ -553,6 +554,12 @@ impl App {
             },
             Message::ToastDismissed => {
                 self.toast = None;
+                Task::none()
+            }
+            Message::ToastExpired(serial) => {
+                if serial == self.toast_serial {
+                    self.toast = None;
+                }
                 Task::none()
             }
             Message::ToastAccepted => match self.toast.take() {
@@ -851,7 +858,11 @@ impl App {
         }
 
         if self.toast.is_some() {
-            subscriptions.push(iced::time::every(TOAST_TIME).map(|_| Message::ToastDismissed));
+            subscriptions.push(
+                iced::time::every(TOAST_TIME)
+                    .with(self.toast_serial)
+                    .map(|(serial, _)| Message::ToastExpired(serial)),
+            );
         }
 
         Subscription::batch(subscriptions)
@@ -890,6 +901,11 @@ impl App {
                 window::size(id).map(move |size| Message::WindowResized(id, size)),
             ])
         })
+    }
+
+    fn show_toast(&mut self, toast: Toast) {
+        self.toast_serial += 1;
+        self.toast = Some(toast);
     }
 
     fn notify(&mut self, notice: Notice) {

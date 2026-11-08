@@ -104,6 +104,7 @@ pub enum Message {
     SongSaved(u64, Outcome<(SongId, Song)>),
     SongDeleted(u64, SongId, Box<str>, Outcome<()>),
     ToastDismissed,
+    ToastExpired(u64),
     ToastAccepted,
     ModalDismissed,
     Editor(editor::Message),
