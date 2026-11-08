@@ -21,6 +21,8 @@ cargo fmt
 
 `cargo clippy` reports a `block v0.1.6` future-incompatibility warning. It comes from a transitive macOS dependency of `display-info`, not from this code.
 
+CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --workspace` on Linux, Windows, and macOS, `cargo check` on the `rust-version` toolchain, and `cargo deny check`. The local toolchain is usually newer than `rust-version`, so a std API stabilized after 1.92 compiles locally and fails CI; check with `cargo +1.92 check --workspace --all-targets`. A new dependency must carry a license from the allow list in `deny.toml`, all of which are GPL-3.0-compatible. Linux builds need `libxcb1-dev` because `display-info` links libxcb.
+
 ## Architecture
 
 Cargo workspace. The split exists to keep iced out of the domain layer's rebuild path — iced is slow to compile, so changing storage or parsing logic should not trigger it.

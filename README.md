@@ -160,6 +160,8 @@ cargo fmt                    # format kode
 
 `cargo clippy` memunculkan peringatan *future-incompatibility* untuk `block v0.1.6`. Peringatan itu berasal dari dependensi macOS milik `display-info`, bukan dari kode proyek ini.
 
+Setiap push ke `main` dan setiap pull request diperiksa CI di Linux, Windows, dan macOS: format, clippy tanpa peringatan, seluruh test, build dengan Rust 1.92, serta lisensi dan celah keamanan dependency lewat [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). Dependency baru wajib memakai lisensi yang cocok dengan GPL-3.0; daftarnya ada di `deny.toml`. Di Linux, build membutuhkan paket `libxcb1-dev` (atau padanannya di distro kamu).
+
 Kontribusi sangat diterima. Commit memakai format [Conventional Commits](https://www.conventionalcommits.org), dan komentar kode serta teks antarmuka ditulis dalam Bahasa Indonesia.
 
 ## Lisensi
