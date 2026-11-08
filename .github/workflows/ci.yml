@@ -14,7 +14,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
   fmt:
@@ -22,9 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - run: rustup toolchain install
       - run: cargo fmt --all --check
 
   test:
@@ -39,12 +36,10 @@ jobs:
       - name: Pasang libxcb
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked --profile ci -- -D warnings
+      - run: cargo test --workspace --locked --profile ci
 
   msrv:
     name: MSRV (${{ matrix.os }})
@@ -62,7 +57,7 @@ jobs:
           rustup toolchain install "$version" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets --locked
+      - run: cargo check --workspace --all-targets --locked --profile ci
 
   deny:
     name: Lisensi dan keamanan dependency
