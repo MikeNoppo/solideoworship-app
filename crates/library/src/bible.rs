@@ -286,6 +286,25 @@ mod tests {
     }
 
     #[test]
+    fn entitas_html_diterjemahkan_dan_yang_asing_tidak_menempelkan_kata() {
+        let mut library = Library::open_in_memory().unwrap();
+        let source = r#"<XMLBIBLE><BIBLEBOOK bnumber="43"><CHAPTER cnumber="3">
+            <VERS vnumber="1">kasih&nbsp;setia</VERS>
+            <VERS vnumber="2">Allah&mdash;Bapa &ldquo;kita&rdquo;&hellip;</VERS>
+            <VERS vnumber="3">kasih&entitasasing;setia</VERS>
+            </CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+
+        library.import_zefania(source.as_bytes(), "UJI").unwrap();
+
+        assert_eq!(verse(&library, 43, 3, 1).as_deref(), Some("kasih setia"));
+        assert_eq!(
+            verse(&library, 43, 3, 2).as_deref(),
+            Some("Allah\u{2014}Bapa \u{201c}kita\u{201d}\u{2026}")
+        );
+        assert_eq!(verse(&library, 43, 3, 3).as_deref(), Some("kasih setia"));
+    }
+
+    #[test]
     fn file_dengan_bom_tetap_terbaca() {
         let mut library = Library::open_in_memory().unwrap();
         let source = format!("\u{feff}{SAMPLE}");

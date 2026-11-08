@@ -174,9 +174,10 @@ impl<R: BufRead> ZefaniaReader<R> {
                                 .decode()
                                 .map_err(|error| xml_error(&self.reader, error.into()))?;
 
-                            if let Some(entity) = resolve_predefined_entity(&name) {
-                                self.raw.push_str(entity);
-                            }
+                            let entity = resolve_predefined_entity(&name)
+                                .or_else(|| html_entity(&name))
+                                .unwrap_or(" ");
+                            self.raw.push_str(entity);
                         }
                     }
                 }
@@ -269,6 +270,25 @@ fn attribute(element: &BytesStart<'_>, name: &str) -> Result<Option<String>, qui
         )),
         None => Ok(None),
     }
+}
+
+fn html_entity(name: &str) -> Option<&'static str> {
+    let text = match name {
+        "nbsp" | "ensp" | "emsp" | "thinsp" => " ",
+        "ndash" => "\u{2013}",
+        "mdash" => "\u{2014}",
+        "hellip" => "\u{2026}",
+        "lsquo" => "\u{2018}",
+        "rsquo" => "\u{2019}",
+        "ldquo" => "\u{201c}",
+        "rdquo" => "\u{201d}",
+        "laquo" => "\u{ab}",
+        "raquo" => "\u{bb}",
+        "middot" => "\u{b7}",
+        _ => return None,
+    };
+
+    Some(text)
 }
 
 fn leading_number(text: &str) -> Option<u16> {
