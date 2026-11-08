@@ -41,62 +41,38 @@ impl Library {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 struct StylesDto {
     song: SongStyleDto,
     scripture: ScriptureStyleDto,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 struct SongStyleDto {
     theme: ThemeDto,
-    max_lines: u16,
+    max_lines: Option<u16>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 struct ScriptureStyleDto {
     theme: ThemeDto,
-    max_chars: u16,
+    max_chars: Option<u16>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 struct ThemeDto {
-    background: String,
-    body: String,
-    footer: String,
-    body_size: f32,
-    footer_size: f32,
-    line_height: f32,
-    align: String,
-    margin: f32,
-}
-
-impl Default for StylesDto {
-    fn default() -> Self {
-        Self::from(&Styles::default())
-    }
-}
-
-impl Default for SongStyleDto {
-    fn default() -> Self {
-        StylesDto::default().song
-    }
-}
-
-impl Default for ScriptureStyleDto {
-    fn default() -> Self {
-        StylesDto::default().scripture
-    }
-}
-
-impl Default for ThemeDto {
-    fn default() -> Self {
-        Self::from(&SlideTheme::default())
-    }
+    background: Option<String>,
+    body: Option<String>,
+    footer: Option<String>,
+    body_size: Option<f32>,
+    footer_size: Option<f32>,
+    line_height: Option<f32>,
+    align: Option<String>,
+    margin: Option<f32>,
 }
 
 impl From<&Styles> for StylesDto {
@@ -104,11 +80,11 @@ impl From<&Styles> for StylesDto {
         Self {
             song: SongStyleDto {
                 theme: ThemeDto::from(&styles.song.theme),
-                max_lines: styles.song.max_lines,
+                max_lines: Some(styles.song.max_lines),
             },
             scripture: ScriptureStyleDto {
                 theme: ThemeDto::from(&styles.scripture.theme),
-                max_chars: styles.scripture.max_chars,
+                max_chars: Some(styles.scripture.max_chars),
             },
         }
     }
@@ -121,11 +97,14 @@ impl From<StylesDto> for Styles {
         Self {
             song: SongStyle {
                 theme: dto.song.theme.into_theme(&defaults.song.theme),
-                max_lines: dto.song.max_lines,
+                max_lines: dto.song.max_lines.unwrap_or(defaults.song.max_lines),
             },
             scripture: ScriptureStyle {
                 theme: dto.scripture.theme.into_theme(&defaults.scripture.theme),
-                max_chars: dto.scripture.max_chars,
+                max_chars: dto
+                    .scripture
+                    .max_chars
+                    .unwrap_or(defaults.scripture.max_chars),
             },
         }
     }
@@ -134,29 +113,37 @@ impl From<StylesDto> for Styles {
 impl From<&SlideTheme> for ThemeDto {
     fn from(theme: &SlideTheme) -> Self {
         Self {
-            background: theme.background.to_hex(),
-            body: theme.body.to_hex(),
-            footer: theme.footer.to_hex(),
-            body_size: theme.body_size,
-            footer_size: theme.footer_size,
-            line_height: theme.line_height,
-            align: align_name(theme.align).to_owned(),
-            margin: theme.margin,
+            background: Some(theme.background.to_hex()),
+            body: Some(theme.body.to_hex()),
+            footer: Some(theme.footer.to_hex()),
+            body_size: Some(theme.body_size),
+            footer_size: Some(theme.footer_size),
+            line_height: Some(theme.line_height),
+            align: Some(align_name(theme.align).to_owned()),
+            margin: Some(theme.margin),
         }
     }
 }
 
 impl ThemeDto {
     fn into_theme(self, defaults: &SlideTheme) -> SlideTheme {
+        let color = |hex: Option<String>, fallback: Rgb| {
+            hex.as_deref().and_then(Rgb::from_hex).unwrap_or(fallback)
+        };
+
         SlideTheme {
-            background: Rgb::from_hex(&self.background).unwrap_or(defaults.background),
-            body: Rgb::from_hex(&self.body).unwrap_or(defaults.body),
-            footer: Rgb::from_hex(&self.footer).unwrap_or(defaults.footer),
-            body_size: self.body_size,
-            footer_size: self.footer_size,
-            line_height: self.line_height,
-            align: align_from_name(&self.align).unwrap_or(defaults.align),
-            margin: self.margin,
+            background: color(self.background, defaults.background),
+            body: color(self.body, defaults.body),
+            footer: color(self.footer, defaults.footer),
+            body_size: self.body_size.unwrap_or(defaults.body_size),
+            footer_size: self.footer_size.unwrap_or(defaults.footer_size),
+            line_height: self.line_height.unwrap_or(defaults.line_height),
+            align: self
+                .align
+                .as_deref()
+                .and_then(align_from_name)
+                .unwrap_or(defaults.align),
+            margin: self.margin.unwrap_or(defaults.margin),
         }
     }
 }
@@ -236,6 +223,22 @@ mod tests {
         assert_eq!(styles.song.max_lines, 3);
         assert_eq!(styles.song.theme, Styles::default().song.theme);
         assert_eq!(styles.scripture, Styles::default().scripture);
+    }
+
+    #[test]
+    fn tema_alkitab_sebagian_memakai_default_alkitab() {
+        let library = Library::open_in_memory().unwrap();
+        store_raw(&library, r#"{"scripture":{"theme":{"align":"left"}}}"#);
+
+        let styles = library.styles().unwrap();
+        let defaults = Styles::default();
+
+        assert_eq!(styles.scripture.theme.align, TextAlign::Left);
+        assert_eq!(
+            styles.scripture.theme.body_size,
+            defaults.scripture.theme.body_size
+        );
+        assert_eq!(styles.song, defaults.song);
     }
 
     #[test]
