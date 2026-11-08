@@ -34,22 +34,22 @@ pub struct Schedule {
     path: Option<PathBuf>,
     revision: u64,
     saved_revision: u64,
+    opened_at: u64,
 }
 
 impl Schedule {
     pub fn load(&mut self, path: PathBuf, items: Vec<ScheduleItem>, styles: &Styles) {
-        *self = Self {
-            entries: items
+        self.reset(
+            items
                 .into_iter()
                 .map(|item| Entry::new(item, None, styles))
                 .collect(),
-            path: Some(path),
-            ..Self::default()
-        };
+            Some(path),
+        );
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
+        self.reset(Vec::new(), None);
     }
 
     pub fn items(&self) -> Vec<ScheduleItem> {
@@ -72,8 +72,25 @@ impl Schedule {
     }
 
     pub fn mark_saved(&mut self, path: PathBuf, revision: u64) {
+        if revision < self.opened_at {
+            return;
+        }
+
         self.path = Some(path);
         self.saved_revision = revision;
+    }
+
+    fn reset(&mut self, entries: Vec<Entry>, path: Option<PathBuf>) {
+        let revision = self.revision + 1;
+
+        *self = Self {
+            entries,
+            path,
+            revision,
+            saved_revision: revision,
+            opened_at: revision,
+            ..Self::default()
+        };
     }
 
     pub fn entries(&self) -> &[Entry] {
@@ -464,5 +481,33 @@ mod tests {
         assert!(schedule.is_empty());
         assert_eq!(schedule.path(), None);
         assert!(!schedule.is_dirty());
+    }
+
+    #[test]
+    fn revisi_terus_naik_setelah_baru_atau_buka() {
+        let mut schedule = schedule(&["A"]);
+        let before = schedule.revision();
+
+        schedule.clear();
+        let after_clear = schedule.revision();
+        schedule.load(PathBuf::from("b.sdw"), vec![song("B")], &Styles::default());
+
+        assert!(after_clear > before);
+        assert!(schedule.revision() > after_clear);
+    }
+
+    #[test]
+    fn hasil_simpan_dokumen_lama_tidak_mengenai_dokumen_baru() {
+        let mut schedule = schedule(&["A"]);
+        let saving = schedule.revision();
+
+        schedule.clear();
+        for title in ["B", "C", "D"] {
+            schedule.push(song(title), None, &Styles::default());
+        }
+        schedule.mark_saved(PathBuf::from("a.sdw"), saving);
+
+        assert_eq!(schedule.path(), None);
+        assert!(schedule.is_dirty());
     }
 }
