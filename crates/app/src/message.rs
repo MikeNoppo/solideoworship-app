@@ -40,7 +40,7 @@ impl LibraryTab {
     pub fn label(self) -> &'static str {
         match self {
             Self::Songs => t().library.songs,
-            Self::Scripture => t().library.scripture,
+            Self::Scripture => t().common.bible,
         }
     }
 }

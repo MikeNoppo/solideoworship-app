@@ -116,7 +116,7 @@ impl Editor {
         let heading = if self.origin.is_some() {
             t().editor.edit_title
         } else {
-            t().editor.new_title
+            t().common.new_song
         };
 
         let fields = row![

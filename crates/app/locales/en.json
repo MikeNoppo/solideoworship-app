@@ -6,7 +6,10 @@
     "delete": "Delete",
     "confirm_delete": "Yes, delete",
     "close": "Close",
-    "preview": "Preview"
+    "preview": "Preview",
+    "bible": "Bible",
+    "new_song": "New song",
+    "manage_bibles": "Manage Bibles"
   },
   "app": {
     "output_window_title": "SolideoWorship — Output",
@@ -44,8 +47,7 @@
     "empty": "The schedule is empty.\nAdd items from the library below.",
     "unsaved": " ● not saved",
     "recovered": " ● recovered, not saved",
-    "song": "Song",
-    "scripture": "Bible"
+    "song": "Song"
   },
   "slides": {
     "position": "Slide {position} of {total}",
@@ -75,18 +77,14 @@
   "library": {
     "title": "Library",
     "songs": "Songs",
-    "scripture": "Bible",
     "search": "Search…",
-    "new_song": "New song",
     "song_hint": "Click a song to add it to the schedule.",
-    "manage_bibles": "Manage Bibles",
     "empty": "The song library is empty. Click New song to add the first song.",
     "no_match": "No songs match the search.",
     "edit": "Edit",
     "truncated": "Only the top results are shown. Refine the search to see other songs."
   },
   "editor": {
-    "new_title": "New song",
     "edit_title": "Edit song",
     "title": "Title",
     "title_placeholder": "Song title",
@@ -111,7 +109,6 @@
     "add": "Add to schedule"
   },
   "bible_manager": {
-    "title": "Manage Bibles",
     "copyright_note": "Bibles are not bundled with the app because of their publishers' copyright. Import a Zefania XML file you own, UTF-8 encoded.",
     "installed": "Installed translations",
     "none_installed": "No translations in the library yet.",
@@ -130,7 +127,6 @@
     "title": "Theme settings",
     "colors": "Colors",
     "background": "Background",
-    "body": "Text",
     "footer": "Footer",
     "text": "Text",
     "font_size": "Font size",

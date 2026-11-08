@@ -31,7 +31,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     .size(13)
                     .width(260),
                 space::horizontal(),
-                button(text(t().library.new_song).size(13))
+                button(text(t().common.new_song).size(13))
                     .padding([4, 12])
                     .on_press(Message::SongCreateRequested)
                     .style(button::success),
@@ -50,7 +50,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             row![
                 app.bible.header().map(Message::Bible),
                 space::horizontal(),
-                button(text(t().library.manage_bibles).size(13))
+                button(text(t().common.manage_bibles).size(13))
                     .padding([4, 12])
                     .on_press(Message::BibleManagerRequested)
                     .style(button::secondary),

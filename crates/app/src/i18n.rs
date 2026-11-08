@@ -44,7 +44,7 @@ pub fn t() -> &'static Strings {
 pub fn kind_label(kind: ContentKind) -> &'static str {
     match kind {
         ContentKind::Song => t().schedule.song,
-        ContentKind::Scripture => t().schedule.scripture,
+        ContentKind::Scripture => t().common.bible,
     }
 }
 

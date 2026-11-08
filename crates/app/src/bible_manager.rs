@@ -199,7 +199,7 @@ impl BibleManager {
 
         container(
             column![
-                text(t().bible_manager.title).size(18),
+                text(t().common.manage_bibles).size(18),
                 text(t().bible_manager.installed)
                     .size(12)
                     .style(text::secondary),

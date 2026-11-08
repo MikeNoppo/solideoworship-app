@@ -38,7 +38,7 @@ impl ColorSlot {
     fn label(self) -> &'static str {
         match self {
             Self::Background => t().theme.background,
-            Self::Body => t().theme.body,
+            Self::Body => t().theme.text,
             Self::Footer => t().theme.footer,
         }
     }

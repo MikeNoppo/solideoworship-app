@@ -6,7 +6,10 @@
     "delete": "Hapus",
     "confirm_delete": "Ya, hapus",
     "close": "Tutup",
-    "preview": "Preview"
+    "preview": "Preview",
+    "bible": "Alkitab",
+    "new_song": "Lagu baru",
+    "manage_bibles": "Kelola Alkitab"
   },
   "app": {
     "output_window_title": "SolideoWorship — Output",
@@ -44,8 +47,7 @@
     "empty": "Susunan acara masih kosong.\nTambahkan dari library di bawah.",
     "unsaved": " ● belum disimpan",
     "recovered": " ● dipulihkan, belum disimpan",
-    "song": "Lagu",
-    "scripture": "Alkitab"
+    "song": "Lagu"
   },
   "slides": {
     "position": "Slide {position} dari {total}",
@@ -75,18 +77,14 @@
   "library": {
     "title": "Library",
     "songs": "Lagu",
-    "scripture": "Alkitab",
     "search": "Cari…",
-    "new_song": "Lagu baru",
     "song_hint": "Klik lagu untuk menambahkannya ke susunan acara.",
-    "manage_bibles": "Kelola Alkitab",
     "empty": "Library lagu masih kosong. Klik Lagu baru untuk menambahkan lagu pertama.",
     "no_match": "Tidak ada lagu yang cocok dengan pencarian.",
     "edit": "Ubah",
     "truncated": "Hanya hasil teratas yang ditampilkan. Perjelas pencarian untuk melihat lagu lain."
   },
   "editor": {
-    "new_title": "Lagu baru",
     "edit_title": "Ubah lagu",
     "title": "Judul",
     "title_placeholder": "Judul lagu",
@@ -111,7 +109,6 @@
     "add": "Tambahkan ke susunan acara"
   },
   "bible_manager": {
-    "title": "Kelola Alkitab",
     "copyright_note": "Alkitab tidak disertakan di aplikasi karena hak cipta penerbitnya. Impor file Zefania XML milik Anda sendiri, berenkoding UTF-8.",
     "installed": "Terjemahan terpasang",
     "none_installed": "Belum ada terjemahan di library.",
@@ -130,7 +127,6 @@
     "title": "Pengaturan tema",
     "colors": "Warna",
     "background": "Latar",
-    "body": "Teks",
     "footer": "Footer",
     "text": "Teks",
     "font_size": "Ukuran huruf",
