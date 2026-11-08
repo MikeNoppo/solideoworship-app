@@ -9,12 +9,19 @@ fi
 version=$1
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
-target=${CARGO_TARGET_DIR:-$root/target}
+
+cd "$root"
+cargo build --release --locked -p sdw-app
+
+target=$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
+
+if [ -z "$target" ]; then
+    echo "Could not read the cargo target directory." >&2
+    exit 1
+fi
 name=SolideoWorship-$version-linux-$(uname -m)
 dist=$target/dist
 stage=$dist/$name
-
-cargo build --release --locked -p sdw-app --manifest-path "$root/Cargo.toml"
 
 rm -rf "$stage" "$dist/$name.tar.gz"
 mkdir -p "$stage"
