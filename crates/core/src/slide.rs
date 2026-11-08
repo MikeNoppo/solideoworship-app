@@ -20,9 +20,9 @@ impl ContentKind {
     }
 }
 
-// Lagu dan ayat sama-sama dikompilasi ke bentuk ini. Mesin live dan renderer hanya
-// pernah mengenal SlideDeck, tidak pernah tahu asal isinya — menambah jenis konten
-// baru berarti menambah satu kompiler, bukan menyentuh keduanya.
+// Songs and scripture both compile into this shape. The live engine and the renderer
+// only ever know SlideDeck, never where its contents came from — adding a new content
+// kind means adding one compiler, not touching either of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlideDeck {
     pub title: Box<str>,

@@ -59,8 +59,8 @@ impl SongSlides<'_> {
 
         self.part += 1;
 
-        // Potongan lanjutan diberi nomor supaya operator tahu ia masih di bait yang
-        // sama — mengulang label polos membuat dua slide terlihat identik di daftar.
+        // Continuation chunks are numbered so the operator knows they are still in the
+        // same section — repeating the plain label makes two slides look identical in the list.
         let label = self.label.map(|label| {
             if self.part == 1 {
                 Box::from(label)
@@ -91,8 +91,8 @@ pub fn scripture(passage: &Passage, max_chars: usize) -> SlideDeck {
     for (index, verse) in verses.iter().enumerate() {
         let chars = verse.text.chars().count();
 
-        // Ayat tidak pernah dipotong di tengah; batas karakter hanya menentukan berapa
-        // ayat utuh yang muat dalam satu slide.
+        // A verse is never split in the middle; the character limit only decides how many
+        // whole verses fit on one slide.
         if index > start && length + chars > max_chars {
             slides.push(verse_slide(
                 &book_chapter,
@@ -147,7 +147,7 @@ mod tests {
     use crate::song::Song;
 
     fn labels(lyrics: &str, max_lines: usize) -> Vec<Option<String>> {
-        song(&Song::new("Uji", lyrics, None), max_lines)
+        song(&Song::new("Test", lyrics, None), max_lines)
             .slides
             .iter()
             .map(|slide| slide.label.as_deref().map(str::to_owned))
@@ -155,7 +155,7 @@ mod tests {
     }
 
     fn bodies(lyrics: &str, max_lines: usize) -> Vec<String> {
-        song(&Song::new("Uji", lyrics, None), max_lines)
+        song(&Song::new("Test", lyrics, None), max_lines)
             .slides
             .iter()
             .map(|slide| slide.body.to_string())
@@ -163,30 +163,30 @@ mod tests {
     }
 
     #[test]
-    fn bagian_dipecah_per_batas_baris() {
+    fn section_is_split_by_line_limit() {
         assert_eq!(
-            bodies("[Verse 1]\nsatu\ndua\ntiga\nempat\nlima", 2),
-            ["satu\ndua", "tiga\nempat", "lima"]
+            bodies("[Verse 1]\none\ntwo\nthree\nfour\nfive", 2),
+            ["one\ntwo", "three\nfour", "five"]
         );
     }
 
     #[test]
-    fn potongan_lanjutan_diberi_nomor() {
+    fn continuation_chunks_are_numbered() {
         assert_eq!(
-            labels("[Verse 1]\nsatu\ndua\ntiga", 2),
+            labels("[Verse 1]\none\ntwo\nthree", 2),
             [Some("Verse 1".into()), Some("Verse 1 (2)".into())]
         );
     }
 
     #[test]
-    fn baris_kosong_memaksa_ganti_slide() {
-        assert_eq!(bodies("[Verse 1]\nsatu\n\n\n  \ndua", 4), ["satu", "dua"]);
+    fn blank_line_forces_new_slide() {
+        assert_eq!(bodies("[Verse 1]\none\n\n\n  \ntwo", 4), ["one", "two"]);
     }
 
     #[test]
-    fn nomor_lanjutan_dihitung_per_bagian() {
+    fn continuation_numbers_count_per_section() {
         assert_eq!(
-            labels("[Verse 1]\nsatu\ndua\ntiga\n\nempat", 2),
+            labels("[Verse 1]\none\ntwo\nthree\n\nfour", 2),
             [
                 Some("Verse 1".into()),
                 Some("Verse 1 (2)".into()),
@@ -196,9 +196,9 @@ mod tests {
     }
 
     #[test]
-    fn judul_baru_mengulang_nomor_dari_awal() {
+    fn new_heading_restarts_numbering() {
         assert_eq!(
-            labels("[Verse 1]\nsatu\ndua\ntiga\n[Reff]\nempat", 2),
+            labels("[Verse 1]\none\ntwo\nthree\n[Reff]\nfour", 2),
             [
                 Some("Verse 1".into()),
                 Some("Verse 1 (2)".into()),
@@ -208,22 +208,22 @@ mod tests {
     }
 
     #[test]
-    fn baris_sebelum_judul_tidak_berlabel() {
+    fn lines_before_heading_are_unlabeled() {
         assert_eq!(
-            labels("satu\ndua\ntiga\n[Reff]\nempat", 2),
+            labels("one\ntwo\nthree\n[Reff]\nfour", 2),
             [None, None, Some("Reff".into())]
         );
     }
 
     #[test]
-    fn judul_tanpa_baris_tidak_menghasilkan_slide() {
-        assert_eq!(labels("[Intro]\n\n[Reff]\nsatu", 4), [Some("Reff".into())]);
+    fn heading_without_lines_produces_no_slide() {
+        assert_eq!(labels("[Intro]\n\n[Reff]\none", 4), [Some("Reff".into())]);
     }
 
     #[test]
-    fn judul_berulang_menghasilkan_slide_lagi() {
+    fn repeated_heading_produces_another_slide() {
         assert_eq!(
-            labels("[Reff]\nsatu\n[Verse 2]\ndua\n[Reff]\nsatu", 4),
+            labels("[Reff]\none\n[Verse 2]\ntwo\n[Reff]\none", 4),
             [
                 Some("Reff".into()),
                 Some("Verse 2".into()),
@@ -233,40 +233,40 @@ mod tests {
     }
 
     #[test]
-    fn judul_hanya_baris_kurung_siku_utuh() {
+    fn heading_is_only_a_whole_bracketed_line() {
         assert_eq!(
-            bodies("[Verse] satu\n[]\n[ ]\n[a] [b]", 8),
-            ["[Verse] satu\n[]\n[ ]\n[a] [b]"]
+            bodies("[Verse] one\n[]\n[ ]\n[a] [b]", 8),
+            ["[Verse] one\n[]\n[ ]\n[a] [b]"]
         );
     }
 
     #[test]
-    fn spasi_di_sekitar_judul_dan_baris_dipangkas() {
-        let deck = song(&Song::new("Uji", "  [ Reff ]  \n   satu   ", None), 4);
+    fn whitespace_around_headings_and_lines_is_trimmed() {
+        let deck = song(&Song::new("Test", "  [ Reff ]  \n   one   ", None), 4);
 
         assert_eq!(deck.slides[0].label.as_deref(), Some("Reff"));
-        assert_eq!(&*deck.slides[0].body, "satu");
+        assert_eq!(&*deck.slides[0].body, "one");
     }
 
     #[test]
-    fn max_lines_nol_tidak_membuat_loop_tak_berujung() {
-        assert_eq!(bodies("satu\ndua", 0), ["satu", "dua"]);
+    fn zero_max_lines_does_not_loop_forever() {
+        assert_eq!(bodies("one\ntwo", 0), ["one", "two"]);
     }
 
     #[test]
-    fn copyright_menjadi_footer_setiap_slide() {
-        let deck = song(&Song::new("Uji", "satu\n\ndua", Some("© Contoh")), 4);
+    fn copyright_becomes_footer_of_every_slide() {
+        let deck = song(&Song::new("Test", "one\n\ntwo", Some("© Example")), 4);
 
         assert!(
             deck.slides
                 .iter()
-                .all(|slide| slide.footer.as_deref() == Some("© Contoh"))
+                .all(|slide| slide.footer.as_deref() == Some("© Example"))
         );
     }
 
     #[test]
-    fn lirik_kosong_menghasilkan_deck_kosong() {
-        assert!(song(&Song::new("Uji", "\n\n[Reff]\n", None), 4).is_empty());
+    fn empty_lyrics_produce_empty_deck() {
+        assert!(song(&Song::new("Test", "\n\n[Reff]\n", None), 4).is_empty());
     }
 
     fn passage(book: u8, chapter: u16, verses: &[(u16, &str)]) -> Passage {
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn ayat_tidak_pernah_dipotong_di_tengah() {
+    fn verse_is_never_split_in_the_middle() {
         let deck = scripture(
             &passage(
                 43,
@@ -302,9 +302,9 @@ mod tests {
     }
 
     #[test]
-    fn footer_mengikuti_ayat_yang_tampil_di_slide() {
+    fn footer_follows_verses_shown_on_slide() {
         let deck = scripture(
-            &passage(43, 3, &[(16, "satu"), (17, "dua"), (18, "tiga")]),
+            &passage(43, 3, &[(16, "one"), (17, "two"), (18, "three")]),
             100,
         );
 
@@ -316,23 +316,23 @@ mod tests {
     }
 
     #[test]
-    fn ayat_tunggal_memakai_referensi_tanpa_rentang() {
+    fn single_verse_uses_reference_without_range() {
         let deck = scripture(&passage(1, 1, &[(27, "Maka Allah menciptakan")]), 100);
 
         assert_eq!(deck.slides[0].footer.as_deref(), Some("Kejadian 1:27 (TB)"));
     }
 
     #[test]
-    fn judul_deck_memakai_referensi_dan_terjemahan() {
+    fn deck_title_uses_reference_and_translation() {
         let reference = Reference::new(Book::from_number(19).unwrap(), 23, Some((1, 2))).unwrap();
         let verses = vec![
             Verse {
                 number: 1,
-                text: "satu".into(),
+                text: "one".into(),
             },
             Verse {
                 number: 2,
-                text: "dua".into(),
+                text: "two".into(),
             },
         ];
         let deck = scripture(&Passage::new(reference, "TB", verses).unwrap(), 100);

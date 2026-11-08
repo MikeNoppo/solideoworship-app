@@ -45,7 +45,7 @@ mod tests {
     use super::Song;
 
     #[test]
-    fn judul_dipangkas() {
+    fn title_is_trimmed() {
         assert_eq!(
             Song::new("  Kaulah Harapan \n", "", None).title(),
             "Kaulah Harapan"
@@ -53,30 +53,30 @@ mod tests {
     }
 
     #[test]
-    fn judul_kosong_tetap_diterima() {
-        assert_eq!(Song::new("   ", "satu", None).title(), "");
+    fn empty_title_is_still_accepted() {
+        assert_eq!(Song::new("   ", "one", None).title(), "");
     }
 
     #[test]
-    fn akhir_baris_windows_dan_mac_lama_dinormalkan() {
-        let song = Song::new("Uji", "satu\r\ndua\rtiga\n", None);
+    fn windows_and_classic_mac_line_endings_are_normalized() {
+        let song = Song::new("Test", "one\r\ntwo\rthree\n", None);
 
-        assert_eq!(song.lyrics(), "satu\ndua\ntiga\n");
+        assert_eq!(song.lyrics(), "one\ntwo\nthree\n");
     }
 
     #[test]
-    fn lirik_selain_akhir_baris_tidak_diubah() {
-        let lyrics = "  [Verse 1]\n\n  satu  \n";
+    fn lyrics_other_than_line_endings_are_untouched() {
+        let lyrics = "  [Verse 1]\n\n  one  \n";
 
-        assert_eq!(Song::new("Uji", lyrics, None).lyrics(), lyrics);
+        assert_eq!(Song::new("Test", lyrics, None).lyrics(), lyrics);
     }
 
     #[test]
-    fn copyright_kosong_menjadi_none() {
-        assert_eq!(Song::new("Uji", "", Some("  ")).copyright(), None);
+    fn empty_copyright_becomes_none() {
+        assert_eq!(Song::new("Test", "", Some("  ")).copyright(), None);
         assert_eq!(
-            Song::new("Uji", "", Some(" © Contoh ")).copyright(),
-            Some("© Contoh")
+            Song::new("Test", "", Some(" © Example ")).copyright(),
+            Some("© Example")
         );
     }
 }

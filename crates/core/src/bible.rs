@@ -221,13 +221,11 @@ pub enum ReferenceError {
 impl fmt::Display for ReferenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Empty => f.write_str("Tulis referensi ayat, misalnya Yoh 3:16."),
-            Self::MissingBook => {
-                f.write_str("Referensi harus diawali nama kitab, misalnya Yoh 3:16.")
-            }
-            Self::UnknownBook(input) => write!(f, "Kitab \"{input}\" tidak dikenal."),
+            Self::Empty => f.write_str("Enter a verse reference, e.g. Yoh 3:16."),
+            Self::MissingBook => f.write_str("A reference must start with a book name, e.g. Yoh 3:16."),
+            Self::UnknownBook(input) => write!(f, "Unknown book \"{input}\"."),
             Self::AmbiguousBook { input, candidates } => {
-                write!(f, "\"{input}\" bisa berarti ")?;
+                write!(f, "\"{input}\" could mean ")?;
 
                 for (index, book) in candidates.iter().enumerate() {
                     if index > 0 {
@@ -236,20 +234,20 @@ impl fmt::Display for ReferenceError {
                     f.write_str(book.name())?;
                 }
 
-                f.write_str(". Ketik nama kitab lebih lengkap.")
+                f.write_str(". Type more of the book name.")
             }
-            Self::MissingChapter => f.write_str("Nomor pasal belum diisi."),
-            Self::MissingVerse => f.write_str("Nomor ayat belum diisi."),
-            Self::InvalidNumber => f.write_str("Nomor pasal dan ayat harus dimulai dari 1."),
+            Self::MissingChapter => f.write_str("The chapter number is missing."),
+            Self::MissingVerse => f.write_str("The verse number is missing."),
+            Self::InvalidNumber => f.write_str("Chapter and verse numbers start at 1."),
             Self::ReversedRange { start, end } => {
-                write!(f, "Rentang ayat terbalik: {start} lebih besar dari {end}.")
+                write!(f, "Reversed verse range: {start} is greater than {end}.")
             }
             Self::CrossChapter => f.write_str(
-                "Rentang lintas pasal belum didukung. Tambahkan tiap pasal sebagai item terpisah.",
+                "Ranges across chapters are not supported yet. Add each chapter as a separate item.",
             ),
             Self::Trailing(rest) => write!(
                 f,
-                "Bagian \"{rest}\" tidak dimengerti. Gunakan format seperti Yoh 3:16-18."
+                "Could not understand \"{rest}\". Use a format like Yoh 3:16-18."
             ),
         }
     }
@@ -511,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn kanon_berisi_66_kitab_berurutan() {
+    fn canon_has_66_books_in_order() {
         let numbers: Vec<u8> = Book::all().map(Book::number).collect();
 
         assert_eq!(numbers, (1..=66).collect::<Vec<u8>>());
@@ -521,13 +519,13 @@ mod tests {
     }
 
     #[test]
-    fn nomor_kitab_di_luar_kanon_ditolak() {
+    fn book_number_outside_canon_is_rejected() {
         assert_eq!(Book::from_number(0), None);
         assert_eq!(Book::from_number(67), None);
     }
 
     #[test]
-    fn nama_dan_singkatan_kitab_unik() {
+    fn book_names_and_abbreviations_are_unique() {
         let names: HashSet<_> = Book::all().map(Book::name).collect();
         let abbreviations: HashSet<_> = Book::all().map(Book::abbreviation).collect();
 
@@ -536,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn referensi_menolak_nomor_nol() {
+    fn reference_rejects_zero() {
         assert_eq!(
             Reference::new(book(43), 0, None),
             Err(ReferenceError::InvalidNumber)
@@ -548,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn referensi_menolak_rentang_terbalik() {
+    fn reference_rejects_reversed_range() {
         assert_eq!(
             Reference::new(book(43), 3, Some((18, 16))),
             Err(ReferenceError::ReversedRange { start: 18, end: 16 })
@@ -556,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn referensi_ditampilkan_dengan_nama_lengkap() {
+    fn reference_is_displayed_with_full_name() {
         let chapter = Reference::new(book(19), 23, None).unwrap();
         let single = Reference::new(book(43), 3, Some((16, 16))).unwrap();
         let range = Reference::new(book(46), 13, Some((4, 7))).unwrap();
@@ -567,14 +565,14 @@ mod tests {
     }
 
     #[test]
-    fn perikop_tanpa_ayat_ditolak() {
+    fn passage_without_verses_is_rejected() {
         let reference = Reference::new(book(19), 23, None).unwrap();
 
         assert!(Passage::new(reference, "TB", Vec::new()).is_none());
     }
 
     #[test]
-    fn perikop_menolak_ayat_tidak_berurutan() {
+    fn passage_rejects_out_of_order_verses() {
         let reference = Reference::new(book(19), 23, None).unwrap();
 
         assert!(Passage::new(reference.clone(), "TB", verses(&[2, 1])).is_none());
@@ -582,14 +580,14 @@ mod tests {
     }
 
     #[test]
-    fn perikop_menolak_ayat_di_luar_referensi() {
+    fn passage_rejects_verses_outside_reference() {
         let reference = Reference::new(book(19), 23, Some((2, 3))).unwrap();
 
         assert!(Passage::new(reference, "TB", verses(&[1, 2])).is_none());
     }
 
     #[test]
-    fn perikop_menyempitkan_rentang_ke_ayat_yang_ada() {
+    fn passage_narrows_range_to_existing_verses() {
         let reference = Reference::new(book(19), 23, Some((1, 10))).unwrap();
         let passage = Passage::new(reference, "TB", verses(&[1, 2, 3, 4, 5, 6])).unwrap();
 
@@ -597,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn perikop_satu_pasal_tetap_tanpa_rentang() {
+    fn whole_chapter_passage_keeps_no_range() {
         let reference = Reference::new(book(19), 23, None).unwrap();
         let passage = Passage::new(reference, "TB", verses(&[1, 2])).unwrap();
 
@@ -615,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn setiap_kitab_dikenali_dari_nama_dan_singkatannya() {
+    fn every_book_is_recognized_by_name_and_abbreviation() {
         for book in Book::all() {
             assert_eq!(Book::parse(book.name()), Ok(book), "{}", book.name());
             assert_eq!(
@@ -634,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn setiap_kunci_menunjuk_satu_kitab_saja() {
+    fn every_key_points_to_exactly_one_book() {
         for (key, book) in EXACT_KEYS.iter() {
             assert!(
                 EXACT_KEYS
@@ -646,50 +644,50 @@ mod tests {
     }
 
     #[test]
-    fn setiap_alias_menunjuk_kitab_yang_ada() {
+    fn every_alias_points_to_an_existing_book() {
         for &(number, alias) in ALIASES {
             assert_eq!(Book::parse(alias).map(Book::number), Ok(number), "{alias}");
         }
     }
 
     #[test]
-    fn variasi_penulisan_kitab_bernomor() {
+    fn numbered_book_spelling_variants() {
         for input in ["1 Kor 13:4", "1Kor13:4", "1 kor. 13 : 4", "1 Korintus 13:4"] {
             assert_eq!(parsed(input), (46, 13, Some((4, 4))), "{input}");
         }
     }
 
     #[test]
-    fn referensi_lengkap_dengan_rentang() {
+    fn full_reference_with_range() {
         assert_eq!(parsed("Yoh 3:16-18"), (43, 3, Some((16, 18))));
         assert_eq!(parsed("Mzm 23:1 – 3"), (19, 23, Some((1, 3))));
         assert_eq!(parsed("yoh 3.16"), (43, 3, Some((16, 16))));
     }
 
     #[test]
-    fn referensi_satu_pasal() {
+    fn whole_chapter_reference() {
         assert_eq!(parsed("Kej 1"), (1, 1, None));
         assert_eq!(parsed("  Mazmur   23  "), (19, 23, None));
     }
 
     #[test]
-    fn kecocokan_persis_didahulukan_dari_awalan() {
+    fn exact_match_wins_over_prefix() {
         assert_eq!(parsed("Am 1").0, 30);
         assert_eq!(parsed("Yoh 1").0, 43);
         assert_eq!(parsed("Fil 2").0, 50);
     }
 
     #[test]
-    fn awalan_nama_yang_unik_diterima() {
+    fn unique_name_prefix_is_accepted() {
         assert_eq!(parsed("Wahy 1").0, 66);
         assert_eq!(parsed("Filip 2").0, 50);
         assert_eq!(parsed("1 Yoha 1").0, 62);
     }
 
     #[test]
-    fn awalan_yang_ambigu_menyebut_kandidat() {
+    fn ambiguous_prefix_lists_candidates() {
         let Err(ReferenceError::AmbiguousBook { candidates, .. }) = Reference::parse("Ma 1") else {
-            panic!("seharusnya ambigu");
+            panic!("expected an ambiguous book");
         };
 
         let names: Vec<&str> = candidates.iter().map(|book| book.name()).collect();
@@ -697,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn referensi_tidak_valid_ditolak_dengan_alasan() {
+    fn invalid_reference_is_rejected_with_reason() {
         let cases = [
             ("  ", ReferenceError::Empty),
             ("3:16", ReferenceError::MissingBook),
@@ -724,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn tampilan_referensi_bisa_dibaca_ulang() {
+    fn displayed_reference_parses_back() {
         for input in ["Yoh 3:16-18", "Kej 1", "1 Kor 13:4", "Kid 2:1"] {
             let reference = Reference::parse(input).unwrap();
 
@@ -733,15 +731,15 @@ mod tests {
     }
 
     #[test]
-    fn pesan_error_dalam_bahasa_indonesia() {
+    fn ambiguous_error_names_candidates() {
         let message = Reference::parse("Ma 1").unwrap_err().to_string();
 
         assert!(message.contains("Mazmur"));
-        assert!(message.contains("lebih lengkap"));
+        assert!(message.contains("Type more"));
     }
 
     #[test]
-    fn angka_di_kitab_satu_pasal_dibaca_sebagai_ayat() {
+    fn number_in_single_chapter_book_is_a_verse() {
         assert_eq!(parsed("Yud 3"), (65, 1, Some((3, 3))));
         assert_eq!(parsed("Flm 6"), (57, 1, Some((6, 6))));
         assert_eq!(parsed("Ob 2-4"), (31, 1, Some((2, 4))));
@@ -750,14 +748,14 @@ mod tests {
     }
 
     #[test]
-    fn kitab_satu_pasal_tetap_menerima_bentuk_lengkap() {
+    fn single_chapter_book_still_accepts_full_form() {
         assert_eq!(parsed("Yud 1"), (65, 1, None));
         assert_eq!(parsed("Yud 1:3"), (65, 1, Some((3, 3))));
         assert_eq!(parsed("Yudas 1:20-25"), (65, 1, Some((20, 25))));
     }
 
     #[test]
-    fn kitab_satu_pasal_tetap_menolak_sisa_yang_tidak_dimengerti() {
+    fn single_chapter_book_still_rejects_trailing_input() {
         assert_eq!(
             Reference::parse("Yud 3 abc"),
             Err(ReferenceError::Trailing("abc".into()))
@@ -769,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn kitab_banyak_pasal_tidak_terpengaruh() {
+    fn multi_chapter_book_is_unaffected() {
         assert_eq!(parsed("Yoh 3"), (43, 3, None));
         assert_eq!(
             Reference::parse("Mzm 23-24"),

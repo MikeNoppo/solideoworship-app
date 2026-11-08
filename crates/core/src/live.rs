@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::slide::{Slide, SlideDeck};
 
-// Kursor atas satu deck. Deck dibagi lewat Arc supaya mendorong Preview ke Live tidak
-// menyalin isi slide sama sekali.
+// A cursor over one deck. The deck is shared through an Arc so pushing Preview to Live
+// never copies slide contents.
 #[derive(Debug, Clone)]
 pub struct Presentation {
     deck: Arc<SlideDeck>,
@@ -106,7 +106,7 @@ mod tests {
 
     fn deck(count: usize) -> Arc<SlideDeck> {
         Arc::new(SlideDeck {
-            title: "Uji".into(),
+            title: "Test".into(),
             kind: ContentKind::Song,
             slides: (0..count)
                 .map(|index| Slide {
@@ -119,12 +119,12 @@ mod tests {
     }
 
     #[test]
-    fn deck_kosong_tidak_bisa_ditayangkan() {
+    fn empty_deck_cannot_go_live() {
         assert!(Presentation::new(deck(0)).is_none());
     }
 
     #[test]
-    fn navigasi_berhenti_di_kedua_ujung() {
+    fn navigation_stops_at_both_ends() {
         let mut show = Presentation::new(deck(2)).unwrap();
 
         assert!(!show.rewind());
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn go_to_menolak_indeks_di_luar_deck() {
+    fn go_to_rejects_index_outside_deck() {
         let mut show = Presentation::new(deck(3)).unwrap();
 
         assert!(!show.go_to(3));
@@ -144,14 +144,14 @@ mod tests {
     }
 
     #[test]
-    fn share_tidak_menyalin_isi_deck() {
+    fn share_does_not_copy_deck_contents() {
         let show = Presentation::new(deck(1)).unwrap();
 
         assert!(Arc::ptr_eq(&show.share(), &show.share()));
     }
 
     #[test]
-    fn toggle_ke_target_yang_sama_kembali_ke_show() {
+    fn toggling_same_target_returns_to_show() {
         assert_eq!(
             OutputState::Black.toggled(OutputState::Black),
             OutputState::Show
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn toggle_ke_target_berbeda_langsung_berpindah() {
+    fn toggling_different_target_switches_directly() {
         assert_eq!(
             OutputState::Black.toggled(OutputState::Clear),
             OutputState::Clear
@@ -175,19 +175,19 @@ mod tests {
     }
 
     #[test]
-    fn clear_menampilkan_background_tanpa_konten() {
+    fn clear_shows_background_without_content() {
         assert!(OutputState::Clear.shows_background());
         assert!(!OutputState::Clear.shows_content());
     }
 
     #[test]
-    fn black_tidak_menampilkan_apa_pun() {
+    fn black_shows_nothing() {
         assert!(!OutputState::Black.shows_background());
         assert!(!OutputState::Black.shows_content());
     }
 
     #[test]
-    fn show_menampilkan_background_dan_konten() {
+    fn show_shows_background_and_content() {
         assert!(OutputState::Show.shows_background());
         assert!(OutputState::Show.shows_content());
     }

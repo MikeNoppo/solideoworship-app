@@ -41,7 +41,7 @@ mod tests {
         let verses = (1..=3)
             .map(|number| Verse {
                 number,
-                text: "kata ".repeat(10).into_boxed_str(),
+                text: "word ".repeat(10).into_boxed_str(),
             })
             .collect();
 
@@ -49,8 +49,8 @@ mod tests {
     }
 
     #[test]
-    fn jenis_mengikuti_sumber() {
-        let song = ScheduleItem::Song(Song::new("Uji", "satu", None));
+    fn kind_follows_source() {
+        let song = ScheduleItem::Song(Song::new("Test", "one", None));
 
         assert_eq!(song.kind(), ContentKind::Song);
         assert_eq!(
@@ -60,8 +60,8 @@ mod tests {
     }
 
     #[test]
-    fn lagu_dikompilasi_dengan_batas_baris_dari_gaya() {
-        let item = ScheduleItem::Song(Song::new("Uji", "satu\ndua\ntiga\nempat", None));
+    fn song_is_compiled_with_line_limit_from_style() {
+        let item = ScheduleItem::Song(Song::new("Test", "one\ntwo\nthree\nfour", None));
         let mut styles = Styles::default();
 
         styles.song.max_lines = 4;
@@ -72,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    fn ayat_dikompilasi_dengan_batas_karakter_dari_gaya() {
+    fn scripture_is_compiled_with_char_limit_from_style() {
         let item = ScheduleItem::Passage(passage());
         let mut styles = Styles::default();
 
