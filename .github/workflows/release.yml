@@ -118,9 +118,22 @@ jobs:
       - name: Write checksums
         working-directory: dist
         run: sha256sum -- * > SHA256SUMS.txt
-      - name: Create the draft release
+      - name: Create or update the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --draft --verify-tag --title "SolideoWorship ${TAG#v}" --generate-notes dist/*
+        run: |
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || true)
+          case $draft in
+            true)
+              gh release upload "$TAG" dist/* --clobber
+              ;;
+            false)
+              echo "::error::Release $TAG is already published; its files are left untouched"
+              exit 1
+              ;;
+            *)
+              gh release create "$TAG" --draft --verify-tag --title "SolideoWorship ${TAG#v}" --generate-notes dist/*
+              ;;
+          esac
