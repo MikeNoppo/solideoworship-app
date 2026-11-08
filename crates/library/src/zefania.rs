@@ -29,10 +29,10 @@ pub(crate) struct ZefaniaReader<R> {
 }
 
 enum Tag {
-    Book(Option<Book>),
-    Chapter(Option<u16>),
+    Book(Book),
+    Chapter(u16),
     Verse(Option<u16>),
-    Other(Vec<u8>),
+    Skip(Vec<u8>),
 }
 
 impl<R: BufRead> ZefaniaReader<R> {
@@ -85,13 +85,12 @@ impl<R: BufRead> ZefaniaReader<R> {
 
             match event {
                 Event::Start(element) => {
-                    let tag = classify(&element).map_err(|error| xml_error(&self.reader, error))?;
+                    let tag = classify(&element, self.book.is_some())
+                        .map_err(|error| xml_error(&self.reader, error))?;
 
                     match tag {
-                        Tag::Book(Some(book)) => self.book = Some(book),
-                        Tag::Chapter(Some(chapter)) if self.book.is_some() => {
-                            self.chapter = Some(chapter);
-                        }
+                        Tag::Book(book) => self.book = Some(book),
+                        Tag::Chapter(chapter) => self.chapter = Some(chapter),
                         Tag::Verse(number) => {
                             self.read_verse()?;
 
@@ -109,9 +108,7 @@ impl<R: BufRead> ZefaniaReader<R> {
                                 _ => self.skipped += 1,
                             }
                         }
-                        Tag::Book(None) => self.skip(b"BIBLEBOOK")?,
-                        Tag::Chapter(_) => self.skip(b"CHAPTER")?,
-                        Tag::Other(name) => self.skip(&name)?,
+                        Tag::Skip(name) => self.skip(&name)?,
                     }
                 }
                 Event::Empty(element) if is(&element, "VERS") => self.skipped += 1,
@@ -222,7 +219,7 @@ fn is(element: &BytesStart<'_>, tag: &str) -> bool {
         .eq_ignore_ascii_case(tag.as_bytes())
 }
 
-fn classify(element: &BytesStart<'_>) -> Result<Tag, quick_xml::Error> {
+fn classify(element: &BytesStart<'_>, inside_book: bool) -> Result<Tag, quick_xml::Error> {
     if is(element, "BIBLEBOOK") {
         let by_number = attribute(element, "bnumber")?
             .and_then(|number| number.trim().parse::<u8>().ok())
@@ -233,15 +230,17 @@ fn classify(element: &BytesStart<'_>) -> Result<Tag, quick_xml::Error> {
             None => attribute(element, "bname")?.and_then(|name| Book::parse(&name).ok()),
         };
 
-        return Ok(Tag::Book(book));
-    }
-
-    if is(element, "CHAPTER") {
+        if let Some(book) = book {
+            return Ok(Tag::Book(book));
+        }
+    } else if is(element, "CHAPTER") {
         let chapter = attribute(element, "cnumber")?
             .and_then(|number| number.trim().parse::<u16>().ok())
-            .filter(|&number| number > 0);
+            .filter(|&number| number > 0 && inside_book);
 
-        return Ok(Tag::Chapter(chapter));
+        if let Some(chapter) = chapter {
+            return Ok(Tag::Chapter(chapter));
+        }
     }
 
     if is(element, "VERS") {
@@ -250,7 +249,7 @@ fn classify(element: &BytesStart<'_>) -> Result<Tag, quick_xml::Error> {
         return Ok(Tag::Verse(number));
     }
 
-    Ok(Tag::Other(element.name().as_ref().to_vec()))
+    Ok(Tag::Skip(element.name().as_ref().to_vec()))
 }
 
 fn attribute(element: &BytesStart<'_>, name: &str) -> Result<Option<String>, quick_xml::Error> {

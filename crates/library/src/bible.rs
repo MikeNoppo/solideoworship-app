@@ -261,6 +261,31 @@ mod tests {
     }
 
     #[test]
+    fn kitab_tak_dikenal_dilewati_apa_pun_penulisan_tagnya() {
+        let lowercase = r#"<xmlbible><biblebook bnumber="70"><chapter cnumber="1">
+            <vers vnumber="1">deuterokanonika</vers></chapter></biblebook>
+            <biblebook bnumber="43"><chapter cnumber="3"><vers vnumber="16">satu</vers>
+            </chapter></biblebook></xmlbible>"#;
+        let prefixed = r#"<zef:XMLBIBLE xmlns:zef="urn:zefania">
+            <zef:BIBLEBOOK bnumber="70"><zef:CHAPTER cnumber="1"><zef:VERS vnumber="1">x</zef:VERS>
+            </zef:CHAPTER></zef:BIBLEBOOK>
+            <zef:BIBLEBOOK bnumber="43"><zef:CHAPTER cnumber="0"><zef:VERS vnumber="1">y</zef:VERS>
+            </zef:CHAPTER><zef:CHAPTER cnumber="3"><zef:VERS vnumber="16">satu</zef:VERS>
+            </zef:CHAPTER></zef:BIBLEBOOK></zef:XMLBIBLE>"#;
+
+        for (abbreviation, source) in [("KECIL", lowercase), ("PREFIX", prefixed)] {
+            let mut library = Library::open_in_memory().unwrap();
+
+            let report = library
+                .import_zefania(source.as_bytes(), abbreviation)
+                .unwrap();
+
+            assert_eq!(report.verses, 1, "{abbreviation}");
+            assert_eq!(verse(&library, 43, 3, 16).as_deref(), Some("satu"));
+        }
+    }
+
+    #[test]
     fn file_dengan_bom_tetap_terbaca() {
         let mut library = Library::open_in_memory().unwrap();
         let source = format!("\u{feff}{SAMPLE}");
