@@ -34,6 +34,7 @@ pub fn init(language_file: &Path) {
     let language = choose(
         env::var("SDW_LANG").ok().as_deref(),
         read_language_file(language_file).as_deref(),
+        sys_locale::get_locale().as_deref(),
     );
     let _ = ACTIVE.set(language.strings());
 }
@@ -72,10 +73,11 @@ fn utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> Option<String> {
     String::from_utf16(&units).ok()
 }
 
-fn choose(variable: Option<&str>, file: Option<&str>) -> Language {
-    variable
-        .and_then(Language::from_code)
-        .or_else(|| file.and_then(Language::from_code))
+fn choose(variable: Option<&str>, file: Option<&str>, system: Option<&str>) -> Language {
+    [variable, file, system]
+        .into_iter()
+        .flatten()
+        .find_map(Language::from_code)
         .unwrap_or(Language::En)
 }
 
@@ -274,12 +276,17 @@ mod tests {
     }
 
     #[test]
-    fn variable_wins_over_file_and_english_is_the_fallback() {
-        assert_eq!(choose(Some("en"), Some("id")), Language::En);
-        assert_eq!(choose(None, Some("id\n")), Language::Id);
-        assert_eq!(choose(Some("xx"), Some("id")), Language::Id);
-        assert_eq!(choose(Some(""), Some("klingon")), Language::En);
-        assert_eq!(choose(None, None), Language::En);
+    fn variable_then_file_then_system_then_english() {
+        assert_eq!(choose(Some("en"), Some("id"), Some("id-ID")), Language::En);
+        assert_eq!(choose(None, Some("id\n"), Some("en-US")), Language::Id);
+        assert_eq!(choose(Some("xx"), Some("id"), None), Language::Id);
+        assert_eq!(choose(None, None, Some("id-ID")), Language::Id);
+        assert_eq!(
+            choose(None, Some("klingon"), Some("id_ID.UTF-8")),
+            Language::Id
+        );
+        assert_eq!(choose(Some(""), Some("klingon"), Some("C")), Language::En);
+        assert_eq!(choose(None, None, None), Language::En);
     }
 
     #[test]

@@ -2650,6 +2650,7 @@ dependencies = [
  "sdw-core",
  "sdw-library",
  "serde_json",
+ "sys-locale",
 ]
 
 [[package]]
