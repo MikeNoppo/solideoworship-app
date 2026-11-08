@@ -19,7 +19,10 @@ static ACTIVE: OnceLock<&'static Strings> = OnceLock::new();
 
 impl Language {
     pub fn from_code(code: &str) -> Option<Self> {
-        let language = code.trim().split(['-', '_', '.']).next()?;
+        let language = code
+            .trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+            .split(['-', '_', '.'])
+            .next()?;
 
         Self::ALL
             .into_iter()
@@ -30,9 +33,43 @@ impl Language {
 pub fn init(language_file: &Path) {
     let language = choose(
         env::var("SDW_LANG").ok().as_deref(),
-        fs::read_to_string(language_file).ok().as_deref(),
+        read_language_file(language_file).as_deref(),
     );
     let _ = ACTIVE.set(language.strings());
+}
+
+fn read_language_file(path: &Path) -> Option<String> {
+    [path.to_path_buf(), path.with_extension("txt")]
+        .iter()
+        .find_map(|path| {
+            let bytes = fs::read(path).ok()?;
+            let text = decode(&bytes);
+
+            if text.as_deref().and_then(Language::from_code).is_none() {
+                eprintln!(
+                    "{}: not a supported language code, expected one of {:?}",
+                    path.display(),
+                    Language::ALL.map(Language::code)
+                );
+            }
+
+            text
+        })
+}
+
+fn decode(bytes: &[u8]) -> Option<String> {
+    match bytes {
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8(rest.to_vec()).ok(),
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        _ => String::from_utf8(bytes.to_vec()).ok(),
+    }
+}
+
+fn utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> Option<String> {
+    let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().copied().map(unit).collect();
+
+    String::from_utf16(&units).ok()
 }
 
 fn choose(variable: Option<&str>, file: Option<&str>) -> Language {
@@ -265,6 +302,49 @@ mod tests {
             error.localize(),
             "\"Ma\" could mean Mazmur, Maleakhi, Matius, Markus. Type more of the book name."
         );
+    }
+
+    #[test]
+    fn language_file_is_decoded_from_common_windows_encodings() {
+        let utf16le: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain("id\r\n".encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        let utf16be: Vec<u8> = [0xFE, 0xFF]
+            .into_iter()
+            .chain("id".encode_utf16().flat_map(u16::to_be_bytes))
+            .collect();
+
+        for bytes in [
+            b"id".to_vec(),
+            b"\xEF\xBB\xBFid\n".to_vec(),
+            utf16le,
+            utf16be,
+        ] {
+            let text = decode(&bytes);
+            assert_eq!(
+                text.as_deref().and_then(Language::from_code),
+                Some(Language::Id),
+                "{bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn language_file_with_txt_extension_is_read() {
+        let dir = env::temp_dir().join(format!("sdw-language-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("language.txt"), "id").unwrap();
+
+        let text = read_language_file(&dir.join("language"));
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(text.as_deref(), Some("id"));
+    }
+
+    #[test]
+    fn byte_order_mark_is_ignored_in_codes() {
+        assert_eq!(Language::from_code("\u{feff}id"), Some(Language::Id));
     }
 
     #[test]
