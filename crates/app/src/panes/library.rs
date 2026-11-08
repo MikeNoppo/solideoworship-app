@@ -3,7 +3,7 @@ use iced::{Center, Element, Fill};
 
 use crate::message::{LibraryTab, Message};
 use crate::panes::{banner, dismissible_banner, notice, pane, title};
-use crate::{App, SONG_LIMIT, style};
+use crate::{App, style};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let tabs = LibraryTab::ALL
@@ -107,7 +107,7 @@ fn songs(app: &App) -> Element<'_, Message> {
             )
         });
 
-    let results = if app.song_results.len() >= SONG_LIMIT {
+    let results = if app.songs_truncated {
         results.push(
             container(
                 text("Hanya hasil teratas yang ditampilkan. Perjelas pencarian untuk melihat lagu lain.")

@@ -90,6 +90,7 @@ struct App {
 
     song_results: Vec<SongSummary>,
     song_results_query: Box<str>,
+    songs_truncated: bool,
     pick_first_song: bool,
     modal: Option<Modal>,
     modal_ticket: u64,
@@ -302,7 +303,9 @@ impl App {
                 }
 
                 match result {
-                    Ok(songs) => {
+                    Ok(mut songs) => {
+                        self.songs_truncated = songs.len() > SONG_LIMIT;
+                        songs.truncate(SONG_LIMIT);
                         self.song_results = songs;
                         self.song_results_query = query;
 
@@ -773,7 +776,7 @@ impl App {
         let job_query = query.clone();
 
         self.store.run(
-            move |library| library.search_songs(&job_query, SONG_LIMIT),
+            move |library| library.search_songs(&job_query, SONG_LIMIT + 1),
             move |result| Message::SongsFound(query, result),
         )
     }
@@ -1100,7 +1103,7 @@ mod tests {
                 .unwrap();
         }
 
-        library.search_songs("", 100).unwrap()
+        library.search_songs("", usize::MAX).unwrap()
     }
 
     #[test]
@@ -1272,5 +1275,31 @@ mod tests {
             app.library_unavailable.as_deref(),
             Some("Library tidak bisa dibuka: disk penuh")
         );
+    }
+
+    fn numbered_summaries(count: usize) -> Vec<SongSummary> {
+        let titles: Vec<String> = (0..count).map(|index| format!("Lagu {index:03}")).collect();
+        let titles: Vec<&str> = titles.iter().map(String::as_str).collect();
+
+        summaries(&titles)
+    }
+
+    #[test]
+    fn hasil_terpotong_hanya_bila_ada_lagu_lebih_dari_batas() {
+        let mut app = App::default();
+
+        let _ = app.update(Message::SongsFound(
+            "".into(),
+            Ok(numbered_summaries(super::SONG_LIMIT)),
+        ));
+        assert!(!app.songs_truncated);
+        assert_eq!(app.song_results.len(), super::SONG_LIMIT);
+
+        let _ = app.update(Message::SongsFound(
+            "".into(),
+            Ok(numbered_summaries(super::SONG_LIMIT + 1)),
+        ));
+        assert!(app.songs_truncated);
+        assert_eq!(app.song_results.len(), super::SONG_LIMIT);
     }
 }
