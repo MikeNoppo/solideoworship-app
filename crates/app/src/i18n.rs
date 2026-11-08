@@ -3,7 +3,10 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::{env, fs};
 
+use sdw_core::bible::ReferenceError;
 use sdw_core::slide::ContentKind;
+use sdw_library::Error;
+use sdw_library::schedule_file::ScheduleFileError;
 
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 
@@ -42,6 +45,86 @@ pub fn kind_label(kind: ContentKind) -> &'static str {
     match kind {
         ContentKind::Song => t().schedule.song,
         ContentKind::Scripture => t().schedule.scripture,
+    }
+}
+
+pub trait Localize {
+    fn localize(&self) -> String;
+}
+
+impl Localize for Error {
+    fn localize(&self) -> String {
+        let errors = &t().errors;
+
+        match self {
+            Self::NotFound => errors.not_found.into(),
+            Self::EmptyTitle => errors.empty_title.into(),
+            Self::NewerSchema { found, supported } => fill(
+                errors.newer_schema,
+                &[("found", found), ("supported", supported)],
+            ),
+            Self::BibleExists(abbreviation) => {
+                fill(errors.bible_exists, &[("abbreviation", abbreviation)])
+            }
+            Self::EmptyAbbreviation => errors.empty_abbreviation.into(),
+            Self::NotZefania => errors.not_zefania.into(),
+            Self::EmptyBible => errors.empty_bible.into(),
+            Self::Xml { position, message } => fill(
+                errors.broken_xml,
+                &[("position", position), ("message", message)],
+            ),
+            Self::Encoding => errors.encoding.into(),
+            Self::Storage(error) => fill(errors.storage, &[("error", error)]),
+            Self::Io(error) => fill(errors.io, &[("error", error)]),
+            _ => self.to_string(),
+        }
+    }
+}
+
+impl Localize for ScheduleFileError {
+    fn localize(&self) -> String {
+        let errors = &t().errors;
+
+        match self {
+            Self::Io(error) => fill(errors.schedule_io, &[("error", error)]),
+            Self::NotSchedule => errors.not_schedule.into(),
+            Self::NewerVersion(version) => fill(errors.newer_schedule, &[("version", version)]),
+            Self::Malformed(detail) => fill(errors.broken_schedule, &[("detail", detail)]),
+            Self::InvalidItem { index } => fill(errors.invalid_item, &[("number", &(index + 1))]),
+            _ => self.to_string(),
+        }
+    }
+}
+
+impl Localize for ReferenceError {
+    fn localize(&self) -> String {
+        let reference = &t().reference;
+
+        match self {
+            Self::Empty => reference.empty.into(),
+            Self::MissingBook => reference.missing_book.into(),
+            Self::UnknownBook(input) => fill(reference.unknown_book, &[("input", input)]),
+            Self::AmbiguousBook { input, candidates } => {
+                let candidates = candidates
+                    .iter()
+                    .map(|book| book.name())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                fill(
+                    reference.ambiguous_book,
+                    &[("input", input), ("candidates", &candidates)],
+                )
+            }
+            Self::MissingChapter => reference.missing_chapter.into(),
+            Self::MissingVerse => reference.missing_verse.into(),
+            Self::InvalidNumber => reference.invalid_number.into(),
+            Self::ReversedRange { start, end } => {
+                fill(reference.reversed_range, &[("start", start), ("end", end)])
+            }
+            Self::CrossChapter => reference.cross_chapter.into(),
+            Self::Trailing(rest) => fill(reference.trailing, &[("rest", rest)]),
+        }
     }
 }
 
@@ -108,6 +191,28 @@ mod tests {
         assert_eq!(choose(Some("xx"), Some("id")), Language::Id);
         assert_eq!(choose(Some(""), Some("klingon")), Language::En);
         assert_eq!(choose(None, None), Language::En);
+    }
+
+    #[test]
+    fn library_errors_fill_their_details() {
+        assert_eq!(
+            Error::BibleExists("TB".into()).localize(),
+            "A translation with the abbreviation \"TB\" already exists in the library."
+        );
+        assert_eq!(
+            ScheduleFileError::InvalidItem { index: 2 }.localize(),
+            "Item 3 in the schedule file is invalid."
+        );
+    }
+
+    #[test]
+    fn ambiguous_reference_lists_every_candidate() {
+        let error = sdw_core::bible::Reference::parse("Ma 1").unwrap_err();
+
+        assert_eq!(
+            error.localize(),
+            "\"Ma\" could mean Mazmur, Maleakhi, Matius, Markus. Type more of the book name."
+        );
     }
 
     #[test]

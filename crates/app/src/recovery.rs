@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use sdw_core::ScheduleItem;
 use sdw_library::schedule_file::{self, ScheduleFileError};
 
-use crate::i18n::{fill, t};
+use crate::i18n::{Localize, fill, t};
 use crate::schedule::Schedule;
 use crate::work::Outcome;
 
@@ -77,7 +77,9 @@ pub fn load(path: &Path) -> Outcome<Option<Vec<ScheduleItem>>> {
     match schedule_file::open(path) {
         Ok(items) => Ok(Some(items).filter(|items| !items.is_empty())),
         Err(ScheduleFileError::Io(error)) if error.kind() == ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(fill(t().app.recovery_unreadable, &[("error", &error)]).into_boxed_str()),
+        Err(error) => {
+            Err(fill(t().app.recovery_unreadable, &[("error", &error.localize())]).into_boxed_str())
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::bible::{Passage, Reference, ReferenceError};
 use sdw_library::{BibleId, BibleSummary};
 
-use crate::i18n::{fill, t};
+use crate::i18n::{Localize, fill, t};
 use crate::panes::{alert, notice};
 use crate::work::Outcome;
 
@@ -86,7 +86,7 @@ impl BibleTab {
                 self.reference = Reference::parse(&input);
                 self.invalid = match &self.reference {
                     Err(ReferenceError::Empty) | Ok(_) => None,
-                    Err(error) => Some(error.to_string().into_boxed_str()),
+                    Err(error) => Some(error.localize().into_boxed_str()),
                 };
                 self.input = input;
                 self.add_when_found = false;

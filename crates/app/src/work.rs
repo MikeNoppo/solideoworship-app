@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -9,12 +8,12 @@ use iced::Task;
 use iced::futures::channel::oneshot;
 use sdw_library::Library;
 
-use crate::i18n::t;
+use crate::i18n::{Localize, t};
 
 pub type Outcome<T> = Result<T, Box<str>>;
 
-pub fn describe(error: impl Display) -> Box<str> {
-    error.to_string().into_boxed_str()
+pub fn describe(error: impl Localize) -> Box<str> {
+    error.localize().into_boxed_str()
 }
 
 pub fn background<T, F>(job: F) -> Task<Outcome<T>>
