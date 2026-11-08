@@ -3,7 +3,7 @@ use iced::{Element, Fill, FillPortion};
 
 use crate::App;
 use crate::message::{Message, Step};
-use crate::panes::{pane, thumbnails, title, transport};
+use crate::panes::{notice, pane, thumbnails, title, transport};
 use crate::render::slide::{self, Visibility};
 use crate::style;
 
@@ -11,13 +11,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let Some(preview) = app.schedule.preview() else {
         return pane(
             title("Preview", None),
-            container(
-                text("Pilih item dari susunan acara, atau tambahkan dari library di bawah.")
-                    .size(13)
-                    .style(text::secondary),
-            )
-            .padding(12)
-            .into(),
+            notice("Pilih item dari susunan acara, atau tambahkan dari library di bawah."),
         );
     };
 

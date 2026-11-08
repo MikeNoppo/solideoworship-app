@@ -1,8 +1,8 @@
-use iced::widget::{center, column, container, opaque, row, stack, text};
+use iced::widget::{center, column, container, opaque, row, stack};
 use iced::{Element, Fill, FillPortion};
 
 use crate::message::Message;
-use crate::panes::{library, live, preview, schedule, toolbar, unsaved};
+use crate::panes::{banner, library, live, preview, schedule, toolbar, unsaved};
 use crate::style;
 use crate::{App, Modal};
 
@@ -22,8 +22,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
 
     if let Some(status) = &app.status {
-        layout =
-            layout.push(container(text(&**status).size(12).style(text::danger)).padding([4, 12]));
+        layout = layout.push(banner(status));
     }
 
     layout = layout.push(

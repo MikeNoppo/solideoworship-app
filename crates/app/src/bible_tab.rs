@@ -5,6 +5,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::bible::{Passage, Reference, ReferenceError};
 use sdw_library::{BibleId, BibleSummary};
 
+use crate::panes::{alert, notice};
 use crate::work::Outcome;
 
 const HINT: &str =
@@ -167,9 +168,7 @@ impl BibleTab {
         }
 
         if let Some(invalid) = &self.invalid {
-            return container(text(&**invalid).size(13).style(text::danger))
-                .padding(12)
-                .into();
+            return alert(invalid);
         }
 
         if self.reference.is_err() {
@@ -177,9 +176,7 @@ impl BibleTab {
         }
 
         if let Some(error) = &self.lookup_error {
-            return container(text(&**error).size(13).style(text::danger))
-                .padding(12)
-                .into();
+            return alert(error);
         }
 
         let Some(found) = self.current() else {
@@ -229,12 +226,6 @@ impl BibleTab {
     fn current(&self) -> Option<&Found> {
         self.found.as_ref()
     }
-}
-
-fn notice(message: &str) -> Element<'_, Message> {
-    container(text(message).size(13).style(text::secondary))
-        .padding(12)
-        .into()
 }
 
 #[cfg(test)]

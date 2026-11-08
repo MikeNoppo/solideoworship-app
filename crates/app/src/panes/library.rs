@@ -2,7 +2,7 @@ use iced::widget::{button, column, container, row, scrollable, space, text, text
 use iced::{Center, Element, Fill};
 
 use crate::message::{LibraryTab, Message};
-use crate::panes::{pane, title};
+use crate::panes::{banner, notice, pane, title};
 use crate::{App, SONG_LIMIT, style};
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -70,13 +70,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .spacing(12)
             .align_y(Center)
             .into(),
-        column![
-            app.library_error.as_deref().map(|error| {
-                container(text(error).size(12).style(text::danger)).padding([4, 10])
-            }),
-            body,
-        ]
-        .into(),
+        column![app.library_error.as_deref().map(banner), body,].into(),
     )
 }
 
@@ -128,11 +122,5 @@ fn result(label: &str, on_press: Message) -> Element<'_, Message> {
         .padding(8)
         .on_press(on_press)
         .style(style::row(false))
-        .into()
-}
-
-fn notice(message: &str) -> Element<'_, Message> {
-    container(text(message).size(13).style(text::secondary))
-        .padding(12)
         .into()
 }

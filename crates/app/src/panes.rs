@@ -73,6 +73,24 @@ pub fn transport(
     .into()
 }
 
+pub fn notice<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
+    container(text(message).size(13).style(text::secondary))
+        .padding(12)
+        .into()
+}
+
+pub fn alert<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
+    container(text(message).size(13).style(text::danger))
+        .padding(12)
+        .into()
+}
+
+pub fn banner<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
+    container(text(message).size(12).style(text::danger))
+        .padding([4, 12])
+        .into()
+}
+
 pub fn dialog<'a, M>(content: impl Into<Element<'a, M>>) -> Element<'a, M>
 where
     M: 'a,

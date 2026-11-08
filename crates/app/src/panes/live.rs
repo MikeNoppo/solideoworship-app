@@ -3,7 +3,7 @@ use iced::{Element, Fill, FillPortion};
 
 use crate::App;
 use crate::message::{Message, Step};
-use crate::panes::{pane, title, transport};
+use crate::panes::{notice, pane, title, transport};
 use crate::render::slide::{self, Visibility};
 use crate::style;
 
@@ -11,13 +11,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let Some(live) = &app.live else {
         return pane(
             title("Live", None),
-            container(
-                text("Belum ada yang tayang. Tekan Tayangkan untuk mendorong preview ke live.")
-                    .size(13)
-                    .style(text::secondary),
-            )
-            .padding(12)
-            .into(),
+            notice("Belum ada yang tayang. Tekan Tayangkan untuk mendorong preview ke live."),
         );
     };
 

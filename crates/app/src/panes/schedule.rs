@@ -1,12 +1,12 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use iced::widget::{button, column, container, row, scrollable, text};
+use iced::widget::{button, column, row, scrollable, text};
 use iced::{Center, Element, Fill};
 
 use crate::App;
 use crate::message::Message;
-use crate::panes::{pane, title};
+use crate::panes::{notice, pane, title};
 use crate::style;
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -44,13 +44,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     );
 
     let body: Element<'_, Message> = if app.schedule.is_empty() {
-        container(
-            text("Susunan acara masih kosong.\nTambahkan dari library di bawah.")
-                .size(13)
-                .style(text::secondary),
-        )
-        .padding(12)
-        .into()
+        notice("Susunan acara masih kosong.\nTambahkan dari library di bawah.")
     } else {
         scrollable(items).height(Fill).into()
     };
