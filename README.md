@@ -4,7 +4,7 @@ Aplikasi presentasi ibadah (lirik lagu dan ayat Alkitab) yang ringan, cepat, dan
 
 SolideoWorship lahir dari masalah sederhana: aplikasi seperti EasyWorship memakan banyak RAM dan terasa lambat di laptop spesifikasi rendah, padahal laptop seperti itulah yang paling sering dipakai operator multimedia di gereja. Tujuan proyek ini adalah alur kerja yang akrab bagi pengguna EasyWorship, dengan **performa dan efisiensi memori sebagai prioritas utama**.
 
-> **Status: tahap awal pengembangan.** Library lagu dan editor lagu sudah berjalan. Alkitab masih berupa data contoh, dan pengaturan tema serta simpan/buka susunan acara belum tersedia. Belum siap dipakai untuk ibadah sungguhan.
+> **Status: tahap awal pengembangan.** Library lagu, editor lagu, pengaturan tema, dan file susunan acara sudah berjalan. Alkitab masih berupa data contoh. Belum siap dipakai untuk ibadah sungguhan.
 
 ## Yang sudah berjalan
 
@@ -12,6 +12,8 @@ SolideoWorship lahir dari masalah sederhana: aplikasi seperti EasyWorship memaka
 - **Tata letak operator ala EasyWorship.** Susunan acara, Preview, dan Live berdampingan, dengan panel Library (tab Lagu/Alkitab dan pencarian) di bawahnya.
 - **Library lagu di SQLite.** Pencarian full-text atas judul dan lirik langsung saat mengetik, dengan awalan kata dan toleran terhadap diakritik. Daftar hanya memuat judul; lirik lengkap baru dibaca saat lagu dipilih.
 - **Editor lagu.** Tambah, ubah, dan hapus lagu dengan preview slide yang langsung berubah saat mengetik. Lagu yang diubah ikut diperbarui di susunan acara.
+- **Pengaturan tema.** Satu tema untuk lagu dan satu untuk Alkitab: warna latar, teks, dan footer, ukuran huruf, jarak baris, margin, perataan, serta batas baris atau karakter per slide. Perubahan langsung terlihat di preview dialog. Tema baru tampil di proyektor saat item ditayangkan berikutnya, jadi mengubah tema di tengah ibadah tidak mengejutkan jemaat.
+- **File susunan acara `.sdw`.** Isi lagu dan ayat ikut tersimpan di dalam file, jadi susunan acara bisa disiapkan di rumah lalu dibuka di laptop gereja walau library-nya berbeda. Perubahan yang belum disimpan ditandai, dan aplikasi meminta konfirmasi sebelum membuangnya.
 - **Pemilihan layar proyektor.** Mendeteksi semua monitor dan mendahulukan layar eksternal. Output bisa dipindah ke layar lain, dan bila layar output tidak lagi terdeteksi saat daftar layar dimuat ulang, jendela output ditutup.
 - **Status output Tampil / Hitam / Kosong.** Kosong menyembunyikan teks tapi tetap menampilkan latar belakang.
 - **Kompiler lagu.** Bait dipecah otomatis per jumlah baris maksimum. Potongan lanjutan diberi nomor, misalnya "Verse 1 (2)".
@@ -49,9 +51,10 @@ Contoh di atas menghasilkan tiga slide: "Verse 1", "Verse 1 (2)", dan "Reff".
 | `F5` | Buka jendela output |
 | `Esc` | Tutup jendela output |
 | `Enter` di kotak pencarian | Tambahkan hasil teratas ke susunan acara |
-| `Ctrl+S` / `Cmd+S` di editor lagu | Simpan lagu |
+| `Ctrl+S` / `Cmd+S` | Simpan susunan acara, atau simpan isi dialog yang sedang terbuka |
+| `Ctrl+O` / `Cmd+O` | Buka file susunan acara |
 
-Selama editor lagu terbuka, pintasan operator di atas dinonaktifkan supaya mengetik lirik tidak mengubah layar proyektor.
+Selama dialog (editor lagu, pengaturan tema) terbuka, pintasan operator dinonaktifkan supaya mengetik tidak mengubah layar proyektor.
 ## Roadmap
 
 Cakupan MVP sengaja dibatasi pada **lagu dan ayat Alkitab**.
@@ -62,10 +65,10 @@ Cakupan MVP sengaja dibatasi pada **lagu dan ayat Alkitab**.
 - [x] Library lagu tersimpan di SQLite dengan pencarian full-text (FTS5)
 - [x] Editor lagu (tambah, ubah, hapus)
 - [ ] Importer dan pencarian Alkitab per pasal/ayat
-- [ ] Pengaturan tema dan latar belakang
-- [ ] Simpan dan buka susunan acara
+- [x] Pengaturan tema (warna, ukuran, perataan, pembagian slide)
+- [x] Simpan dan buka susunan acara
 
-Setelah MVP: gambar, video, dan impor dari library EasyWorship/OpenLP.
+Setelah MVP: gambar dan video sebagai latar, pilihan font, serta impor dari library EasyWorship/OpenLP.
 
 ## Prinsip performa
 
@@ -87,7 +90,7 @@ Prinsip-prinsip ini ditetapkan sejak awal dan sengaja dijaga:
 
 ## Lokasi data
 
-Library disimpan di satu file SQLite, `library.sqlite3`:
+Library lagu dan pengaturan tema disimpan di satu file SQLite, `library.sqlite3`:
 
 | Platform | Folder |
 | --- | --- |
@@ -99,7 +102,9 @@ Variabel lingkungan `SDW_DATA_DIR` mengganti folder itu, berguna untuk mencoba a
 
 ## Build dari source
 
-Butuh [Rust](https://rustup.rs) versi 1.89 atau lebih baru, plus compiler C untuk SQLite yang dibundel: Visual Studio Build Tools di Windows, atau Xcode Command Line Tools (`xcode-select --install`) di macOS.
+Butuh [Rust](https://rustup.rs) versi 1.92 atau lebih baru, plus compiler C untuk SQLite yang dibundel: Visual Studio Build Tools di Windows, atau Xcode Command Line Tools (`xcode-select --install`) di macOS.
+
+Di Linux, dialog buka/simpan memakai `xdg-desktop-portal`, atau `zenity` bila portal tidak tersedia.
 
 ```sh
 git clone https://github.com/MikeNoppo/solideoworship-app.git
@@ -120,7 +125,7 @@ Hasilnya ada di `target/release/sdw-app` (atau `sdw-app.exe` di Windows).
 ```
 crates/
 ├── core/     sdw-core    — tipe domain dan logika murni (lagu, ayat, slide, tema, kompiler, navigasi live)
-├── library/  sdw-library — penyimpanan SQLite: lagu, pencarian full-text, migrasi skema
+├── library/  sdw-library — penyimpanan SQLite (lagu, pencarian full-text, tema, migrasi) dan format file .sdw
 └── app/      sdw-app     — aplikasi GUI berbasis iced
 ```
 

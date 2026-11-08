@@ -66,6 +66,7 @@ Most iced material online targets 0.12/0.13 and will not compile here.
 - `Command` no longer exists; async work returns `Task`.
 - Borrowed widget trees need an explicit lifetime: `Column<'_, Message>`.
 - **Never block inside `Task::perform`.** With the `smol` feature, task futures, subscription streams, and event forwarding share smol's single executor thread, and events reach `listen_with` through a bounded channel that drops on overflow. A slow query there loses operator key presses. SQLite goes through `work::Store::run` (one dedicated thread, FIFO); other blocking work goes through `work::background`.
+- Native file dialogs (`rfd`) are built inside `window::run(control_id, ..)`. That closure runs on the event-loop thread, which macOS requires for AppKit, and it parents the dialog to the control window. The returned future is then awaited with `Task::perform`.
 - `text_input` without `on_submit` lets Enter through as `Status::Ignored`, and `text_editor` never captures Escape. Global shortcuts would fire while typing, so every `text_input` in the operator window gets an `on_submit`, and while a dialog is open the subscription swaps to dialog-only shortcuts (no Escape mapping).
 
 Check the version resolved in `Cargo.lock` and read the crate source in `~/.cargo/registry` rather than assuming an API exists.
