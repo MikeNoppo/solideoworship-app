@@ -14,7 +14,8 @@ use std::time::Duration;
 use iced::keyboard::{self, key::Named};
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
-use sdw_core::{OutputState, Presentation, Styles};
+use sdw_core::{OutputState, Presentation, ScheduleItem, Styles};
+use sdw_library::SongSummary;
 
 use crate::display::Display;
 use crate::message::{LibraryTab, Message, Step};
@@ -27,6 +28,8 @@ use crate::work::Store;
 // bukan sejak proses mulai: inisialisasi wgpu sendiri sudah memakan ratusan milidetik
 // sebelum ada yang bisa dilihat.
 const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
+
+const SONG_LIMIT: usize = 100;
 
 fn main() -> iced::Result {
     iced::daemon(App::boot, App::update, App::view)
@@ -63,6 +66,7 @@ struct App {
     library_ready: bool,
     library_error: Option<Box<str>>,
 
+    song_results: Vec<SongSummary>,
     catalogue: Vec<Sample>,
     schedule: Schedule,
     styles: Styles,
@@ -126,11 +130,18 @@ impl App {
 
             Message::LibraryOpened(result) => {
                 self.library_ready = true;
-                self.library_error = result.err().map(|error| {
-                    format!("Library lagu tidak bisa dibuka: {error}").into_boxed_str()
-                });
 
-                self.leave_splash()
+                let search = match result {
+                    Ok(()) => self.search_songs(),
+                    Err(error) => {
+                        self.library_error = Some(
+                            format!("Library lagu tidak bisa dibuka: {error}").into_boxed_str(),
+                        );
+                        Task::none()
+                    }
+                };
+
+                Task::batch([search, self.leave_splash()])
             }
 
             Message::DisplaysRequested => load_displays(),
@@ -227,16 +238,44 @@ impl App {
 
             Message::LibraryTabSelected(tab) => {
                 self.library_tab = tab;
-                Task::none()
+                self.search_songs()
             }
             Message::SearchChanged(query) => {
                 self.search = query;
+                self.search_songs()
+            }
+            Message::SearchSubmitted => match self.library_tab {
+                LibraryTab::Songs => match self.song_results.first() {
+                    Some(song) => self.update(Message::SongPicked(song.id)),
+                    None => Task::none(),
+                },
+                LibraryTab::Scripture => match self.library_matches().first() {
+                    Some(&(index, _)) => self.update(Message::LibraryAdded(index)),
+                    None => Task::none(),
+                },
+            },
+            Message::SongsFound(query, result) => {
+                if *query == *self.search.trim() {
+                    match result {
+                        Ok(songs) => {
+                            self.song_results = songs;
+                            self.library_error = None;
+                        }
+                        Err(error) => self.library_error = Some(error),
+                    }
+                }
                 Task::none()
             }
-            Message::SearchSubmitted => match self.library_matches().first() {
-                Some(&(index, _)) => self.update(Message::LibraryAdded(index)),
-                None => Task::none(),
-            },
+            Message::SongPicked(id) => self
+                .store
+                .run(move |library| library.song(id), Message::SongLoaded),
+            Message::SongLoaded(result) => {
+                match result {
+                    Ok(song) => self.schedule.push(ScheduleItem::Song(song), &self.styles),
+                    Err(error) => self.library_error = Some(error),
+                }
+                Task::none()
+            }
             Message::LibraryAdded(index) => {
                 if let Some(sample) = self.catalogue.get(index) {
                     self.schedule.push(sample.item.clone(), &self.styles);
@@ -320,6 +359,20 @@ impl App {
         // Splash baru ditutup setelah jendela kontrol benar-benar terbuka, supaya tidak
         // ada jeda kosong tanpa jendela sama sekali.
         opened.discard().chain(Task::done(Message::ControlOpened))
+    }
+
+    fn search_songs(&self) -> Task<Message> {
+        if self.library_tab != LibraryTab::Songs || !self.library_ready {
+            return Task::none();
+        }
+
+        let query: Box<str> = self.search.trim().into();
+        let job_query = query.clone();
+
+        self.store.run(
+            move |library| library.search_songs(&job_query, SONG_LIMIT),
+            move |result| Message::SongsFound(query, result),
+        )
     }
 
     fn library_matches(&self) -> Vec<(usize, &Sample)> {

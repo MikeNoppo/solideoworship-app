@@ -1,6 +1,7 @@
 use iced::window;
 use sdw_core::slide::ContentKind;
-use sdw_core::{OutputState, Presentation};
+use sdw_core::{OutputState, Presentation, Song};
+use sdw_library::{SongId, SongSummary};
 
 use crate::display::Display;
 use crate::work::Outcome;
@@ -77,5 +78,8 @@ pub enum Message {
     LibraryTabSelected(LibraryTab),
     SearchChanged(String),
     SearchSubmitted,
+    SongsFound(Box<str>, Outcome<Vec<SongSummary>>),
+    SongPicked(SongId),
+    SongLoaded(Outcome<Song>),
     LibraryAdded(usize),
 }

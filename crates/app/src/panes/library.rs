@@ -1,10 +1,9 @@
-use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::widget::{Column, button, column, container, row, scrollable, text, text_input};
 use iced::{Center, Element, Fill};
 
-use crate::App;
 use crate::message::{LibraryTab, Message};
 use crate::panes::{pane, title};
-use crate::style;
+use crate::{App, SONG_LIMIT, style};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let tabs = LibraryTab::ALL
@@ -22,30 +21,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
             )
         });
 
-    let matches = app.library_matches();
-
-    let results = matches
-        .iter()
-        .fold(column![].spacing(3), |list, &(index, sample)| {
-            list.push(
-                button(text(&*sample.title).size(13).width(Fill))
-                    .width(Fill)
-                    .padding(8)
-                    .on_press(Message::LibraryAdded(index))
-                    .style(style::row(false)),
-            )
-        });
-
-    let body: Element<'_, Message> = if matches.is_empty() {
-        container(
-            text("Tidak ada yang cocok dengan pencarian.")
-                .size(13)
-                .style(text::secondary),
-        )
-        .padding(12)
-        .into()
-    } else {
-        scrollable(results).height(Fill).into()
+    let body = match app.library_tab {
+        LibraryTab::Songs => songs(app),
+        LibraryTab::Scripture => scripture(app),
     };
 
     pane(
@@ -75,4 +53,67 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ]
         .into(),
     )
+}
+
+fn songs(app: &App) -> Element<'_, Message> {
+    if app.song_results.is_empty() {
+        return notice(if app.search.trim().is_empty() {
+            "Library lagu masih kosong."
+        } else {
+            "Tidak ada lagu yang cocok dengan pencarian."
+        });
+    }
+
+    let results = app
+        .song_results
+        .iter()
+        .fold(column![].spacing(3), |list, song| {
+            list.push(result(&song.title, Message::SongPicked(song.id)))
+        });
+
+    let results = if app.song_results.len() >= SONG_LIMIT {
+        results.push(
+            container(
+                text("Hanya hasil teratas yang ditampilkan. Perjelas pencarian untuk melihat lagu lain.")
+                    .size(11)
+                    .style(text::secondary),
+            )
+            .padding([4, 8]),
+        )
+    } else {
+        results
+    };
+
+    scrollable(results).height(Fill).into()
+}
+
+fn scripture(app: &App) -> Element<'_, Message> {
+    let matches = app.library_matches();
+
+    if matches.is_empty() {
+        return notice("Tidak ada yang cocok dengan pencarian.");
+    }
+
+    let results: Column<'_, Message> = matches
+        .iter()
+        .fold(column![].spacing(3), |list, &(index, sample)| {
+            list.push(result(&sample.title, Message::LibraryAdded(index)))
+        });
+
+    scrollable(results).height(Fill).into()
+}
+
+fn result(label: &str, on_press: Message) -> Element<'_, Message> {
+    button(text(label).size(13).width(Fill))
+        .width(Fill)
+        .padding(8)
+        .on_press(on_press)
+        .style(style::row(false))
+        .into()
+}
+
+fn notice(message: &str) -> Element<'_, Message> {
+    container(text(message).size(13).style(text::secondary))
+        .padding(12)
+        .into()
 }
