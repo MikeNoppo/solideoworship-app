@@ -27,12 +27,23 @@ $data_home/$app are kept either way.
 USAGE
 }
 
+desktop_exec_argument() {
+    printf '%s' "$1" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g'
+}
+
 install_app() {
+    case $binary in
+        *%*)
+            echo "$binary contains '%', which desktop launchers cannot start." >&2
+            exit 1
+            ;;
+    esac
+
     mkdir -p "$bin_dir" "$applications"
     install -m 755 "$here/$app" "$binary"
     {
         grep -v '^Exec=' "$here/$app.desktop"
-        printf 'Exec="%s"\n' "$binary"
+        printf 'Exec="%s"\n' "$(desktop_exec_argument "$binary")"
     } >"$desktop"
     chmod 644 "$desktop"
     echo "Installed $binary"
