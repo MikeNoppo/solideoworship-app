@@ -180,7 +180,7 @@ mod tests {
     use crate::{BibleId, Error, Library};
 
     const SAMPLE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
-<!-- Alkitab sintetis untuk pengujian -->
+<!-- Synthetic Bible for tests -->
 <XMLBIBLE biblename="Test Bible" type="x-bible">
   <INFORMATION><title>Informasi yang diabaikan</title></INFORMATION>
   <BIBLEBOOK bnumber="43" bname="Yohanes">
