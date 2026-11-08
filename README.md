@@ -164,4 +164,8 @@ Kontribusi sangat diterima. Commit memakai format [Conventional Commits](https:/
 
 ## Lisensi
 
-Belum ditentukan.
+Hak cipta © 2026 MikeNoppo.
+
+SolideoWorship dirilis di bawah [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
+
+Kamu bebas memakai, mempelajari, mengubah, dan membagikan aplikasi ini, termasuk untuk gereja dan pelayanan apa pun. Siapa pun yang membagikan aplikasi ini atau versi turunannya, gratis maupun berbayar, wajib menyediakan source code lengkapnya di bawah lisensi yang sama dan mempertahankan pemberitahuan hak cipta. Versi tertutup tidak diizinkan.
