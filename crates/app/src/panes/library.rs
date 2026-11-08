@@ -54,6 +54,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             tabs,
             text_input("Cari…", &app.search)
                 .on_input(Message::SearchChanged)
+                .on_submit(Message::SearchSubmitted)
                 .size(13)
                 .width(260),
         ]

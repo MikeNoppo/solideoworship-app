@@ -233,6 +233,10 @@ impl App {
                 self.search = query;
                 Task::none()
             }
+            Message::SearchSubmitted => match self.library_matches().first() {
+                Some(&(index, _)) => self.update(Message::LibraryAdded(index)),
+                None => Task::none(),
+            },
             Message::LibraryAdded(index) => {
                 if let Some(sample) = self.catalogue.get(index) {
                     self.schedule.push(sample.item.clone(), &self.styles);

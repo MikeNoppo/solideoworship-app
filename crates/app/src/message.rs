@@ -76,5 +76,6 @@ pub enum Message {
 
     LibraryTabSelected(LibraryTab),
     SearchChanged(String),
+    SearchSubmitted,
     LibraryAdded(usize),
 }
