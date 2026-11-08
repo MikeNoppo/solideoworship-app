@@ -100,10 +100,55 @@ mod tests {
         rgba[start..start + 4].try_into().unwrap()
     }
 
+    fn mark_rects(svg: &str) -> Vec<[f32; 4]> {
+        svg.split("<rect")
+            .skip(1)
+            .map(|tag| {
+                let tag = &tag[..tag.find('>').unwrap()];
+                ["x", "y", "width", "height"].map(|name| {
+                    tag.split_once(&format!(" {name}=\""))
+                        .map_or(0.0, |(_, rest)| {
+                            rest[..rest.find('"').unwrap()].parse().unwrap()
+                        })
+                })
+            })
+            .filter(|&[.., width, height]| width < 256.0 && height < 256.0)
+            .collect()
+    }
+
     #[test]
-    fn cuts_keep_the_heights_of_the_svg_masters() {
-        assert_eq!(FULL.height(), 207.0);
-        assert_eq!(SMALL.height(), 184.0);
+    fn cuts_match_the_svg_masters() {
+        let masters = [
+            (
+                include_str!("../../../assets/logo/symbol-on-dark.svg"),
+                &FULL,
+            ),
+            (include_str!("../../../assets/logo/app-icon-32.svg"), &SMALL),
+        ];
+
+        for (svg, cut) in masters {
+            let rects = mark_rects(svg);
+            let widths: Vec<f32> = rects.iter().map(|&[_, _, width, _]| width).collect();
+
+            assert_eq!(widths, cut.rows);
+            assert!(rects.iter().all(|&[.., height]| height == cut.row));
+            assert!(
+                rects
+                    .windows(2)
+                    .all(|pair| pair[1][1] - pair[0][1] == cut.row + cut.gap)
+            );
+        }
+    }
+
+    #[test]
+    fn window_icon_cross_matches_the_16_px_master() {
+        let cross: Vec<_> = mark_rects(include_str!("../../../assets/logo/app-icon-16.svg"))
+            .into_iter()
+            .map(|rect| rect.map(|value| value as u32 * ICON_SIZE / 256))
+            .map(|[x, y, width, height]| (x, y, width, height))
+            .collect();
+
+        assert_eq!(cross, ICON_CROSS);
     }
 
     #[test]
