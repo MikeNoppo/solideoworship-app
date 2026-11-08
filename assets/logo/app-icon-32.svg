@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>SolideoWorship</title>
+  <rect width="256" height="256" rx="56" fill="#1C1D21"/>
+  <g fill="#F2F2F3">
+    <rect x="96" y="32" width="64" height="24" rx="12"/>
+    <rect x="56" y="72" width="144" height="24" rx="12"/>
+    <rect x="96" y="112" width="64" height="24" rx="12"/>
+    <rect x="96" y="152" width="64" height="24" rx="12"/>
+    <rect x="96" y="192" width="64" height="24" rx="12"/>
+  </g>
+</svg>

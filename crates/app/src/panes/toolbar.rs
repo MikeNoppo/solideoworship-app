@@ -2,10 +2,9 @@ use iced::widget::{button, container, row, space, text};
 use iced::{Center, Element, Fill};
 use sdw_core::OutputState;
 
-use crate::App;
 use crate::i18n::{Label, t};
 use crate::message::Message;
-use crate::style;
+use crate::{App, logo, style};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let is_open = app.output.is_some();
@@ -34,7 +33,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     container(
         row![
-            text("SolideoWorship").size(18),
+            row![logo::mark(&logo::SMALL, 23.0), logo::wordmark(18.0)]
+                .spacing(8)
+                .align_y(Center),
             button(t().toolbar.new)
                 .on_press(Message::ScheduleNewRequested)
                 .style(button::secondary),

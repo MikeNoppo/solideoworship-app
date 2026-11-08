@@ -6,6 +6,7 @@ GenericName[id]=Presentasi Ibadah
 Comment=Project song lyrics and Bible verses during worship
 Comment[id]=Tampilkan lirik lagu dan ayat Alkitab saat ibadah
 Exec=solideoworship
+Icon=solideoworship
 Terminal=false
 Categories=Office;Presentation;
 Keywords=worship;church;lyrics;bible;projector;presentation;

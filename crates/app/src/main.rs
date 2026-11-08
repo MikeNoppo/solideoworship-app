@@ -6,6 +6,7 @@ mod display;
 mod editor;
 mod files;
 mod i18n;
+mod logo;
 mod message;
 mod panes;
 mod paths;

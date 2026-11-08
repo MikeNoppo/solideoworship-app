@@ -1,4 +1,9 @@
-# SolideoWorship
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/lockup-on-dark.svg">
+    <img alt="SolideoWorship" src="assets/logo/lockup-on-light.svg" width="360">
+  </picture>
+</h1>
 
 [![CI](https://github.com/MikeNoppo/solideoworship-app/actions/workflows/ci.yml/badge.svg)](https://github.com/MikeNoppo/solideoworship-app/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)

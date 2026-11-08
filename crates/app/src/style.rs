@@ -62,6 +62,17 @@ pub fn dialog(theme: &Theme) -> container::Style {
     }
 }
 
+pub fn logo_row(radius: f32) -> impl Fn(&Theme) -> container::Style {
+    move |theme| container::Style {
+        background: Some(theme.extended_palette().background.base.text.into()),
+        border: Border {
+            radius: radius.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
 pub fn sample(color: Color) -> impl Fn(&Theme) -> container::Style {
     move |theme| container::Style {
         background: Some(color.into()),
