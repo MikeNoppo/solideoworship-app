@@ -100,8 +100,8 @@ Prinsip-prinsip ini ditetapkan sejak awal dan sengaja dijaga:
 
 | Platform | Status |
 | --- | --- |
-| Windows | Target utama, diuji tiap milestone |
-| macOS | Target utama, diuji tiap milestone |
+| Windows | Target utama |
+| macOS | Target utama |
 | Linux | Bisa di-build dan dijalankan, belum menjadi target rilis |
 
 ## Lokasi data

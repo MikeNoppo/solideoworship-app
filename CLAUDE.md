@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `solideoworship-app` — a worship presenter application (EasyWorship-style) built with [iced](https://iced.rs) 0.14 on Rust edition 2024. The operator drives slides from a control window on the laptop; the congregation sees them on a projector via a second, fullscreen output window.
 
-Locked scope decisions: MVP covers **songs/lyrics and Bible verses only** (images and video deferred); **macOS and Windows are equal targets**, tested each milestone; no import of existing EasyWorship/OpenLP libraries yet; **runtime performance and memory efficiency are the stated priority**.
+Locked scope decisions: MVP covers **songs/lyrics and Bible verses only** (images and video deferred); **macOS and Windows are equal targets**; no import of existing EasyWorship/OpenLP libraries yet; **runtime performance and memory efficiency are the stated priority**.
 
 ## Commands
 
