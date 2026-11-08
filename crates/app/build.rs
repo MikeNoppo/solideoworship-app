@@ -58,7 +58,25 @@ fn main() {
 
     let path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("strings.rs");
     fs::write(path, out).unwrap();
+
+    embed_windows_resources();
 }
+
+#[cfg(windows)]
+fn embed_windows_resources() {
+    const ICON: &str = "../../assets/logo/solideoworship.ico";
+
+    println!("cargo:rerun-if-changed={ICON}");
+    winresource::WindowsResource::new()
+        .set_icon(ICON)
+        .set("ProductName", "SolideoWorship")
+        .set("FileDescription", "SolideoWorship")
+        .compile()
+        .expect("embed the Windows icon and version info");
+}
+
+#[cfg(not(windows))]
+fn embed_windows_resources() {}
 
 fn read_locales(dir: &Path) -> Vec<Locale> {
     let mut locales: Vec<Locale> = fs::read_dir(dir)
