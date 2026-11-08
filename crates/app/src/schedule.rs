@@ -229,6 +229,27 @@ impl Schedule {
         self.preview = Presentation::new(Arc::clone(&entry.deck));
     }
 
+    pub fn move_entry(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.entries.len() || to >= self.entries.len() {
+            return;
+        }
+
+        let entry = self.entries.remove(from);
+        self.entries.insert(to, entry);
+        self.revision += 1;
+        self.selected = self.selected.map(|selected| {
+            if selected == from {
+                to
+            } else if from < selected && selected <= to {
+                selected - 1
+            } else if to <= selected && selected < from {
+                selected + 1
+            } else {
+                selected
+            }
+        });
+    }
+
     pub fn remove(&mut self, index: usize) {
         if index >= self.entries.len() {
             return;
@@ -595,5 +616,22 @@ mod tests {
         schedule.mark_saved(PathBuf::from("b.sdw"), schedule.revision());
 
         assert!(!schedule.is_recovered());
+    }
+
+    #[test]
+    fn moving_an_entry_keeps_the_selection_on_the_same_item() {
+        let mut schedule = schedule(&["A", "B", "C"]);
+        schedule.select(2);
+
+        schedule.move_entry(0, 2);
+
+        let titles: Vec<&str> = schedule
+            .entries()
+            .iter()
+            .map(|entry| &*entry.deck().title)
+            .collect();
+        assert_eq!(titles, ["B", "C", "A"]);
+        assert_eq!(schedule.selected(), Some(1));
+        assert!(schedule.is_dirty());
     }
 }

@@ -1,4 +1,4 @@
-use iced::widget::{Column, button, column, container, row, space};
+use iced::widget::{Column, column, container, mouse_area, row, space};
 use iced::{Center, Element, Fill, Padding};
 use sdw_core::ContentKind;
 
@@ -8,8 +8,11 @@ use crate::icon;
 use crate::message::Message;
 use crate::panes::{columns, live_badge};
 use crate::schedule::Entry;
-use crate::style::{self, Tone};
-use crate::ui::{self, label};
+use crate::style;
+use crate::ui::{self, icon_button, label};
+
+const ROW_HEIGHT: f32 = 52.0;
+const ROW_GAP: f32 = 4.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let header = row![
@@ -52,9 +55,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .entries()
             .iter()
             .enumerate()
-            .fold(Column::new().spacing(4), |list, (index, entry)| {
+            .fold(Column::new().spacing(ROW_GAP), |list, (index, entry)| {
                 list.push(item(app, index, entry))
             });
+
+        let last = app.schedule.entries().len() - 1;
+        let rows = mouse_area(rows).on_exit(Message::RowHovered(None));
+        let rows = if app.drag.is_some() {
+            rows.on_move(move |position| {
+                let row = (position.y / (ROW_HEIGHT + ROW_GAP)).max(0.0) as usize;
+                Message::DragOver(row.min(last))
+            })
+        } else {
+            rows
+        };
 
         column![
             ui::scroll(rows),
@@ -94,40 +108,70 @@ fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message
         ContentKind::Scripture => icon::BOOK_OPEN,
     };
 
-    button(
-        row![
-            label(
-                app.captions.number(index),
-                12.0,
-                style::MEDIUM,
-                style::TEXT_3
-            ),
-            container(icon::view(glyph, 14.0, style::TEXT_2))
-                .center(28)
-                .style(style::boxed(Some(style::RAISED), style::BORDER, 6.0)),
-            column![
-                label(&entry.deck().title, 13.0, style::MEDIUM, style::TEXT),
-                label(entry.meta(), 12.0, style::INTER, style::TEXT_3),
-            ]
-            .spacing(2)
-            .width(Fill),
+    let is_target = app
+        .drag
+        .is_some_and(|drag| drag.over == index && drag.from != index);
+
+    let content = row![
+        label(
+            app.captions.number(index),
+            12.0,
+            style::MEDIUM,
+            style::TEXT_3
+        ),
+        container(icon::view(glyph, 14.0, style::TEXT_2))
+            .center(28)
+            .style(style::boxed(Some(style::RAISED), style::BORDER, 6.0)),
+        column![
+            label(&entry.deck().title, 13.0, style::MEDIUM, style::TEXT),
+            label(entry.meta(), 12.0, style::INTER, style::TEXT_3),
         ]
-        .push(is_live.then(live_badge))
-        .spacing(10)
-        .height(Fill)
-        .align_y(Center),
+        .spacing(2)
+        .width(Fill),
+    ]
+    .push(is_live.then(live_badge))
+    .push(
+        (app.hovered_row == Some(index) && app.drag.is_none()).then(|| {
+            ui::hint(
+                icon_button(
+                    icon::X,
+                    style::TEXT_3,
+                    28.0,
+                    Some(Message::ScheduleRemoved(index)),
+                ),
+                t().schedule.remove,
+            )
+        }),
     )
-    .width(Fill)
-    .height(52)
-    .padding([0, 10])
-    .on_press(Message::ScheduleSelected(index))
-    .style(style::pressable(
-        if is_selected {
-            Tone::Selected
-        } else {
-            Tone::Row
-        },
-        8.0,
-    ))
+    .spacing(10)
+    .height(Fill)
+    .align_y(Center);
+
+    let background = if is_selected {
+        Some(style::ACTIVE)
+    } else if app.hovered_row == Some(index) {
+        Some(style::RAISED)
+    } else {
+        None
+    };
+
+    mouse_area(
+        container(content)
+            .width(Fill)
+            .height(ROW_HEIGHT)
+            .padding([0, 10])
+            .style(style::boxed(
+                background,
+                if is_target {
+                    style::TEXT_3
+                } else {
+                    iced::Color::TRANSPARENT
+                },
+                8.0,
+            )),
+    )
+    .on_press(Message::DragStarted(index))
+    .on_enter(Message::RowHovered(Some(index)))
+    .interaction(iced::mouse::Interaction::Pointer)
     .into()
 }

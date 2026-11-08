@@ -91,8 +91,12 @@ pub enum Message {
     WindowClosed(window::Id),
     WindowResized(window::Id, iced::Size),
 
-    ScheduleSelected(usize),
     SelectedRemoved,
+    ScheduleRemoved(usize),
+    RowHovered(Option<usize>),
+    DragStarted(usize),
+    DragOver(usize),
+    DragEnded,
     PreviewSlideSelected(usize),
     LiveSlideSelected(usize),
     LiveMoved(Step),

@@ -71,7 +71,8 @@
     "empty_title": "Belum ada item",
     "empty_body": "Lagu dan perikop yang Anda tambahkan dari library muncul di sini, sesuai urutan ibadah.",
     "tip_title": "Susun urutan ibadah",
-    "tip_body": "Tambahkan lagu atau ayat dari library di bawah. Seret baris untuk mengurutkan, Delete menghapus item yang dipilih."
+    "tip_body": "Tambahkan lagu atau ayat dari library di bawah. Seret baris untuk mengurutkan, Delete menghapus item yang dipilih.",
+    "remove": "Hapus dari susunan acara"
   },
   "welcome": {
     "eyebrow": "SELAMAT DATANG",

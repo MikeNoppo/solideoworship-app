@@ -91,6 +91,12 @@ enum Phase {
     Operator,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Drag {
+    from: usize,
+    over: usize,
+}
+
 enum Toast {
     Saved { id: SongId, text: Box<str> },
     Deleted(Box<str>),
@@ -152,6 +158,8 @@ struct App {
     modal: Option<Modal>,
     toast: Option<Toast>,
     toast_serial: u64,
+    hovered_row: Option<usize>,
+    drag: Option<Drag>,
     modal_ticket: u64,
     after_save: Option<Pending>,
     bible: BibleTab,
@@ -344,8 +352,33 @@ impl App {
                 Task::none()
             }
 
-            Message::ScheduleSelected(index) => {
+            Message::ScheduleRemoved(index) => {
+                self.schedule.remove(index);
+                self.hovered_row = None;
+                Task::none()
+            }
+            Message::RowHovered(row) => {
+                self.hovered_row = row;
+                Task::none()
+            }
+            Message::DragStarted(index) => {
                 self.schedule.select(index);
+                self.drag = Some(Drag {
+                    from: index,
+                    over: index,
+                });
+                Task::none()
+            }
+            Message::DragOver(index) => {
+                if let Some(drag) = &mut self.drag {
+                    drag.over = index;
+                }
+                Task::none()
+            }
+            Message::DragEnded => {
+                if let Some(drag) = self.drag.take() {
+                    self.schedule.move_entry(drag.from, drag.over);
+                }
                 Task::none()
             }
             Message::SelectedRemoved => {
@@ -846,6 +879,15 @@ impl App {
             })),
         }
 
+        if self.drag.is_some() {
+            subscriptions.push(event::listen_with(|event, _status, _window| match event {
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(_)) => {
+                    Some(Message::DragEnded)
+                }
+                _ => None,
+            }));
+        }
+
         if self.toast.is_some() {
             subscriptions.push(
                 iced::time::every(TOAST_TIME)
@@ -1240,7 +1282,7 @@ fn shortcut(key: keyboard::Key) -> Option<Message> {
         keyboard::Key::Character("c") => Some(Message::OutputStateToggled(OutputState::Clear)),
         keyboard::Key::Named(Named::F5) => Some(Message::OutputRequested),
         keyboard::Key::Named(Named::Escape) => Some(Message::OutputDismissed),
-        keyboard::Key::Named(Named::Delete) => Some(Message::SelectedRemoved),
+        keyboard::Key::Named(Named::Delete | Named::Backspace) => Some(Message::SelectedRemoved),
         keyboard::Key::Character("/") => Some(Message::SearchFocused),
         _ => None,
     }
@@ -1748,5 +1790,39 @@ mod tests {
         assert_eq!(app.output_display, Some(9));
         assert_eq!(app.selected, Some(9));
         assert!(app.disconnected.is_none());
+    }
+
+    #[test]
+    fn dragging_a_row_reorders_the_schedule() {
+        let mut app = dirty_app();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new("B", "two", None)),
+            None,
+            &app.styles,
+        );
+
+        let _ = app.update(Message::DragStarted(1));
+        let _ = app.update(Message::DragOver(0));
+        let _ = app.update(Message::DragEnded);
+
+        assert_eq!(&*app.schedule.entries()[0].deck().title, "B");
+        assert_eq!(app.schedule.selected(), Some(0));
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn a_plain_click_selects_without_moving() {
+        let mut app = dirty_app();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new("B", "two", None)),
+            None,
+            &app.styles,
+        );
+
+        let _ = app.update(Message::DragStarted(0));
+        let _ = app.update(Message::DragEnded);
+
+        assert_eq!(&*app.schedule.entries()[0].deck().title, "A");
+        assert_eq!(app.schedule.selected(), Some(0));
     }
 }

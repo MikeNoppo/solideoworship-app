@@ -71,7 +71,8 @@
     "empty_title": "No items yet",
     "empty_body": "Songs and passages you add from the library show up here, in service order.",
     "tip_title": "Build the service order",
-    "tip_body": "Add songs or verses from the library below. Drag rows to reorder, Delete removes the selected item."
+    "tip_body": "Add songs or verses from the library below. Drag rows to reorder, Delete removes the selected item.",
+    "remove": "Remove from schedule"
   },
   "welcome": {
     "eyebrow": "WELCOME",
