@@ -47,15 +47,20 @@ jobs:
       - run: cargo test --workspace --locked
 
   msrv:
-    name: MSRV
-    runs-on: ubuntu-latest
+    name: MSRV (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - id: msrv
-        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
+      - name: Pasang toolchain sesuai rust-version
+        shell: bash
+        run: |
+          version=$(cargo +stable metadata --no-deps --format-version 1 | jq -r '[.packages[].rust_version] | unique | if length == 1 then .[0] else error("rust-version tidak sama di semua crate") end')
+          rustup toolchain install "$version" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets --locked
 
