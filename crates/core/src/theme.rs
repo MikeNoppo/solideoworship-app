@@ -14,6 +14,10 @@ impl Rgb {
         Self { r, g, b }
     }
 
+    pub const fn from_rgb8(r: u8, g: u8, b: u8) -> Self {
+        Self::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0)
+    }
+
     pub fn from_hex(hex: &str) -> Option<Self> {
         let hex = hex.trim();
         let digits = hex.strip_prefix('#').unwrap_or(hex);
@@ -22,13 +26,9 @@ impl Rgb {
             return None;
         }
 
-        let channel = |start: usize| {
-            u8::from_str_radix(&digits[start..start + 2], 16)
-                .ok()
-                .map(|value| f32::from(value) / 255.0)
-        };
+        let channel = |start: usize| u8::from_str_radix(&digits[start..start + 2], 16).ok();
 
-        Some(Self::new(channel(0)?, channel(2)?, channel(4)?))
+        Some(Self::from_rgb8(channel(0)?, channel(2)?, channel(4)?))
     }
 
     pub fn to_hex(self) -> String {
@@ -99,9 +99,9 @@ pub struct SlideTheme {
 impl SlideTheme {
     pub fn song() -> Self {
         Self {
-            background: Rgb::new(0.05, 0.07, 0.13),
-            body: Rgb::new(1.0, 1.0, 1.0),
-            footer: Rgb::new(0.72, 0.76, 0.85),
+            background: Rgb::from_rgb8(13, 18, 33),
+            body: Rgb::from_rgb8(255, 255, 255),
+            footer: Rgb::from_rgb8(184, 194, 217),
             body_size: 92.0,
             footer_size: 36.0,
             line_height: 1.25,
@@ -200,7 +200,7 @@ impl Default for Styles {
 
 #[cfg(test)]
 mod tests {
-    use super::{BODY_SIZE, MARGIN, MAX_CHARS, MAX_LINES, Rgb, Styles};
+    use super::{BODY_SIZE, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, Styles};
     use crate::slide::ContentKind;
 
     #[test]
@@ -222,6 +222,15 @@ mod tests {
     fn hex_bolak_balik_tidak_berubah() {
         for hex in ["#000000", "#ffffff", "#0d1221", "#b8c2d9"] {
             assert_eq!(Rgb::from_hex(hex).unwrap().to_hex(), hex);
+        }
+    }
+
+    #[test]
+    fn warna_default_tidak_berubah_lewat_hex() {
+        for theme in [SlideTheme::song(), SlideTheme::scripture()] {
+            for color in [theme.background, theme.body, theme.footer] {
+                assert_eq!(Rgb::from_hex(&color.to_hex()), Some(color));
+            }
         }
     }
 
