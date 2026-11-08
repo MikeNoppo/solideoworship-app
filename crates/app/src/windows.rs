@@ -1,4 +1,5 @@
 use iced::Size;
+#[cfg(target_os = "linux")]
 use iced::window::settings::PlatformSpecific;
 use iced::window::{self, Position, Settings};
 
@@ -12,9 +13,7 @@ pub fn splash() -> Settings {
         position: Position::Centered,
         decorations: false,
         resizable: false,
-        exit_on_close_request: false,
-        platform_specific: platform_specific(),
-        ..Settings::default()
+        ..base()
     }
 }
 
@@ -23,9 +22,7 @@ pub fn control() -> Settings {
         size: Size::new(1480.0, 920.0),
         min_size: Some(Size::new(1120.0, 720.0)),
         position: Position::Centered,
-        exit_on_close_request: false,
-        platform_specific: platform_specific(),
-        ..Settings::default()
+        ..base()
     }
 }
 
@@ -45,26 +42,23 @@ pub fn output(display: &Display) -> Settings {
         position: Position::Specific(display.origin),
         fullscreen: true,
         decorations: false,
-        exit_on_close_request: false,
-        platform_specific: platform_specific(),
-        ..Settings::default()
+        ..base()
     }
 }
 
 #[cfg(target_os = "linux")]
 const APP_ID: &str = "solideoworship";
 
-#[cfg(target_os = "linux")]
-fn platform_specific() -> PlatformSpecific {
-    PlatformSpecific {
-        application_id: APP_ID.to_owned(),
-        ..PlatformSpecific::default()
+fn base() -> Settings {
+    Settings {
+        exit_on_close_request: false,
+        #[cfg(target_os = "linux")]
+        platform_specific: PlatformSpecific {
+            application_id: APP_ID.to_owned(),
+            ..PlatformSpecific::default()
+        },
+        ..Settings::default()
     }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn platform_specific() -> PlatformSpecific {
-    PlatformSpecific::default()
 }
 
 // Safety net in case fullscreen at creation was not applied; a no-op when the
