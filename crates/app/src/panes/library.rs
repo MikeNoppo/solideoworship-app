@@ -1,4 +1,4 @@
-use iced::widget::{Column, button, column, container, row, scrollable, space, text, text_input};
+use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Center, Element, Fill};
 
 use crate::message::{LibraryTab, Message};
@@ -21,41 +21,49 @@ pub fn view(app: &App) -> Element<'_, Message> {
             )
         });
 
-    let body = match app.library_tab {
-        LibraryTab::Songs => songs(app),
-        LibraryTab::Scripture => scripture(app),
-    };
-
-    pane(
-        row![
-            title("Library", None),
-            tabs,
-            text_input("Cari…", &app.search)
-                .on_input(Message::SearchChanged)
-                .on_submit(Message::SearchSubmitted)
-                .size(13)
-                .width(260),
-            space::horizontal(),
-            (app.library_tab == LibraryTab::Songs).then(|| {
+    let (controls, body): (Element<'_, Message>, Element<'_, Message>) = match app.library_tab {
+        LibraryTab::Songs => (
+            row![
+                text_input("Cari…", &app.search)
+                    .on_input(Message::SearchChanged)
+                    .on_submit(Message::SearchSubmitted)
+                    .size(13)
+                    .width(260),
+                space::horizontal(),
                 button(text("Lagu baru").size(13))
                     .padding([4, 12])
                     .on_press(Message::SongCreateRequested)
-                    .style(button::success)
-            }),
-        ]
-        .spacing(12)
-        .align_y(Center)
-        .into(),
+                    .style(button::success),
+            ]
+            .spacing(12)
+            .align_y(Center)
+            .into(),
+            column![
+                container(
+                    text("Klik lagu untuk menambahkannya ke susunan acara.")
+                        .size(11)
+                        .style(text::secondary)
+                )
+                .padding([4, 10]),
+                songs(app),
+            ]
+            .into(),
+        ),
+        LibraryTab::Scripture => (
+            app.bible.header().map(Message::Bible),
+            app.bible.body().map(Message::Bible),
+        ),
+    };
+
+    pane(
+        row![title("Library", None), tabs, controls]
+            .spacing(12)
+            .align_y(Center)
+            .into(),
         column![
             app.library_error.as_deref().map(|error| {
                 container(text(error).size(12).style(text::danger)).padding([4, 10])
             }),
-            container(
-                text("Klik item untuk menambahkannya ke susunan acara.")
-                    .size(11)
-                    .style(text::secondary)
-            )
-            .padding([4, 10]),
             body,
         ]
         .into(),
@@ -100,22 +108,6 @@ fn songs(app: &App) -> Element<'_, Message> {
     } else {
         results
     };
-
-    scrollable(results).height(Fill).into()
-}
-
-fn scripture(app: &App) -> Element<'_, Message> {
-    let matches = app.library_matches();
-
-    if matches.is_empty() {
-        return notice("Tidak ada yang cocok dengan pencarian.");
-    }
-
-    let results: Column<'_, Message> = matches
-        .iter()
-        .fold(column![].spacing(3), |list, &(index, sample)| {
-            list.push(result(&sample.title, Message::LibraryAdded(index)))
-        });
 
     scrollable(results).height(Fill).into()
 }

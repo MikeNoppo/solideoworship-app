@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 
 use iced::window;
-use sdw_core::slide::ContentKind;
+use sdw_core::bible::{Passage, Reference};
 use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
-use sdw_library::{SongId, SongSummary};
+use sdw_library::{BibleId, BibleSummary, SongId, SongSummary};
 
 use crate::display::Display;
-use crate::editor;
 use crate::theme_dialog;
 use crate::work::Outcome;
+use crate::{bible_tab, editor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -34,13 +34,6 @@ pub enum LibraryTab {
 
 impl LibraryTab {
     pub const ALL: [Self; 2] = [Self::Songs, Self::Scripture];
-
-    pub fn accepts(self, kind: ContentKind) -> bool {
-        matches!(
-            (self, kind),
-            (Self::Songs, ContentKind::Song) | (Self::Scripture, ContentKind::Scripture)
-        )
-    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -118,5 +111,7 @@ pub enum Message {
     ScheduleSavePathChosen(Option<PathBuf>),
     ScheduleSaved(u64, Outcome<PathBuf>),
     Unsaved(UnsavedChoice),
-    LibraryAdded(usize),
+    Bible(bible_tab::Message),
+    BiblesLoaded(Outcome<Vec<BibleSummary>>),
+    PassageFound(BibleId, Reference, Outcome<Option<Passage>>),
 }

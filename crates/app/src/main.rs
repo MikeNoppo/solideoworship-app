@@ -1,3 +1,4 @@
+mod bible_tab;
 mod display;
 mod editor;
 mod files;
@@ -5,7 +6,6 @@ mod message;
 mod panes;
 mod paths;
 mod render;
-mod sample;
 mod schedule;
 mod style;
 mod theme_dialog;
@@ -22,10 +22,10 @@ use sdw_core::theme::SlideTheme;
 use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
 use sdw_library::{SongId, SongSummary, schedule_file};
 
+use crate::bible_tab::BibleTab;
 use crate::display::Display;
 use crate::editor::Editor;
 use crate::message::{LibraryTab, Message, Pending, Step, UnsavedChoice};
-use crate::sample::Sample;
 use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
@@ -82,7 +82,7 @@ struct App {
     song_results: Vec<SongSummary>,
     modal: Option<Modal>,
     after_save: Option<Pending>,
-    catalogue: Vec<Sample>,
+    bible: BibleTab,
     schedule: Schedule,
     styles: Styles,
     live: Option<Presentation>,
@@ -101,7 +101,6 @@ impl App {
         let app = Self {
             splash: Some(id),
             store: Store::spawn(paths::library_file()),
-            catalogue: sample::catalogue(),
             ..Self::default()
         };
         let library_opened = app
@@ -157,7 +156,7 @@ impl App {
                     Ok(styles) => {
                         self.styles = styles;
                         self.schedule.recompile(&self.styles);
-                        self.search_songs()
+                        Task::batch([self.search_songs(), self.load_bibles()])
                     }
                     Err(error) => {
                         self.library_error = Some(
@@ -278,10 +277,7 @@ impl App {
                     Some(song) => self.update(Message::SongPicked(song.id)),
                     None => Task::none(),
                 },
-                LibraryTab::Scripture => match self.library_matches().first() {
-                    Some(&(index, _)) => self.update(Message::LibraryAdded(index)),
-                    None => Task::none(),
-                },
+                LibraryTab::Scripture => Task::none(),
             },
             Message::SongsFound(query, result) => {
                 if *query == *self.search.trim() {
@@ -479,11 +475,23 @@ impl App {
                     }
                 }
             }
-            Message::LibraryAdded(index) => {
-                if let Some(sample) = self.catalogue.get(index) {
-                    self.schedule.push(sample.item.clone(), None, &self.styles);
+            Message::Bible(message) => {
+                let action = self.bible.update(message);
+                self.bible_action(action)
+            }
+            Message::BiblesLoaded(result) => match result {
+                Ok(bibles) => {
+                    let action = self.bible.set_bibles(bibles);
+                    self.bible_action(action)
                 }
-                Task::none()
+                Err(error) => {
+                    self.library_error = Some(error);
+                    Task::none()
+                }
+            },
+            Message::PassageFound(bible, reference, result) => {
+                let action = self.bible.found(bible, &reference, result);
+                self.bible_action(action)
             }
         }
     }
@@ -659,15 +667,32 @@ impl App {
         )
     }
 
-    fn library_matches(&self) -> Vec<(usize, &Sample)> {
-        let query = self.search.trim().to_lowercase();
+    fn load_bibles(&self) -> Task<Message> {
+        self.store
+            .run(|library| library.bibles(), Message::BiblesLoaded)
+    }
 
-        self.catalogue
-            .iter()
-            .enumerate()
-            .filter(|(_, sample)| self.library_tab.accepts(sample.item.kind()))
-            .filter(|(_, sample)| query.is_empty() || sample.title.to_lowercase().contains(&query))
-            .collect()
+    fn bible_action(&mut self, action: bible_tab::Action) -> Task<Message> {
+        match action {
+            bible_tab::Action::None => Task::none(),
+            bible_tab::Action::Lookup(bible, reference) => {
+                let query = reference.clone();
+
+                self.store.run(
+                    move |library| match library.passage(bible, &query) {
+                        Ok(passage) => Ok(Some(passage)),
+                        Err(sdw_library::Error::NotFound) => Ok(None),
+                        Err(error) => Err(error),
+                    },
+                    move |result| Message::PassageFound(bible, reference, result),
+                )
+            }
+            bible_tab::Action::Add(passage) => {
+                self.schedule
+                    .push(ScheduleItem::Passage(passage), None, &self.styles);
+                Task::none()
+            }
+        }
     }
 
     fn apply_displays(&mut self, displays: Vec<Display>) -> Task<Message> {
