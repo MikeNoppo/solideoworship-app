@@ -10,7 +10,7 @@ use crate::style;
 const THUMBNAIL_WIDTH: f32 = 146.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    let Some(preview) = &app.preview else {
+    let Some(preview) = app.schedule.preview() else {
         return pane(
             title("Preview", None),
             container(
@@ -23,12 +23,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         );
     };
 
+    let theme = app.styles.theme(preview.deck().kind);
+
     let thumbnails = preview.slides().iter().enumerate().map(|(index, item)| {
         let is_selected = preview.index() == index;
 
         button(
             column![
-                slide::thumbnail(item, &app.preview_theme, THUMBNAIL_WIDTH),
+                slide::thumbnail(item, theme, THUMBNAIL_WIDTH),
                 text(item.label.as_deref().unwrap_or(""))
                     .size(11)
                     .style(style::caption(is_selected)),
@@ -47,7 +49,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         container(text("Preview Output").size(11).style(text::secondary)).padding([4, 10]),
         container(slide::stage(
             Some(preview.current()),
-            &app.preview_theme,
+            theme,
             Visibility::FULL,
         ))
         .width(Fill)

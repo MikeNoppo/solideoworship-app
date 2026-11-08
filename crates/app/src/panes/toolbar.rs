@@ -43,7 +43,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 }),
             space::horizontal(),
             button("Tayangkan")
-                .on_press_maybe(app.preview.as_ref().map(|_| Message::GoLive))
+                .on_press_maybe(app.schedule.preview().map(|_| Message::GoLive))
                 .style(button::primary),
             state_button(OutputState::Show),
             state_button(OutputState::Black),

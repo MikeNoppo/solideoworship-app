@@ -117,13 +117,6 @@ impl SlideTheme {
         }
     }
 
-    pub fn for_kind(kind: ContentKind) -> Self {
-        match kind {
-            ContentKind::Song => Self::song(),
-            ContentKind::Scripture => Self::scripture(),
-        }
-    }
-
     fn clamped(self) -> Self {
         Self {
             background: self.background.clamped(),

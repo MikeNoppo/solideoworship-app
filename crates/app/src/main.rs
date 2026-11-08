@@ -3,20 +3,21 @@ mod message;
 mod panes;
 mod render;
 mod sample;
+mod schedule;
 mod style;
 mod windows;
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use iced::keyboard::{self, key::Named};
 use iced::{Element, Subscription, Task, Theme, event, window};
-use sdw_core::slide::SlideDeck;
 use sdw_core::theme::SlideTheme;
-use sdw_core::{OutputState, Presentation};
+use sdw_core::{OutputState, Presentation, Styles};
 
 use crate::display::Display;
 use crate::message::{LibraryTab, Message, Step};
+use crate::sample::Sample;
+use crate::schedule::Schedule;
 
 // Splash tetap tampil minimal selama ini walau pemuatan selesai lebih cepat, supaya
 // tidak berkedip sekilas lalu hilang. Dihitung sejak jendelanya benar-benar terbuka,
@@ -55,12 +56,10 @@ struct App {
     selected: Option<u32>,
     screens_open: bool,
 
-    catalogue: Vec<Arc<SlideDeck>>,
-    schedule: Vec<Arc<SlideDeck>>,
-    schedule_selected: Option<usize>,
-    preview: Option<Presentation>,
+    catalogue: Vec<Sample>,
+    schedule: Schedule,
+    styles: Styles,
     live: Option<Presentation>,
-    preview_theme: SlideTheme,
     live_theme: SlideTheme,
 
     output_state: OutputState,
@@ -156,41 +155,21 @@ impl App {
             Message::WindowClosed(id) => self.window_closed(id),
 
             Message::ScheduleSelected(index) => {
-                if let Some(deck) = self.schedule.get(index) {
-                    self.schedule_selected = Some(index);
-                    self.preview_theme = SlideTheme::for_kind(deck.kind);
-                    self.preview = Presentation::new(Arc::clone(deck));
-                }
+                self.schedule.select(index);
                 Task::none()
             }
             Message::ScheduleRemoved(index) => {
-                if index >= self.schedule.len() {
-                    return Task::none();
-                }
-
                 self.schedule.remove(index);
-
-                match self.schedule_selected {
-                    Some(selected) if selected == index => {
-                        self.schedule_selected = None;
-                        self.preview = None;
-                    }
-                    Some(selected) if selected > index => {
-                        self.schedule_selected = Some(selected - 1);
-                    }
-                    _ => {}
-                }
-
                 Task::none()
             }
             Message::PreviewSlideSelected(index) => {
-                if let Some(preview) = &mut self.preview {
+                if let Some(preview) = self.schedule.preview_mut() {
                     let _ = preview.go_to(index);
                 }
                 Task::none()
             }
             Message::PreviewMoved(step) => {
-                if let Some(preview) = &mut self.preview {
+                if let Some(preview) = self.schedule.preview_mut() {
                     let _ = step.apply(preview);
                 }
                 Task::none()
@@ -209,14 +188,14 @@ impl App {
             }
             Message::GoLive => {
                 // Deck dibagi lewat Arc, jadi mendorong ke live tidak menyalin slide.
-                if let Some(preview) = &self.preview {
+                if let Some(preview) = self.schedule.preview() {
                     let mut live = Presentation::new(preview.share());
 
                     if let Some(live) = &mut live {
                         let _ = live.go_to(preview.index());
                     }
 
-                    self.live_theme = self.preview_theme.clone();
+                    self.live_theme = self.styles.theme(preview.deck().kind).clone();
                     self.live = live;
                 }
                 Task::none()
@@ -231,10 +210,8 @@ impl App {
                 Task::none()
             }
             Message::LibraryAdded(index) => {
-                if let Some(deck) = self.catalogue.get(index) {
-                    self.schedule.push(Arc::clone(deck));
-
-                    return self.update(Message::ScheduleSelected(self.schedule.len() - 1));
+                if let Some(sample) = self.catalogue.get(index) {
+                    self.schedule.push(sample.item.clone(), &self.styles);
                 }
                 Task::none()
             }
@@ -311,14 +288,14 @@ impl App {
         opened.discard().chain(Task::done(Message::ControlOpened))
     }
 
-    fn library_matches(&self) -> Vec<(usize, &Arc<SlideDeck>)> {
+    fn library_matches(&self) -> Vec<(usize, &Sample)> {
         let query = self.search.trim().to_lowercase();
 
         self.catalogue
             .iter()
             .enumerate()
-            .filter(|(_, deck)| self.library_tab.accepts(deck.kind))
-            .filter(|(_, deck)| query.is_empty() || deck.title.to_lowercase().contains(&query))
+            .filter(|(_, sample)| self.library_tab.accepts(sample.item.kind()))
+            .filter(|(_, sample)| query.is_empty() || sample.title.to_lowercase().contains(&query))
             .collect()
     }
 

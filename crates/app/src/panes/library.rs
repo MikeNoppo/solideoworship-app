@@ -26,21 +26,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let results = matches
         .iter()
-        .fold(column![].spacing(3), |list, &(index, deck)| {
+        .fold(column![].spacing(3), |list, &(index, sample)| {
             list.push(
-                button(
-                    row![
-                        text(&*deck.title).size(13).width(Fill),
-                        text(format!("{} slide", deck.len()))
-                            .size(11)
-                            .style(text::secondary),
-                    ]
-                    .align_y(Center),
-                )
-                .width(Fill)
-                .padding(8)
-                .on_press(Message::LibraryAdded(index))
-                .style(style::row(false)),
+                button(text(&*sample.title).size(13).width(Fill))
+                    .width(Fill)
+                    .padding(8)
+                    .on_press(Message::LibraryAdded(index))
+                    .style(style::row(false)),
             )
         });
 
