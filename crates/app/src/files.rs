@@ -125,13 +125,13 @@ mod tests {
     }
 
     #[test]
-    fn ekstensi_sdw_ditambahkan_bila_tidak_ada() {
+    fn sdw_extension_is_added_when_missing() {
         assert_eq!(chosen("/tmp/minggu").path, Path::new("/tmp/minggu.sdw"));
         assert!(chosen("/tmp/minggu").extension_added);
     }
 
     #[test]
-    fn titik_di_nama_file_bukan_ekstensi_sdw() {
+    fn dot_in_file_name_is_not_sdw_extension() {
         assert_eq!(
             chosen("/tmp/Minggu 1.5").path,
             Path::new("/tmp/Minggu 1.5.sdw")
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn ekstensi_sdw_dipertahankan_tanpa_membedakan_huruf() {
+    fn sdw_extension_is_kept_case_insensitively() {
         for name in ["/tmp/minggu.sdw", "/tmp/minggu.SDW"] {
             let target = chosen(name);
 
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn tidak_menimpa_diam_diam_file_yang_namanya_dilengkapi() {
+    fn does_not_silently_overwrite_completed_file_name() {
         let dir = env::temp_dir().join(format!("sdw-files-{}", process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("minggu.sdw"), "lama").unwrap();

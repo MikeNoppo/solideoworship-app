@@ -268,8 +268,8 @@ mod tests {
 
     fn bibles() -> Vec<BibleSummary> {
         let mut library = Library::open_in_memory().unwrap();
-        let zefania = r#"<XMLBIBLE biblename="Uji"><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
-            <VERS vnumber="1">satu</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+        let zefania = r#"<XMLBIBLE biblename="Test"><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
+            <VERS vnumber="1">one</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
         library.import_zefania(zefania.as_bytes(), "UJI").unwrap();
         library.bibles().unwrap()
     }
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn singkatan_diisi_dari_nama_file() {
+    fn abbreviation_is_filled_from_file_name() {
         assert_eq!(with_file("/data/tb-2.xml").abbreviation, "TB2");
         assert_eq!(
             with_file("/data/terjemahan_baru_lengkap.xml").abbreviation,
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn impor_butuh_file_dan_singkatan() {
+    fn import_needs_file_and_abbreviation() {
         let mut manager = BibleManager::new(Vec::new());
         assert_eq!(manager.update(Message::Import), Action::None);
 
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn impor_mengirim_path_dan_singkatan_sekali_saja() {
+    fn import_sends_path_and_abbreviation_once() {
         let mut manager = with_file("/data/tb.xml");
         let _ = manager.update(Message::AbbreviationChanged(" TB ".into()));
 
@@ -316,12 +316,12 @@ mod tests {
     }
 
     #[test]
-    fn impor_berhasil_mengosongkan_isian() {
+    fn successful_import_clears_form() {
         let mut manager = with_file("/data/tb.xml");
         let _ = manager.update(Message::Import);
         let mut library = Library::open_in_memory().unwrap();
         let zefania = r#"<XMLBIBLE><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
-            <VERS vnumber="1">satu</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+            <VERS vnumber="1">one</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
         let report = library.import_zefania(zefania.as_bytes(), "TB").unwrap();
 
         manager.imported(Ok(report));
@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn impor_gagal_menampilkan_alasan_dan_mempertahankan_file() {
+    fn failed_import_shows_reason_and_keeps_file() {
         let mut manager = with_file("/data/tb.xml");
         let _ = manager.update(Message::Import);
 
@@ -343,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn hapus_terjemahan_perlu_konfirmasi() {
+    fn deleting_translation_needs_confirmation() {
         let list = bibles();
         let mut manager = BibleManager::new(list.clone());
 
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn batal_memilih_file_tidak_mengubah_apa_pun() {
+    fn cancelling_file_pick_changes_nothing() {
         let mut manager = with_file("/data/tb.xml");
 
         let _ = manager.update(Message::FilePicked(None));

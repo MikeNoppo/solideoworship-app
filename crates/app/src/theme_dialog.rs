@@ -457,21 +457,21 @@ mod tests {
     }
 
     #[test]
-    fn tanpa_item_terpilih_mulai_dari_tab_lagu() {
+    fn without_selected_item_starts_on_song_tab() {
         assert_eq!(dialog().kind, ContentKind::Song);
     }
 
     #[test]
-    fn item_terpilih_menjadi_contoh_dan_menentukan_tab() {
-        let item = ScheduleItem::Song(Song::new("Pilihan", "satu", None));
+    fn selected_item_becomes_sample_and_picks_tab() {
+        let item = ScheduleItem::Song(Song::new("Selected", "one", None));
         let dialog = ThemeDialog::new(&Styles::default(), Some(&item));
 
         assert_eq!(dialog.kind, ContentKind::Song);
-        assert_eq!(&*dialog.deck.title, "Pilihan");
+        assert_eq!(&*dialog.deck.title, "Selected");
     }
 
     #[test]
-    fn contoh_alkitab_tersedia_tanpa_item_terpilih() {
+    fn scripture_sample_available_without_selected_item() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::KindSelected(ContentKind::Scripture));
@@ -480,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn batas_baris_mengompilasi_ulang_preview() {
+    fn line_limit_recompiles_preview() {
         let mut dialog = dialog();
         let before = dialog.deck.len();
 
@@ -490,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn hex_tidak_valid_tidak_mengubah_warna() {
+    fn invalid_hex_does_not_change_color() {
         let mut dialog = dialog();
         let original = dialog.draft.song.theme.background;
 
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn hex_valid_langsung_dipakai() {
+    fn valid_hex_applies_immediately() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#ff0000".into()));
@@ -510,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn warna_preset_memperbarui_isian_hex() {
+    fn preset_color_updates_hex_field() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::ColorPicked(
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn perubahan_hanya_mengenai_jenis_yang_aktif() {
+    fn changes_only_affect_active_kind() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::Align(TextAlign::Left));
@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn kembalikan_default_hanya_untuk_jenis_yang_aktif() {
+    fn reset_defaults_only_affects_active_kind() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::BodySize(50.0));
         let _ = dialog.update(Message::KindSelected(ContentKind::Scripture));
@@ -548,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn simpan_mengirim_gaya_yang_dijepit_sekali_saja() {
+    fn save_sends_clamped_styles_once() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::MaxLines(500));
 
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn gagal_menyimpan_membuka_kembali_tombol() {
+    fn failed_save_re_enables_button() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::Save);
 

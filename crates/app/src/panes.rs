@@ -35,8 +35,8 @@ pub fn pane<'a>(title: Element<'a, Message>, body: Element<'a, Message>) -> Elem
     .into()
 }
 
-// Judul disusun dari dua fragmen terpisah supaya nama item dipinjam apa adanya dan
-// tidak ada String baru yang dialokasikan tiap redraw.
+// The title is built from two separate fragments so the item name is borrowed as is
+// and no new String is allocated on every redraw.
 pub fn title<'a>(prefix: &'static str, name: Option<&'a str>) -> Element<'a, Message> {
     match name {
         Some(name) => row![

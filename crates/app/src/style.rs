@@ -112,8 +112,8 @@ pub fn splash(theme: &Theme) -> container::Style {
     }
 }
 
-// Teks sekunder di dalam baris terpilih harus ikut warna teks primer; gaya
-// text::secondary bawaan tetap abu-abu dan nyaris hilang di atas latar biru.
+// Secondary text inside a selected row must follow the primary text color; the
+// built-in text::secondary style stays grey and nearly vanishes on the blue background.
 pub fn caption(is_selected: bool) -> impl Fn(&Theme) -> text::Style {
     move |theme| {
         let palette = theme.extended_palette();
@@ -128,9 +128,9 @@ pub fn caption(is_selected: bool) -> impl Fn(&Theme) -> text::Style {
     }
 }
 
-// Baris yang bisa dipilih (item susunan acara, slide, hasil pencarian). Dibuat dari
-// gaya text button supaya latar transparan saat tidak aktif dan tidak berebut perhatian
-// dengan area slide.
+// A selectable row (schedule item, slide, search result). Built on the text button
+// style so the background is transparent when inactive and does not compete for
+// attention with the slide area.
 pub fn row(is_selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| {
         let palette = theme.extended_palette();

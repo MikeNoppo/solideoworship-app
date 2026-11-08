@@ -22,8 +22,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let state_button = |state: OutputState| {
         button(text(state.label()))
             .on_press_maybe(is_open.then_some(Message::OutputStateChanged(state)))
-            // Saat output tertutup tidak ada status yang sedang berlaku, jadi tidak
-            // ada tombol yang boleh tampak aktif.
+            // While the output is closed no state is in effect, so no button may
+            // look active.
             .style(if is_open && app.output_state == state {
                 button::primary
             } else {
@@ -34,7 +34,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     container(
         row![
             text("SolideoWorship").size(18),
-            button("Baru")
+            button("New")
                 .on_press(Message::ScheduleNewRequested)
                 .style(button::secondary),
             button("Buka…")

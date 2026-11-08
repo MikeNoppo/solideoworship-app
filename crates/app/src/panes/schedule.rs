@@ -16,8 +16,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let is_selected = app.schedule.selected() == Some(index);
 
             list.push(
-                // Dua tombol bersebelahan, bukan tombol di dalam tombol: iced menyerap
-                // event di widget terluar, sehingga tombol bersarang tidak akan bereaksi.
+                // Two buttons side by side, not a button inside a button: iced captures
+                // events at the outermost widget, so a nested button would never react.
                 row![
                     button(
                         column![

@@ -37,10 +37,10 @@ use crate::schedule::Schedule;
 use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
 
-// Splash tetap tampil minimal selama ini walau pemuatan selesai lebih cepat, supaya
-// tidak berkedip sekilas lalu hilang. Dihitung sejak jendelanya benar-benar terbuka,
-// bukan sejak proses mulai: inisialisasi wgpu sendiri sudah memakan ratusan milidetik
-// sebelum ada yang bisa dilihat.
+// The splash stays up at least this long even if loading finishes sooner, so it
+// does not flash and vanish. Measured from when its window actually opens, not from
+// process start: wgpu initialisation alone takes hundreds of milliseconds before
+// anything is visible.
 const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
 
 const SONG_LIMIT: usize = 100;
@@ -237,8 +237,8 @@ impl App {
                 self.reopen_output = false;
                 self.close_output()
             }
-            // Transisi status output digerbangi di sini, bukan di view, supaya jalur
-            // keyboard dan jalur tombol tunduk pada syarat yang sama.
+            // Output state transitions are gated here, not in the view, so the keyboard
+            // path and the button path obey the same conditions.
             Message::OutputStateChanged(state) => {
                 if self.output.is_some() {
                     self.output_state = state;
@@ -291,7 +291,7 @@ impl App {
                 Task::none()
             }
             Message::GoLive => {
-                // Deck dibagi lewat Arc, jadi mendorong ke live tidak menyalin slide.
+                // The deck is shared through an Arc, so going live copies no slides.
                 if let Some(preview) = self.schedule.preview() {
                     let mut live = Presentation::new(preview.share());
 
@@ -647,8 +647,8 @@ impl App {
 
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![
-            // NOTE: kedua jendela memakai exit_on_close_request: false, jadi tombol
-            // tutup bawaan OS tidak melakukan apa pun tanpa langganan ini.
+            // NOTE: both windows use exit_on_close_request: false, so the OS close
+            // button does nothing without this subscription.
             window::close_requests().map(Message::WindowCloseRequested),
             window::close_events().map(Message::WindowClosed),
         ];
@@ -678,9 +678,9 @@ impl App {
                             key, modifiers, ..
                         }),
                         event::Status::Ignored,
-                        // WHY: iced mengisi `key` dari key_without_modifiers, sehingga
-                        // Cmd+C/Ctrl+C juga tiba sebagai Character("c"). Tanpa syarat ini
-                        // menyalin teks akan mengosongkan layar proyektor.
+                        // WHY: iced fills `key` from key_without_modifiers, so
+                        // Cmd+C/Ctrl+C also arrives as Character("c"). Without this check,
+                        // copying text would clear the projector screen.
                     ) if modifiers.is_empty() => shortcut(key),
                     _ => None,
                 }
@@ -714,8 +714,8 @@ impl App {
         let (id, opened) = window::open(windows::control());
         self.control = Some(id);
 
-        // Splash baru ditutup setelah jendela kontrol benar-benar terbuka, supaya tidak
-        // ada jeda kosong tanpa jendela sama sekali.
+        // The splash closes only after the control window has actually opened, so there
+        // is never a gap with no window at all.
         opened.discard().chain(Task::done(Message::ControlOpened))
     }
 
@@ -902,9 +902,9 @@ impl App {
 
         self.selected = Some(id);
 
-        // Output yang sudah terbuka dipindahkan dengan menutup lalu membukanya kembali
-        // di layar baru. Pembukaan ditunda sampai WindowClosed supaya tidak pernah ada
-        // dua jendela output hidup bersamaan.
+        // An open output is moved by closing it and reopening it on the new screen.
+        // Reopening waits for WindowClosed so two output windows never live at the
+        // same time.
         if self.output.is_some() {
             self.reopen_output = true;
             return self.close_output();
@@ -965,9 +965,9 @@ impl App {
     }
 }
 
-// WHY: enumerasi monitor memanggil API OS per layar — CreateDCW/GetDeviceCaps plus
-// pembacaan EDID di Windows, NSScreen::localizedName di macOS — cukup lambat untuk
-// membekukan event loop, termasuk jendela output ke proyektor.
+// WHY: monitor enumeration calls OS APIs per screen — CreateDCW/GetDeviceCaps plus
+// EDID reads on Windows, NSScreen::localizedName on macOS — slow enough to freeze
+// the event loop, including the projector output window.
 fn load_displays() -> Task<Message> {
     work::background(display::all).map(Message::DisplaysLoaded)
 }
@@ -1020,7 +1020,7 @@ mod tests {
     fn dirty_app() -> App {
         let mut app = App::default();
         app.schedule.push(
-            ScheduleItem::Song(Song::new("A", "satu", None)),
+            ScheduleItem::Song(Song::new("A", "one", None)),
             None,
             &app.styles,
         );
@@ -1035,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn baru_tanpa_perubahan_tidak_meminta_konfirmasi() {
+    fn new_without_changes_does_not_ask() {
         let mut app = App::default();
 
         let _ = app.update(Message::ScheduleNewRequested);
@@ -1044,7 +1044,7 @@ mod tests {
     }
 
     #[test]
-    fn baru_saat_belum_disimpan_meminta_konfirmasi() {
+    fn new_with_unsaved_changes_asks_for_confirmation() {
         let mut app = dirty_app();
 
         let _ = app.update(Message::ScheduleNewRequested);
@@ -1054,7 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn jangan_simpan_menjalankan_aksi_tertunda() {
+    fn discard_runs_pending_action() {
         let mut app = dirty_app();
         let _ = app.update(Message::ScheduleNewRequested);
 
@@ -1065,7 +1065,7 @@ mod tests {
     }
 
     #[test]
-    fn batal_mempertahankan_susunan_acara() {
+    fn cancel_keeps_schedule() {
         let mut app = dirty_app();
         let _ = app.update(Message::ScheduleNewRequested);
 
@@ -1076,7 +1076,7 @@ mod tests {
     }
 
     #[test]
-    fn simpan_berhasil_melanjutkan_aksi_tertunda() {
+    fn successful_save_continues_pending_action() {
         let mut app = dirty_app();
         let _ = app.update(Message::ScheduleNewRequested);
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
@@ -1091,7 +1091,7 @@ mod tests {
     }
 
     #[test]
-    fn simpan_gagal_membatalkan_aksi_tertunda() {
+    fn failed_save_cancels_pending_action() {
         let mut app = dirty_app();
         let _ = app.update(Message::ScheduleNewRequested);
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
@@ -1105,7 +1105,7 @@ mod tests {
     }
 
     #[test]
-    fn batal_memilih_lokasi_simpan_membatalkan_aksi_tertunda() {
+    fn cancelling_save_location_cancels_pending_action() {
         let mut app = dirty_app();
         let _ = app.update(Message::ScheduleNewRequested);
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
@@ -1117,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn menutup_jendela_operator_saat_belum_disimpan_meminta_konfirmasi() {
+    fn closing_control_window_with_unsaved_changes_asks_for_confirmation() {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
@@ -1128,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn permintaan_tutup_diabaikan_saat_dialog_lain_terbuka() {
+    fn close_request_is_ignored_while_another_dialog_is_open() {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
@@ -1143,16 +1143,14 @@ mod tests {
         let mut library = Library::open_in_memory().unwrap();
 
         for title in titles {
-            library
-                .insert_song(&Song::new(title, "satu", None))
-                .unwrap();
+            library.insert_song(&Song::new(title, "one", None)).unwrap();
         }
 
         library.search_songs("", usize::MAX).unwrap()
     }
 
     #[test]
-    fn enter_dengan_hasil_basi_menunggu_hasil_query_sekarang() {
+    fn enter_with_stale_result_waits_for_current_query() {
         let mut app = App {
             song_results: summaries(&["Allah Peduli"]),
             search: "kasih".into(),
@@ -1165,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    fn hasil_untuk_query_sekarang_memenuhi_enter_yang_tertunda() {
+    fn current_query_result_fulfils_pending_enter() {
         let mut app = App {
             search: "kasih".into(),
             ..App::default()
@@ -1182,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn mengetik_lagi_membatalkan_enter_yang_tertunda() {
+    fn typing_again_cancels_pending_enter() {
         let mut app = App {
             search: "kas".into(),
             ..App::default()
@@ -1195,7 +1193,7 @@ mod tests {
     }
 
     #[test]
-    fn hasil_query_lama_tidak_dipakai() {
+    fn old_query_results_are_not_used() {
         let mut app = App {
             search: "kasih".into(),
             ..App::default()
@@ -1208,14 +1206,14 @@ mod tests {
 
     fn library_song() -> (sdw_library::SongId, Song) {
         let mut library = Library::open_in_memory().unwrap();
-        let song = Song::new("A", "satu", None);
+        let song = Song::new("A", "one", None);
         let id = library.insert_song(&song).unwrap();
 
         (id, song)
     }
 
     #[test]
-    fn simpan_editor_lama_tidak_menutup_editor_baru() {
+    fn stale_editor_save_does_not_close_new_editor() {
         let (id, song) = library_song();
         let mut app = App::default();
         let _ = app.open_editor(Some(id), &song);
@@ -1230,7 +1228,7 @@ mod tests {
     }
 
     #[test]
-    fn simpan_editor_menutup_editor_yang_memintanya() {
+    fn editor_save_closes_requesting_editor() {
         let (id, song) = library_song();
         let mut app = App::default();
         let _ = app.open_editor(Some(id), &song);
@@ -1242,7 +1240,7 @@ mod tests {
     }
 
     #[test]
-    fn lagu_yang_selesai_dimuat_tidak_mengganti_dialog_lain() {
+    fn loaded_song_does_not_replace_other_dialog() {
         let (id, song) = library_song();
         let mut app = App::default();
         let _ = app.update(Message::ThemeRequested);
@@ -1253,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn simpan_tema_lama_tidak_menutup_dialog_tema_baru_tapi_tetap_diterapkan() {
+    fn stale_theme_save_keeps_new_dialog_open_but_still_applies() {
         let mut app = App::default();
         let _ = app.update(Message::ThemeRequested);
         let old_ticket = app.modal_ticket;
@@ -1269,7 +1267,7 @@ mod tests {
     }
 
     #[test]
-    fn gagal_simpan_editor_lama_dilaporkan_di_library() {
+    fn stale_editor_save_failure_is_reported_in_library() {
         let mut app = App::default();
         let _ = app.update(Message::ThemeRequested);
         let ticket = app.modal_ticket;
@@ -1281,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn error_library_tidak_hilang_oleh_operasi_lain_yang_berhasil() {
+    fn library_error_survives_other_successful_operations() {
         let mut app = App {
             search: "a".into(),
             library_error: Some("impor gagal".into()),
@@ -1295,7 +1293,7 @@ mod tests {
     }
 
     #[test]
-    fn error_library_bisa_ditutup_operator() {
+    fn library_error_can_be_dismissed() {
         let mut app = App {
             library_error: Some("impor gagal".into()),
             ..App::default()
@@ -1307,7 +1305,7 @@ mod tests {
     }
 
     #[test]
-    fn library_gagal_dibuka_tetap_dilaporkan_dengan_jelas() {
+    fn library_open_failure_is_reported_clearly() {
         let mut app = App::default();
 
         let _ = app.update(Message::LibraryOpened(Err("disk penuh".into())));
@@ -1330,7 +1328,7 @@ mod tests {
     }
 
     #[test]
-    fn hasil_terpotong_hanya_bila_ada_lagu_lebih_dari_batas() {
+    fn results_are_truncated_only_beyond_limit() {
         let mut app = App::default();
 
         let _ = app.update(Message::SongsFound(
@@ -1349,11 +1347,11 @@ mod tests {
     }
 
     #[test]
-    fn susunan_acara_dari_file_pemulihan_dikembalikan() {
+    fn schedule_is_restored_from_recovery_file() {
         let mut app = App::default();
 
         let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Pulih", "satu", None),
+            Song::new("Pulih", "one", None),
         )]))));
 
         assert_eq!(app.schedule.entries().len(), 1);
@@ -1361,11 +1359,11 @@ mod tests {
     }
 
     #[test]
-    fn file_pemulihan_tidak_menimpa_susunan_acara_yang_sudah_diisi() {
+    fn recovery_does_not_overwrite_filled_schedule() {
         let mut app = dirty_app();
 
         let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Pulih", "satu", None),
+            Song::new("Pulih", "one", None),
         )]))));
 
         assert!(!app.schedule.is_recovered());
@@ -1373,7 +1371,7 @@ mod tests {
     }
 
     #[test]
-    fn jangan_simpan_saat_keluar_membuang_isi_pemulihan() {
+    fn discard_on_quit_drops_recovery() {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);

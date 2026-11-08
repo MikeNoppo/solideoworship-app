@@ -286,7 +286,7 @@ mod tests {
     use super::{Action, Editor, Message};
 
     fn editor(lyrics: &str) -> Editor {
-        Editor::new(None, &Song::new("Uji", lyrics, None), 4)
+        Editor::new(None, &Song::new("Test", lyrics, None), 4)
     }
 
     fn paste(editor: &mut Editor, text: &str) {
@@ -296,46 +296,46 @@ mod tests {
     }
 
     #[test]
-    fn slide_dikompilasi_saat_dibuka() {
-        let editor = editor("[Verse 1]\nsatu\n\n[Reff]\ndua");
+    fn slides_are_compiled_on_open() {
+        let editor = editor("[Verse 1]\none\n\n[Reff]\ntwo");
 
         assert_eq!(editor.deck.len(), 2);
     }
 
     #[test]
-    fn mengubah_lirik_mengompilasi_ulang_slide() {
+    fn editing_lyrics_recompiles_slides() {
         let mut editor = editor("");
 
-        paste(&mut editor, "[Reff]\nsatu\n\ndua");
+        paste(&mut editor, "[Reff]\none\n\ntwo");
 
         assert_eq!(editor.deck.len(), 2);
         assert_eq!(editor.deck.slides[1].label.as_deref(), Some("Reff (2)"));
     }
 
     #[test]
-    fn copyright_ikut_ke_footer_preview() {
-        let mut editor = editor("satu");
+    fn copyright_goes_into_preview_footer() {
+        let mut editor = editor("one");
 
-        let _ = editor.update(Message::CopyrightChanged("© Uji".into()));
+        let _ = editor.update(Message::CopyrightChanged("© Test".into()));
 
-        assert_eq!(editor.deck.slides[0].footer.as_deref(), Some("© Uji"));
+        assert_eq!(editor.deck.slides[0].footer.as_deref(), Some("© Test"));
     }
 
     #[test]
-    fn pilihan_slide_dijepit_saat_slide_berkurang() {
-        let mut editor = editor("satu\n\ndua\n\ntiga");
+    fn slide_selection_is_clamped_when_slides_shrink() {
+        let mut editor = editor("one\n\ntwo\n\nthree");
         let _ = editor.update(Message::SlideSelected(2));
 
         editor.lyrics = iced::widget::text_editor::Content::with_text("");
-        paste(&mut editor, "satu");
+        paste(&mut editor, "one");
 
         assert_eq!(editor.selected, 0);
     }
 
     #[test]
-    fn simpan_mengembalikan_lagu_yang_dinormalkan() {
-        let mut editor = editor("satu");
-        let _ = editor.update(Message::TitleChanged("  Baru  ".into()));
+    fn save_returns_normalized_song() {
+        let mut editor = editor("one");
+        let _ = editor.update(Message::TitleChanged("  New  ".into()));
 
         let action = editor.update(Message::Save);
 
@@ -343,14 +343,14 @@ mod tests {
             action,
             Action::Save {
                 origin: None,
-                song: Song::new("Baru", "satu", None),
+                song: Song::new("New", "one", None),
             }
         );
     }
 
     #[test]
-    fn simpan_tanpa_judul_ditolak() {
-        let mut editor = editor("satu");
+    fn save_without_title_is_rejected() {
+        let mut editor = editor("one");
         let _ = editor.update(Message::TitleChanged("   ".into()));
 
         assert_eq!(editor.update(Message::Save), Action::None);
@@ -358,16 +358,16 @@ mod tests {
     }
 
     #[test]
-    fn simpan_dua_kali_tidak_mengirim_ulang() {
-        let mut editor = editor("satu");
+    fn saving_twice_does_not_resend() {
+        let mut editor = editor("one");
 
         assert!(matches!(editor.update(Message::Save), Action::Save { .. }));
         assert_eq!(editor.update(Message::Save), Action::None);
     }
 
     #[test]
-    fn gagal_menyimpan_membuka_kembali_tombol() {
-        let mut editor = editor("satu");
+    fn failed_save_re_enables_button() {
+        let mut editor = editor("one");
         let _ = editor.update(Message::Save);
 
         editor.fail("rusak".into());
@@ -376,8 +376,8 @@ mod tests {
     }
 
     #[test]
-    fn lagu_baru_tidak_bisa_dihapus() {
-        let mut editor = editor("satu");
+    fn new_song_cannot_be_deleted() {
+        let mut editor = editor("one");
 
         let _ = editor.update(Message::Delete);
 
@@ -385,9 +385,9 @@ mod tests {
     }
 
     #[test]
-    fn lagu_dari_library_dihapus_setelah_dikonfirmasi() {
+    fn library_song_is_deleted_after_confirmation() {
         let mut library = sdw_library::Library::open_in_memory().unwrap();
-        let song = Song::new("Uji", "satu", None);
+        let song = Song::new("Test", "one", None);
         let id = library.insert_song(&song).unwrap();
         let mut editor = Editor::new(Some(id), &song, 4);
 
@@ -398,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn batal_menutup_editor() {
-        assert_eq!(editor("satu").update(Message::Cancel), Action::Close);
+    fn cancel_closes_editor() {
+        assert_eq!(editor("one").update(Message::Cancel), Action::Close);
     }
 }

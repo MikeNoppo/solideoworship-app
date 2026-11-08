@@ -258,7 +258,7 @@ mod tests {
     use super::{Action, BibleTab, Message};
 
     const ZEFANIA: &str = r#"<XMLBIBLE><BIBLEBOOK bnumber="43"><CHAPTER cnumber="3">
-        <VERS vnumber="16">satu</VERS><VERS vnumber="17">dua</VERS>
+        <VERS vnumber="16">one</VERS><VERS vnumber="17">two</VERS>
         </CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
 
     fn bibles(abbreviations: &[&str]) -> Vec<BibleSummary> {
@@ -279,7 +279,7 @@ mod tests {
             "TB",
             vec![Verse {
                 number: 16,
-                text: "satu".into(),
+                text: "one".into(),
             }],
         )
         .unwrap()
@@ -299,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn terjemahan_pertama_dipilih_otomatis() {
+    fn first_translation_is_selected_automatically() {
         let list = bibles(&["TB", "BIS"]);
         let mut tab = BibleTab::default();
 
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn referensi_valid_memicu_pencarian() {
+    fn valid_reference_triggers_search() {
         let mut tab = tab_with(&["TB"]);
 
         let (_, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
@@ -318,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn referensi_tidak_valid_menampilkan_alasan_tanpa_mencari() {
+    fn invalid_reference_shows_reason_without_searching() {
         let mut tab = tab_with(&["TB"]);
 
         let action = tab.update(Message::InputChanged("Xyz 1".into()));
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn hasil_basi_diabaikan() {
+    fn stale_results_are_ignored() {
         let mut tab = tab_with(&["TB"]);
         let (bible, old) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
         let _ = tab.update(Message::InputChanged("Yoh 3:17".into()));
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_menambahkan_perikop_yang_sudah_ditemukan() {
+    fn enter_adds_found_passage() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
         let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))));
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_sebelum_hasil_datang_menambahkan_saat_hasil_tiba() {
+    fn enter_before_result_adds_when_result_arrives() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
 
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn ayat_tidak_ada_menampilkan_pesan() {
+    fn missing_verses_show_a_message() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 9:99".into())));
 
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn mengganti_terjemahan_mencari_ulang() {
+    fn changing_translation_searches_again() {
         let list = bibles(&["TB", "BIS"]);
         let mut tab = BibleTab::default();
         let _ = tab.set_bibles(list.clone());
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn pilihan_dipertahankan_saat_daftar_diperbarui() {
+    fn selection_is_kept_when_list_refreshes() {
         let list = bibles(&["TB", "BIS"]);
         let mut tab = BibleTab::default();
         let _ = tab.set_bibles(list.clone());
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn pratinjau_pasal_panjang_dibatasi_tapi_perikop_tetap_utuh() {
+    fn long_chapter_preview_is_limited_but_passage_stays_whole() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Mzm 119".into())));
         let verses = (1..=176)
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn pratinjau_pendek_tanpa_keterangan_sisa() {
+    fn short_preview_has_no_remainder_note() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
 
