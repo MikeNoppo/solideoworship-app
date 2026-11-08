@@ -1,49 +1,79 @@
 use crate::slide::{ContentKind, Slide, SlideDeck};
+use crate::song::Song;
 
-#[derive(Debug, Clone, Copy)]
-pub struct SongBlock<'a> {
-    pub label: &'a str,
-    pub body: &'a str,
-}
-
-pub fn song(
-    title: &str,
-    blocks: &[SongBlock<'_>],
-    footer: Option<&str>,
-    max_lines: usize,
-) -> SlideDeck {
+pub fn song(song: &Song, max_lines: usize) -> SlideDeck {
     let max_lines = max_lines.max(1);
-    let mut slides = Vec::new();
+    let mut slides = SongSlides {
+        footer: song.copyright(),
+        label: None,
+        part: 0,
+        lines: Vec::with_capacity(max_lines),
+        slides: Vec::new(),
+    };
 
-    for block in blocks {
-        let lines: Vec<&str> = block
-            .body
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect();
+    for line in song.lyrics().lines().map(str::trim) {
+        if let Some(label) = heading(line) {
+            slides.flush();
+            slides.label = Some(label);
+            slides.part = 0;
+        } else if line.is_empty() {
+            slides.flush();
+        } else {
+            slides.lines.push(line);
 
-        for (chunk_index, chunk) in lines.chunks(max_lines).enumerate() {
-            // Potongan lanjutan diberi nomor supaya operator tahu ia masih di bait yang
-            // sama — mengulang label polos membuat dua slide terlihat identik di daftar.
-            let label = if chunk_index == 0 {
-                block.label.to_owned()
-            } else {
-                format!("{} ({})", block.label, chunk_index + 1)
-            };
-
-            slides.push(Slide {
-                body: chunk.join("\n").into_boxed_str(),
-                label: Some(label.into_boxed_str()),
-                footer: footer.map(|footer| footer.into()),
-            });
+            if slides.lines.len() == max_lines {
+                slides.flush();
+            }
         }
     }
 
+    slides.flush();
+
     SlideDeck {
-        title: title.into(),
+        title: song.title().into(),
         kind: ContentKind::Song,
-        slides,
+        slides: slides.slides,
+    }
+}
+
+fn heading(line: &str) -> Option<&str> {
+    let label = line.strip_prefix('[')?.strip_suffix(']')?.trim();
+
+    (!label.is_empty() && !label.contains(['[', ']'])).then_some(label)
+}
+
+struct SongSlides<'a> {
+    footer: Option<&'a str>,
+    label: Option<&'a str>,
+    part: usize,
+    lines: Vec<&'a str>,
+    slides: Vec<Slide>,
+}
+
+impl SongSlides<'_> {
+    fn flush(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+
+        self.part += 1;
+
+        // Potongan lanjutan diberi nomor supaya operator tahu ia masih di bait yang
+        // sama — mengulang label polos membuat dua slide terlihat identik di daftar.
+        let label = self.label.map(|label| {
+            if self.part == 1 {
+                Box::from(label)
+            } else {
+                format!("{label} ({})", self.part).into_boxed_str()
+            }
+        });
+
+        self.slides.push(Slide {
+            body: self.lines.join("\n").into_boxed_str(),
+            label,
+            footer: self.footer.map(Box::from),
+        });
+        self.lines.clear();
     }
 }
 
@@ -107,70 +137,130 @@ fn verse_slide(book_chapter: &str, translation: &str, group: &[(u16, &str)]) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{SongBlock, scripture, song};
+    use super::{scripture, song};
+    use crate::song::Song;
+
+    fn labels(lyrics: &str, max_lines: usize) -> Vec<Option<String>> {
+        song(&Song::new("Uji", lyrics, None), max_lines)
+            .slides
+            .iter()
+            .map(|slide| slide.label.as_deref().map(str::to_owned))
+            .collect()
+    }
+
+    fn bodies(lyrics: &str, max_lines: usize) -> Vec<String> {
+        song(&Song::new("Uji", lyrics, None), max_lines)
+            .slides
+            .iter()
+            .map(|slide| slide.body.to_string())
+            .collect()
+    }
 
     #[test]
-    fn bait_dipecah_per_batas_baris() {
-        let deck = song(
-            "Uji",
-            &[SongBlock {
-                label: "Verse 1",
-                body: "satu\ndua\ntiga\nempat\nlima",
-            }],
-            None,
-            2,
+    fn bagian_dipecah_per_batas_baris() {
+        assert_eq!(
+            bodies("[Verse 1]\nsatu\ndua\ntiga\nempat\nlima", 2),
+            ["satu\ndua", "tiga\nempat", "lima"]
         );
-
-        assert_eq!(deck.len(), 3);
-        assert_eq!(&*deck.slides[0].body, "satu\ndua");
-        assert_eq!(&*deck.slides[2].body, "lima");
     }
 
     #[test]
     fn potongan_lanjutan_diberi_nomor() {
-        let deck = song(
-            "Uji",
-            &[SongBlock {
-                label: "Verse 1",
-                body: "satu\ndua\ntiga",
-            }],
-            None,
-            2,
+        assert_eq!(
+            labels("[Verse 1]\nsatu\ndua\ntiga", 2),
+            [Some("Verse 1".into()), Some("Verse 1 (2)".into())]
         );
-
-        assert_eq!(deck.slides[0].label.as_deref(), Some("Verse 1"));
-        assert_eq!(deck.slides[1].label.as_deref(), Some("Verse 1 (2)"));
     }
 
     #[test]
-    fn baris_kosong_diabaikan() {
-        let deck = song(
-            "Uji",
-            &[SongBlock {
-                label: "Verse 1",
-                body: "satu\n\n  \ndua",
-            }],
-            None,
-            4,
-        );
+    fn baris_kosong_memaksa_ganti_slide() {
+        assert_eq!(bodies("[Verse 1]\nsatu\n\n\n  \ndua", 4), ["satu", "dua"]);
+    }
 
-        assert_eq!(deck.len(), 1);
-        assert_eq!(&*deck.slides[0].body, "satu\ndua");
+    #[test]
+    fn nomor_lanjutan_dihitung_per_bagian() {
+        assert_eq!(
+            labels("[Verse 1]\nsatu\ndua\ntiga\n\nempat", 2),
+            [
+                Some("Verse 1".into()),
+                Some("Verse 1 (2)".into()),
+                Some("Verse 1 (3)".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn judul_baru_mengulang_nomor_dari_awal() {
+        assert_eq!(
+            labels("[Verse 1]\nsatu\ndua\ntiga\n[Reff]\nempat", 2),
+            [
+                Some("Verse 1".into()),
+                Some("Verse 1 (2)".into()),
+                Some("Reff".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn baris_sebelum_judul_tidak_berlabel() {
+        assert_eq!(
+            labels("satu\ndua\ntiga\n[Reff]\nempat", 2),
+            [None, None, Some("Reff".into())]
+        );
+    }
+
+    #[test]
+    fn judul_tanpa_baris_tidak_menghasilkan_slide() {
+        assert_eq!(labels("[Intro]\n\n[Reff]\nsatu", 4), [Some("Reff".into())]);
+    }
+
+    #[test]
+    fn judul_berulang_menghasilkan_slide_lagi() {
+        assert_eq!(
+            labels("[Reff]\nsatu\n[Verse 2]\ndua\n[Reff]\nsatu", 4),
+            [
+                Some("Reff".into()),
+                Some("Verse 2".into()),
+                Some("Reff".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn judul_hanya_baris_kurung_siku_utuh() {
+        assert_eq!(
+            bodies("[Verse] satu\n[]\n[ ]\n[a] [b]", 8),
+            ["[Verse] satu\n[]\n[ ]\n[a] [b]"]
+        );
+    }
+
+    #[test]
+    fn spasi_di_sekitar_judul_dan_baris_dipangkas() {
+        let deck = song(&Song::new("Uji", "  [ Reff ]  \n   satu   ", None), 4);
+
+        assert_eq!(deck.slides[0].label.as_deref(), Some("Reff"));
+        assert_eq!(&*deck.slides[0].body, "satu");
     }
 
     #[test]
     fn max_lines_nol_tidak_membuat_loop_tak_berujung() {
-        let deck = song(
-            "Uji",
-            &[SongBlock {
-                label: "Verse 1",
-                body: "satu\ndua",
-            }],
-            None,
-            0,
-        );
+        assert_eq!(bodies("satu\ndua", 0), ["satu", "dua"]);
+    }
 
-        assert_eq!(deck.len(), 2);
+    #[test]
+    fn copyright_menjadi_footer_setiap_slide() {
+        let deck = song(&Song::new("Uji", "satu\n\ndua", Some("© Contoh")), 4);
+
+        assert!(
+            deck.slides
+                .iter()
+                .all(|slide| slide.footer.as_deref() == Some("© Contoh"))
+        );
+    }
+
+    #[test]
+    fn lirik_kosong_menghasilkan_deck_kosong() {
+        assert!(song(&Song::new("Uji", "\n\n[Reff]\n", None), 4).is_empty());
     }
 
     #[test]
