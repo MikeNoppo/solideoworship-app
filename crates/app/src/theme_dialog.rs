@@ -7,6 +7,7 @@ use sdw_core::theme::{
 };
 use sdw_core::{ScheduleItem, Song, Styles};
 
+use crate::i18n::{Label, t};
 use crate::panes::{dialog, thumbnails};
 use crate::render::slide::{self, Visibility, color};
 use crate::style;
@@ -24,14 +25,6 @@ const PRESETS: [Rgb; 10] = [
     Rgb::from_rgb8(128, 202, 255),
 ];
 
-const SAMPLE_LYRICS: &str = "[Verse 1]\nDi dalam nama-Mu ada kemenangan\nDi dalam nama-Mu ada pemulihan\nTiada yang mustahil bagi-Mu\nKaulah harapanku\n\n[Reff]\nKaulah harapan di tengah badai\nKaulah kekuatan saat ku lemah";
-
-const SAMPLE_VERSES: [&str; 3] = [
-    "Ini teks ayat contoh untuk melihat ukuran huruf, jarak baris, dan perataan di layar.",
-    "Ayat kedua ikut ditampilkan supaya batas karakter per slide bisa dicoba langsung.",
-    "Ayat ketiga ini akan pindah ke slide berikutnya bila batas karakternya kecil.",
-];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorSlot {
     Background,
@@ -41,14 +34,6 @@ pub enum ColorSlot {
 
 impl ColorSlot {
     const ALL: [Self; 3] = [Self::Background, Self::Body, Self::Footer];
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Background => "Latar",
-            Self::Body => "Teks",
-            Self::Footer => "Footer",
-        }
-    }
 
     fn index(self) -> usize {
         match self {
@@ -225,71 +210,72 @@ impl ThemeDialog {
                 list.push(self.color_row(slot, slot.get(theme)))
             });
 
-        let align = [
-            (TextAlign::Left, "Kiri"),
-            (TextAlign::Center, "Tengah"),
-            (TextAlign::Right, "Kanan"),
-        ]
-        .into_iter()
-        .fold(row![].spacing(6), |list, (align, label)| {
-            list.push(
-                button(text(label).size(13))
-                    .padding([4, 12])
-                    .on_press(Message::Align(align))
-                    .style(if theme.align == align {
-                        button::primary
-                    } else {
-                        button::secondary
-                    }),
-            )
-        });
+        let align = [TextAlign::Left, TextAlign::Center, TextAlign::Right]
+            .into_iter()
+            .fold(row![].spacing(6), |list, align| {
+                list.push(
+                    button(text(align.label()).size(13))
+                        .padding([4, 12])
+                        .on_press(Message::Align(align))
+                        .style(if theme.align == align {
+                            button::primary
+                        } else {
+                            button::secondary
+                        }),
+                )
+            });
 
         let limit = match self.kind {
             ContentKind::Song => control(
-                "Baris per slide",
+                t().theme.lines_per_slide,
                 self.draft.song.max_lines.to_string(),
                 slider(MAX_LINES, self.draft.song.max_lines, Message::MaxLines),
             ),
             ContentKind::Scripture => control(
-                "Karakter per slide",
+                t().theme.chars_per_slide,
                 self.draft.scripture.max_chars.to_string(),
                 slider(MAX_CHARS, self.draft.scripture.max_chars, Message::MaxChars).step(10u16),
             ),
         };
 
         let controls = column![
-            heading("Warna"),
+            heading(t().theme.colors),
             colors,
-            heading("Teks"),
+            heading(t().theme.text),
             control(
-                "Ukuran huruf",
+                t().theme.font_size,
                 format!("{:.0}", theme.body_size),
                 slider(BODY_SIZE, theme.body_size, Message::BodySize).step(1.0_f32),
             ),
             control(
-                "Ukuran footer",
+                t().theme.footer_size,
                 format!("{:.0}", theme.footer_size),
                 slider(FOOTER_SIZE, theme.footer_size, Message::FooterSize).step(1.0_f32),
             ),
             control(
-                "Jarak baris",
+                t().theme.line_height,
                 format!("{:.2}", theme.line_height),
                 slider(LINE_HEIGHT, theme.line_height, Message::LineHeight).step(0.05_f32),
             ),
             control(
-                "Margin",
+                t().theme.margin,
                 format!("{:.0}", theme.margin),
                 slider(MARGIN, theme.margin, Message::Margin).step(5.0_f32),
             ),
-            row![text("Perataan").size(13), space::horizontal(), align].align_y(Center),
-            heading("Pembagian slide"),
+            row![
+                text(t().theme.alignment).size(13),
+                space::horizontal(),
+                align
+            ]
+            .align_y(Center),
+            heading(t().theme.slide_split),
             limit,
         ]
         .spacing(12)
         .padding([0, 12]);
 
         let preview = column![
-            text("Preview").size(12).style(text::secondary),
+            text(t().common.preview).size(12).style(text::secondary),
             container(slide::stage(
                 self.deck.slides.get(self.selected),
                 theme,
@@ -306,35 +292,37 @@ impl ThemeDialog {
                 Message::SlideSelected,
             ))
             .height(FillPortion(4)),
-            text("Tema baru tampil di proyektor saat item ditayangkan berikutnya.")
-                .size(11)
-                .style(text::secondary),
+            text(t().theme.applies_next).size(11).style(text::secondary),
         ]
         .spacing(6)
         .width(FillPortion(3))
         .height(Fill);
 
         let footer = row![
-            button("Kembalikan default")
+            button(t().theme.reset)
                 .on_press(Message::Reset)
                 .style(button::secondary),
             self.error
                 .as_deref()
                 .map(|error| text(error).size(13).style(text::danger)),
             space::horizontal(),
-            button("Batal")
+            button(t().common.cancel)
                 .on_press(Message::Cancel)
                 .style(button::secondary),
-            button(if self.busy { "Menyimpan…" } else { "Simpan" })
-                .on_press_maybe((!self.busy).then_some(Message::Save))
-                .style(button::primary),
+            button(if self.busy {
+                t().common.saving
+            } else {
+                t().common.save
+            })
+            .on_press_maybe((!self.busy).then_some(Message::Save))
+            .style(button::primary),
         ]
         .spacing(10)
         .align_y(Center);
 
         dialog(
             column![
-                text("Pengaturan tema").size(18),
+                text(t().theme.title).size(18),
                 tabs,
                 row![
                     scrollable(controls).width(FillPortion(2)).height(Fill),
@@ -426,12 +414,20 @@ fn control<'a>(
 }
 
 fn sample_song() -> ScheduleItem {
-    ScheduleItem::Song(Song::new("Contoh lagu", SAMPLE_LYRICS, Some("© Contoh")))
+    ScheduleItem::Song(Song::new(
+        t().theme.sample_song_title,
+        t().theme.sample_lyrics,
+        Some(t().theme.sample_copyright),
+    ))
 }
 
 fn sample_passage() -> ScheduleItem {
     let verses = (1..)
-        .zip(SAMPLE_VERSES)
+        .zip([
+            t().theme.sample_verse_1,
+            t().theme.sample_verse_2,
+            t().theme.sample_verse_3,
+        ])
         .map(|(number, text)| Verse {
             number,
             text: text.into(),
@@ -440,7 +436,7 @@ fn sample_passage() -> ScheduleItem {
 
     Book::from_number(19)
         .and_then(|book| Reference::new(book, 23, None).ok())
-        .and_then(|reference| Passage::new(reference, "Contoh", verses))
+        .and_then(|reference| Passage::new(reference, t().theme.sample_translation, verses))
         .map_or_else(sample_song, ScheduleItem::Passage)
 }
 
@@ -457,21 +453,21 @@ mod tests {
     }
 
     #[test]
-    fn tanpa_item_terpilih_mulai_dari_tab_lagu() {
+    fn without_selected_item_starts_on_song_tab() {
         assert_eq!(dialog().kind, ContentKind::Song);
     }
 
     #[test]
-    fn item_terpilih_menjadi_contoh_dan_menentukan_tab() {
-        let item = ScheduleItem::Song(Song::new("Pilihan", "satu", None));
+    fn selected_item_becomes_sample_and_picks_tab() {
+        let item = ScheduleItem::Song(Song::new("Selected", "one", None));
         let dialog = ThemeDialog::new(&Styles::default(), Some(&item));
 
         assert_eq!(dialog.kind, ContentKind::Song);
-        assert_eq!(&*dialog.deck.title, "Pilihan");
+        assert_eq!(&*dialog.deck.title, "Selected");
     }
 
     #[test]
-    fn contoh_alkitab_tersedia_tanpa_item_terpilih() {
+    fn scripture_sample_available_without_selected_item() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::KindSelected(ContentKind::Scripture));
@@ -480,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn batas_baris_mengompilasi_ulang_preview() {
+    fn line_limit_recompiles_preview() {
         let mut dialog = dialog();
         let before = dialog.deck.len();
 
@@ -490,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn hex_tidak_valid_tidak_mengubah_warna() {
+    fn invalid_hex_does_not_change_color() {
         let mut dialog = dialog();
         let original = dialog.draft.song.theme.background;
 
@@ -501,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn hex_valid_langsung_dipakai() {
+    fn valid_hex_applies_immediately() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#ff0000".into()));
@@ -510,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn warna_preset_memperbarui_isian_hex() {
+    fn preset_color_updates_hex_field() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::ColorPicked(
@@ -522,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn perubahan_hanya_mengenai_jenis_yang_aktif() {
+    fn changes_only_affect_active_kind() {
         let mut dialog = dialog();
 
         let _ = dialog.update(Message::Align(TextAlign::Left));
@@ -532,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn kembalikan_default_hanya_untuk_jenis_yang_aktif() {
+    fn reset_defaults_only_affects_active_kind() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::BodySize(50.0));
         let _ = dialog.update(Message::KindSelected(ContentKind::Scripture));
@@ -548,12 +544,12 @@ mod tests {
     }
 
     #[test]
-    fn simpan_mengirim_gaya_yang_dijepit_sekali_saja() {
+    fn save_sends_clamped_styles_once() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::MaxLines(500));
 
         let Action::Save(styles) = dialog.update(Message::Save) else {
-            panic!("seharusnya menyimpan");
+            panic!("expected a save action");
         };
 
         assert_eq!(styles.song.max_lines, *MAX_LINES.end());
@@ -561,11 +557,11 @@ mod tests {
     }
 
     #[test]
-    fn gagal_menyimpan_membuka_kembali_tombol() {
+    fn failed_save_re_enables_button() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::Save);
 
-        dialog.fail("rusak".into());
+        dialog.fail("broken".into());
 
         assert!(matches!(dialog.update(Message::Save), Action::Save(_)));
     }

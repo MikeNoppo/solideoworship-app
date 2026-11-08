@@ -22,9 +22,8 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
-# WHY: iced dan wgpu terlalu lambat merender jika dikompilasi tanpa optimasi,
-# sehingga UI terasa tersendat di debug build. Kode kita sendiri tetap opt-level 0
-# supaya rebuild cepat.
+# WHY: iced and wgpu render too slowly when compiled without optimisation, so the
+# UI stutters in debug builds. Our own code stays at opt-level 0 to keep rebuilds fast.
 [profile.dev.package."*"]
 opt-level = 2
 

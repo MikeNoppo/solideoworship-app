@@ -35,13 +35,6 @@ pub enum LibraryTab {
 
 impl LibraryTab {
     pub const ALL: [Self; 2] = [Self::Songs, Self::Scripture];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Songs => "Lagu",
-            Self::Scripture => "Alkitab",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

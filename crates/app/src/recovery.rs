@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use sdw_core::ScheduleItem;
 use sdw_library::schedule_file::{self, ScheduleFileError};
 
+use crate::i18n::{Localize, fill, t};
 use crate::schedule::Schedule;
-use crate::work::{self, Outcome};
+use crate::work::Outcome;
 
 #[derive(Default)]
 pub struct Recovery {
@@ -76,9 +77,9 @@ pub fn load(path: &Path) -> Outcome<Option<Vec<ScheduleItem>>> {
     match schedule_file::open(path) {
         Ok(items) => Ok(Some(items).filter(|items| !items.is_empty())),
         Err(ScheduleFileError::Io(error)) if error.kind() == ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(work::describe(format_args!(
-            "Susunan acara pemulihan tidak bisa dibaca dan dibuang: {error}"
-        ))),
+        Err(error) => {
+            Err(fill(t().app.recovery_unreadable, &[("error", &error.localize())]).into_boxed_str())
+        }
     }
 }
 
@@ -93,7 +94,7 @@ mod tests {
     use crate::schedule::Schedule;
 
     fn song(title: &str) -> ScheduleItem {
-        ScheduleItem::Song(Song::new(title, "satu", None))
+        ScheduleItem::Song(Song::new(title, "one", None))
     }
 
     fn active() -> Recovery {
@@ -103,14 +104,14 @@ mod tests {
     }
 
     #[test]
-    fn belum_aktif_tidak_menyentuh_file() {
+    fn inactive_recovery_does_not_touch_file() {
         let mut recovery = Recovery::new(PathBuf::from("recovery.sdw"));
 
         assert_eq!(recovery.sync(&Schedule::default()), None);
     }
 
     #[test]
-    fn susunan_acara_bersih_menghapus_file_pemulihan_sekali_saja() {
+    fn clean_schedule_removes_recovery_file_once() {
         let mut recovery = active();
         let schedule = Schedule::default();
 
@@ -119,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn perubahan_ditulis_ke_file_pemulihan() {
+    fn changes_are_written_to_recovery_file() {
         let mut recovery = active();
         let mut schedule = Schedule::default();
         let _ = recovery.sync(&schedule);
@@ -133,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn setelah_disimpan_file_pemulihan_dihapus() {
+    fn recovery_file_is_removed_after_save() {
         let mut recovery = active();
         let mut schedule = Schedule::default();
         schedule.push(song("A"), None, &Styles::default());
@@ -145,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn file_pemulihan_bisa_dibaca_ulang_dan_dihapus() {
+    fn recovery_file_can_be_read_back_and_removed() {
         let dir = env::temp_dir().join(format!("sdw-recovery-{}", process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("recovery.sdw");
@@ -162,11 +163,11 @@ mod tests {
     }
 
     #[test]
-    fn file_pemulihan_rusak_dilaporkan() {
+    fn broken_recovery_file_is_reported() {
         let dir = env::temp_dir().join(format!("sdw-recovery-bad-{}", process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("recovery.sdw");
-        fs::write(&path, "rusak").unwrap();
+        fs::write(&path, "broken").unwrap();
 
         assert!(load(&path).is_err());
 

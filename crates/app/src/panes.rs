@@ -12,6 +12,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::slide::Slide;
 use sdw_core::theme::SlideTheme;
 
+use crate::i18n::{fill, t};
 use crate::message::Message;
 use crate::render::slide;
 use crate::style;
@@ -35,8 +36,8 @@ pub fn pane<'a>(title: Element<'a, Message>, body: Element<'a, Message>) -> Elem
     .into()
 }
 
-// Judul disusun dari dua fragmen terpisah supaya nama item dipinjam apa adanya dan
-// tidak ada String baru yang dialokasikan tiap redraw.
+// The title is built from two separate fragments so the item name is borrowed as is
+// and no new String is allocated on every redraw.
 pub fn title<'a>(prefix: &'static str, name: Option<&'a str>) -> Element<'a, Message> {
     match name {
         Some(name) => row![
@@ -57,9 +58,12 @@ pub fn transport(
     on_next: Message,
 ) -> Element<'static, Message> {
     row![
-        text(format!("Slide {position} dari {total}"))
-            .size(12)
-            .style(text::secondary),
+        text(fill(
+            t().slides.position,
+            &[("position", &position), ("total", &total)],
+        ))
+        .size(12)
+        .style(text::secondary),
         iced::widget::space::horizontal(),
         button("‹")
             .on_press_maybe((position > 1).then_some(on_previous))

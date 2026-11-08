@@ -1,128 +1,153 @@
 # SolideoWorship
 
-Aplikasi presentasi ibadah (lirik lagu dan ayat Alkitab) yang ringan, cepat, dan open source — ditulis dengan Rust.
+A lightweight, fast, open-source worship presentation app (song lyrics and Bible verses), written in Rust.
 
-SolideoWorship lahir dari masalah sederhana: aplikasi seperti EasyWorship memakan banyak RAM dan terasa lambat di laptop spesifikasi rendah, padahal laptop seperti itulah yang paling sering dipakai operator multimedia di gereja. Tujuan proyek ini adalah alur kerja yang akrab bagi pengguna EasyWorship, dengan **performa dan efisiensi memori sebagai prioritas utama**.
+SolideoWorship started from a simple problem: apps like EasyWorship use a lot of RAM and feel slow on low-end laptops, yet those are exactly the laptops church media operators use most. The goal of this project is a workflow that feels familiar to EasyWorship users, with **performance and memory efficiency as the top priority**.
 
-> **Status: tahap awal pengembangan.** Semua fitur MVP (lagu dan Alkitab) sudah tersedia, tetapi belum diuji di ibadah sungguhan maupun di Windows dan macOS.
+> **Status: early development.** Every MVP feature (songs and Bible) is in place, but it has not yet been tested in a real service or on Windows and macOS.
 
-## Yang sudah berjalan
+## What works today
 
-- **Dua jendela, satu state.** Jendela operator di laptop dan jendela output fullscreen di proyektor. Keduanya merender dari state yang sama, jadi tampilan proyektor tidak bisa berbeda dari yang dilihat operator.
-- **Tata letak operator ala EasyWorship.** Susunan acara, Preview, dan Live berdampingan, dengan panel Library (tab Lagu/Alkitab dan pencarian) di bawahnya.
-- **Library lagu di SQLite.** Pencarian full-text atas judul dan lirik langsung saat mengetik, dengan awalan kata dan toleran terhadap diakritik. Daftar hanya memuat judul; lirik lengkap baru dibaca saat lagu dipilih.
-- **Editor lagu.** Tambah, ubah, dan hapus lagu dengan preview slide yang langsung berubah saat mengetik. Lagu yang diubah ikut diperbarui di susunan acara.
-- **Alkitab.** Terjemahan diimpor dari file Zefania XML lalu dicari dengan referensi seperti `Yoh 3:16-18`, `1 Kor 13:4-7`, atau `Mzm 23`. Nama kitab memakai nama dan singkatan Indonesia, ayat langsung tampil saat referensi diketik, dan perikop dibagi ke beberapa slide tanpa memotong ayat di tengah.
-- **Pengaturan tema.** Satu tema untuk lagu dan satu untuk Alkitab: warna latar, teks, dan footer, ukuran huruf, jarak baris, margin, perataan, serta batas baris atau karakter per slide. Perubahan langsung terlihat di preview dialog. Tema baru tampil di proyektor saat item ditayangkan berikutnya, jadi mengubah tema di tengah ibadah tidak mengejutkan jemaat.
-- **File susunan acara `.sdw`.** Isi lagu dan ayat ikut tersimpan di dalam file, jadi susunan acara bisa disiapkan di rumah lalu dibuka di laptop gereja walau library-nya berbeda. Perubahan yang belum disimpan ditandai, dan aplikasi meminta konfirmasi sebelum membuangnya. Bila aplikasi tertutup paksa sebelum sempat disimpan (crash, listrik padam, atau `Cmd+Q` di macOS), susunan acara dipulihkan otomatis saat aplikasi dibuka lagi.
-- **Pemilihan layar proyektor.** Mendeteksi semua monitor dan mendahulukan layar eksternal. Output bisa dipindah ke layar lain, dan bila layar output tidak lagi terdeteksi saat daftar layar dimuat ulang, jendela output ditutup.
-- **Status output Tampil / Hitam / Kosong.** Kosong menyembunyikan teks tapi tetap menampilkan latar belakang.
-- **Kompiler lagu.** Bait dipecah otomatis per jumlah baris maksimum. Potongan lanjutan diberi nomor, misalnya "Verse 1 (2)".
-- **Kompiler ayat.** Ayat dikelompokkan per slide berdasarkan batas karakter tanpa pernah dipotong di tengah, dan footer referensinya (mis. "Yohanes 3:16-17 (TB)") mengikuti ayat yang sedang tampil.
-- **WYSIWYG.** Semua ukuran tema dinyatakan dalam kanvas acuan 1920×1080, lalu diskalakan, jadi thumbnail, preview, dan proyektor punya tata letak yang identik.
+- **Two windows, one state.** An operator window on the laptop and a fullscreen output window on the projector. Both render from the same state, so the projector can never differ from what the operator sees.
+- **EasyWorship-style operator layout.** Schedule, Preview, and Live side by side, with the Library panel (Songs/Bible tabs and search) below them.
+- **Song library in SQLite.** Full-text search over titles and lyrics as you type, with word-prefix matching and diacritic tolerance. Lists only hold titles; full lyrics are read when a song is selected.
+- **Song editor.** Add, edit, and delete songs with a slide preview that updates as you type. Edited songs are updated in the schedule too.
+- **Bible.** Translations are imported from Zefania XML files and looked up with references such as `Yoh 3:16-18`, `1 Kor 13:4-7`, or `Mzm 23`. Book names currently use Indonesian names and abbreviations. Verses appear as you type the reference, and passages are split across slides without ever cutting a verse in half.
+- **Theme settings.** One theme for songs and one for the Bible: background, text, and footer colors, font size, line spacing, margin, alignment, and line or character limits per slide. Changes show up immediately in the dialog preview. A new theme reaches the projector the next time an item goes live, so changing it mid-service does not surprise the congregation.
+- **`.sdw` schedule files.** Song lyrics and verses are stored inside the file, so a schedule can be prepared at home and opened on the church laptop even with a different library. Unsaved changes are marked, and the app asks before discarding them. If the app is closed abruptly before saving (crash, power cut, or `Cmd+Q` on macOS), the schedule is restored automatically the next time the app starts.
+- **Projector screen selection.** Detects every monitor and prefers external screens. The output can be moved to another screen, and if the output screen is no longer detected when the screen list is reloaded, the output window is closed.
+- **Show / Black / Clear output states.** Clear hides the text but keeps the background.
+- **Song compiler.** Sections are split automatically by the maximum lines per slide. Continuation chunks are numbered, e.g. "Verse 1 (2)".
+- **Scripture compiler.** Verses are grouped per slide by a character limit without ever being cut in the middle, and the reference footer (e.g. "Yohanes 3:16-17 (TB)") follows the verses currently shown.
+- **WYSIWYG.** Every theme size is expressed on a 1920×1080 reference canvas and then scaled, so thumbnails, the preview, and the projector share an identical layout.
+- **Localized interface.** The UI is available in English and Indonesian (see [Language](#language)).
 
-## Menulis lirik
+## Writing lyrics
 
-Judul bagian ditulis dalam kurung siku di barisnya sendiri. Baris kosong memulai slide baru, dan bagian yang lebih panjang dari batas baris per slide dipecah otomatis.
+Section headings go in square brackets on their own line. A blank line starts a new slide, and sections longer than the lines-per-slide limit are split automatically.
 
 ```
 [Verse 1]
-Di dalam nama-Mu ada kemenangan
-Di dalam nama-Mu ada pemulihan
+In Your name there is victory
+In Your name there is restoration
 
-Tiada yang mustahil bagi-Mu
-Kaulah harapanku
+Nothing is impossible for You
+You are my hope
 
-[Reff]
-Kaulah harapan di tengah badai
-Kaulah kekuatan saat ku lemah
+[Chorus]
+You are my hope in the storm
+You are my strength when I am weak
 ```
 
-Contoh di atas menghasilkan tiga slide: "Verse 1", "Verse 1 (2)", dan "Reff".
+The example above produces three slides: "Verse 1", "Verse 1 (2)", and "Chorus".
 
-## Mengimpor Alkitab
+## Importing a Bible
 
-Teks Alkitab tidak disertakan di aplikasi karena hak cipta penerbitnya (misalnya LAI untuk Terjemahan Baru). Gunakan file Zefania XML yang Anda punya haknya:
+Bible texts are not bundled with the app because of their publishers' copyright (for example LAI for the Terjemahan Baru). Use a Zefania XML file you have the rights to:
 
-1. Buka tab **Alkitab** di panel Library, lalu klik **Kelola Alkitab**.
-2. Klik **Pilih file…** dan pilih file `.xml` berformat Zefania (`XMLBIBLE` → `BIBLEBOOK` → `CHAPTER` → `VERS`), berenkoding UTF-8.
-3. Periksa singkatannya (diisi otomatis dari nama file, misalnya `TB`), lalu klik **Impor**.
+1. Open the **Bible** tab in the Library panel, then click **Manage Bibles**.
+2. Click **Choose file…** and pick a Zefania-format `.xml` file (`XMLBIBLE` → `BIBLEBOOK` → `CHAPTER` → `VERS`), UTF-8 encoded.
+3. Check the abbreviation (filled in from the file name, e.g. `TB`), then click **Import**.
 
-Catatan kaki dan referensi silang di dalam file diabaikan, jadi tidak ikut tampil di proyektor. Satu Alkitab lengkap (sekitar 31 ribu ayat) menambah kira-kira 4 MB ke database library.
+Footnotes and cross references inside the file are ignored, so they never reach the projector. A complete Bible (about 31 thousand verses) adds roughly 4 MB to the library database.
 
-Untuk kitab yang hanya punya satu pasal (Obaja, Filemon, 2 Yohanes, 3 Yohanes, Yudas), angka tunggal dibaca sebagai nomor ayat: `Yud 3` sama dengan `Yud 1:3`.
+For books with a single chapter (Obaja, Filemon, 2 Yohanes, 3 Yohanes, Yudas), a single number is read as the verse number: `Yud 3` is the same as `Yud 1:3`.
 
-Referensi lintas pasal (misalnya `Yoh 3:16-4:2`) belum didukung; tambahkan tiap pasal sebagai item terpisah.
+References across chapters (e.g. `Yoh 3:16-4:2`) are not supported yet; add each chapter as a separate item.
 
-## Pintasan keyboard
+## Keyboard shortcuts
 
-| Tombol | Aksi |
+| Key | Action |
 | --- | --- |
-| `→` / `Spasi` / `Page Down` | Slide live berikutnya |
-| `←` / `Page Up` | Slide live sebelumnya |
-| `Enter` | Tayangkan slide preview ke live |
-| `B` | Layar hitam (tekan lagi untuk kembali) |
-| `C` | Kosongkan teks (tekan lagi untuk kembali) |
-| `F5` | Buka jendela output |
-| `Esc` | Tutup jendela output |
-| `Enter` di kotak pencarian lagu | Tambahkan hasil teratas ke susunan acara |
-| `Enter` di kotak referensi ayat | Tambahkan perikop ke susunan acara |
-| `Ctrl+S` / `Cmd+S` | Simpan susunan acara, atau simpan isi dialog yang sedang terbuka |
-| `Ctrl+O` / `Cmd+O` | Buka file susunan acara |
+| `→` / `Space` / `Page Down` | Next live slide |
+| `←` / `Page Up` | Previous live slide |
+| `Enter` | Send the preview slide to live |
+| `B` | Black screen (press again to return) |
+| `C` | Clear text (press again to return) |
+| `F5` | Open the output window |
+| `Esc` | Close the output window |
+| `Enter` in the song search box | Add the top result to the schedule |
+| `Enter` in the verse reference box | Add the passage to the schedule |
+| `Ctrl+S` / `Cmd+S` | Save the schedule, or save the open dialog |
+| `Ctrl+O` / `Cmd+O` | Open a schedule file |
 
-Selama dialog (editor lagu, pengaturan tema) terbuka, pintasan operator dinonaktifkan supaya mengetik tidak mengubah layar proyektor.
+While a dialog (song editor, theme settings) is open, operator shortcuts are disabled so typing never changes the projector screen.
+
+## Language
+
+The interface language is chosen once, at startup. There is deliberately no language switcher inside the app. The first match wins:
+
+1. The `SDW_LANG` environment variable, e.g. `SDW_LANG=id`.
+2. A plain-text file named `language` (or `language.txt`) in the [data folder](#data-location) containing a language code such as `id` or `en`. The installer will write this file; until then it can be created by hand. UTF-8 (with or without BOM) and UTF-16, as written by Notepad or PowerShell, are all accepted. An unrecognized code is reported on the console.
+3. The operating system's language, if it is one the app supports.
+4. Otherwise, English.
+
+Codes are case-insensitive and may carry a region (`id-ID`, `en_US.UTF-8`).
+
+### Adding a translation
+
+UI text lives in [`crates/app/locales`](crates/app/locales), one JSON file per language. `en.json` is the source of truth.
+
+1. Copy `en.json` to `<code>.json` (a lowercase language code, e.g. `de.json`) and translate the values. Leave keys and `{placeholders}` unchanged.
+2. Run `cargo build`. The build script turns every locale into a static table, so the new language is picked up automatically.
+
+Messages with a count come in pairs: `_one` is used when the count is exactly 1, `_other` otherwise. Languages without plural forms use the same text for both.
+
+The build fails if a translation has a key that does not exist in `en.json`, uses different placeholders, or starts or ends with whitespace (spacing belongs in the layout, not the text). A missing or empty value falls back to English with a build warning, so a partial translation still builds.
+
 ## Roadmap
 
-Cakupan MVP sengaja dibatasi pada **lagu dan ayat Alkitab**.
+The MVP scope is deliberately limited to **songs and Bible verses**.
 
-- [x] Kerangka dua jendela dan pemilih layar proyektor
-- [x] Model slide, tema, serta kompiler lagu dan ayat
-- [x] Tampilan operator: susunan acara, preview, live, library
-- [x] Library lagu tersimpan di SQLite dengan pencarian full-text (FTS5)
-- [x] Editor lagu (tambah, ubah, hapus)
-- [x] Importer dan pencarian Alkitab per pasal/ayat
-- [x] Pengaturan tema (warna, ukuran, perataan, pembagian slide)
-- [x] Simpan dan buka susunan acara
+- [x] Two-window skeleton and projector screen picker
+- [x] Slide model, themes, and song and scripture compilers
+- [x] Operator view: schedule, preview, live, library
+- [x] Song library stored in SQLite with full-text search (FTS5)
+- [x] Song editor (add, edit, delete)
+- [x] Bible importer and chapter/verse lookup
+- [x] Theme settings (colors, sizes, alignment, slide splitting)
+- [x] Save and open schedules
+- [x] Localized interface (English, Indonesian)
 
-Setelah MVP: gambar dan video sebagai latar, pilihan font, serta impor dari library EasyWorship/OpenLP.
+After the MVP: images and video as backgrounds, font selection, Bible book names per language, and importing from EasyWorship/OpenLP libraries.
 
-## Prinsip performa
+## Performance principles
 
-Prinsip-prinsip ini ditetapkan sejak awal dan sengaja dijaga:
+These principles were set from the start and are kept on purpose:
 
-- Library tidak pernah dimuat utuh ke memori. Daftar lagu hanya berisi judul, lirik lengkap baru dibaca saat lagu dipilih, dan ayat diambil per rentang yang ditampilkan.
-- Teks yang tidak berubah disimpan sebagai `Box<str>`/`Arc<str>`, dan deck dibagi lewat `Arc`. Menayangkan slide dari Preview ke Live tidak menyalin isi slide sama sekali.
-- Fungsi `view` meminjam data, tidak mengkloningnya, sehingga redraw tidak mengalokasikan string baru.
-- Rendering reaktif: layar hanya digambar ulang saat ada perubahan, tidak ada render per frame.
-- Akses database berjalan di thread pekerja sendiri, jadi pencarian atau penyimpanan tidak pernah menahan respons tombol operator.
+- The library is never loaded into memory in full. Song lists only hold titles, full lyrics are read when a song is selected, and verses are fetched per displayed range.
+- Immutable text is stored as `Box<str>`/`Arc<str>`, and decks are shared through `Arc`. Sending a slide from Preview to Live copies no slide contents at all.
+- `view` functions borrow data instead of cloning it, so redraws do not allocate new strings. Translated strings are `&'static str` from a table generated at compile time, so localization adds no allocation either.
+- Reactive rendering: the screen is only redrawn when something changes, never every frame.
+- Database access runs on its own worker thread, so searching or saving never blocks the operator's key presses.
 
-## Platform
+## Platforms
 
 | Platform | Status |
 | --- | --- |
-| Windows | Target utama |
-| macOS | Target utama |
-| Linux | Bisa di-build dan dijalankan, belum menjadi target rilis |
+| Windows | Primary target |
+| macOS | Primary target |
+| Linux | Builds and runs, not yet a release target |
 
-## Lokasi data
+## Data location
 
-Library lagu, terjemahan Alkitab, dan pengaturan tema disimpan di satu file SQLite, `library.sqlite3`:
+The song library, Bible translations, and theme settings are stored in a single SQLite file, `library.sqlite3`:
 
 | Platform | Folder |
 | --- | --- |
 | Windows | `%LOCALAPPDATA%\SolideoWorship` |
 | macOS | `~/Library/Application Support/SolideoWorship` |
-| Linux | `$XDG_DATA_HOME/solideoworship` (biasanya `~/.local/share/solideoworship`) |
+| Linux | `$XDG_DATA_HOME/solideoworship` (usually `~/.local/share/solideoworship`) |
 
-Di folder yang sama ada `recovery.sdw` selama susunan acara punya perubahan yang belum disimpan. File ini dihapus otomatis begitu susunan acara disimpan.
+The same folder holds `recovery.sdw` while the schedule has unsaved changes. It is deleted automatically once the schedule is saved. The optional `language` file described under [Language](#language) lives here too.
 
-Variabel lingkungan `SDW_DATA_DIR` mengganti folder itu, berguna untuk mencoba aplikasi tanpa menyentuh library utama.
+The `SDW_DATA_DIR` environment variable overrides that folder, which is useful for trying the app without touching your main library.
 
-## Build dari source
+## Building from source
 
-Butuh [Rust](https://rustup.rs), plus compiler C untuk SQLite yang dibundel: Visual Studio Build Tools di Windows, atau Xcode Command Line Tools (`xcode-select --install`) di macOS. Versi Rust minimum tercantum di `rust-version` pada `Cargo.toml`. Kalau memakai rustup, versi yang dipakai CI (`rust-toolchain.toml`) terpasang otomatis saat build pertama.
+Requires [Rust](https://rustup.rs), plus a C compiler for the bundled SQLite: Visual Studio Build Tools on Windows, or the Xcode Command Line Tools (`xcode-select --install`) on macOS. The minimum Rust version is the `rust-version` in `Cargo.toml`. With rustup, the version CI uses (`rust-toolchain.toml`) is installed automatically on the first build.
 
-Di Linux, dialog buka/simpan memakai `xdg-desktop-portal`, atau `zenity` bila portal tidak tersedia.
+On Linux, open/save dialogs use `xdg-desktop-portal`, or `zenity` when no portal is available.
 
 ```sh
 git clone https://github.com/MikeNoppo/solideoworship-app.git
@@ -130,44 +155,44 @@ cd solideoworship-app
 cargo run -p sdw-app
 ```
 
-Untuk build rilis yang dioptimasi:
+For an optimized release build:
 
 ```sh
 cargo build --release -p sdw-app
 ```
 
-Hasilnya ada di `target/release/sdw-app` (atau `sdw-app.exe` di Windows).
+The binary ends up in `target/release/sdw-app` (or `sdw-app.exe` on Windows).
 
-## Struktur proyek
+## Project structure
 
 ```
 crates/
-├── core/     sdw-core    — tipe domain dan logika murni (lagu, ayat, slide, tema, kompiler, navigasi live)
-├── library/  sdw-library — penyimpanan SQLite (lagu, Alkitab, tema, migrasi), importer Zefania, dan format file .sdw
-└── app/      sdw-app     — aplikasi GUI berbasis iced
+├── core/     sdw-core    — domain types and pure logic (songs, verses, slides, themes, compilers, live navigation)
+├── library/  sdw-library — SQLite storage (songs, Bibles, themes, migrations), Zefania importer, and the .sdw file format
+└── app/      sdw-app     — the iced GUI application, including the locales and the i18n build script
 ```
 
-`sdw-core` sengaja tidak bergantung pada iced maupun SQLite, jadi logika domain bisa diuji tanpa GUI dan perubahan di sana tidak memicu kompilasi ulang iced yang lambat. Lagu dan ayat sama-sama dikompilasi menjadi `SlideDeck`. Mesin live dan renderer hanya mengenal `Slide`, sehingga jenis konten baru cukup ditambahkan sebagai kompiler baru.
+`sdw-core` deliberately depends on neither iced nor SQLite, so domain logic can be tested without a GUI and changes there do not trigger a slow iced rebuild. Songs and verses both compile into a `SlideDeck`. The live engine and the renderer only know `Slide`, so a new content kind only needs a new compiler.
 
-## Pengembangan
+## Development
 
 ```sh
-cargo check                  # cek tipe dengan cepat
-cargo test --workspace       # semua test, termasuk library SQLite di memori
+cargo check                  # fast type check
+cargo test --workspace       # every test, including SQLite against an in-memory database
 cargo clippy --all-targets   # lint
-cargo fmt                    # format kode
+cargo fmt                    # format code
 ```
 
-`cargo clippy` memunculkan peringatan *future-incompatibility* untuk `block v0.1.6`. Peringatan itu berasal dari dependensi macOS milik `display-info`, bukan dari kode proyek ini.
+`cargo clippy` reports a *future-incompatibility* warning for `block v0.1.6`. It comes from a macOS dependency of `display-info`, not from this project's code.
 
-Setiap push ke `main` dan setiap pull request diperiksa CI. Di Linux, Windows, dan macOS: clippy tanpa peringatan, seluruh test, dan `cargo check` dengan versi Rust minimum. Di Linux saja: format, serta lisensi, sumber, dan celah keamanan dependency lewat [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). Cek celah keamanan tidak memblokir pull request dan juga dijalankan tiap minggu. Dependency baru wajib berasal dari crates.io dan memakai lisensi yang cocok dengan GPL-3.0; daftarnya ada di `deny.toml`. Di Linux, build membutuhkan paket `libxcb1-dev` (atau padanannya di distro kamu).
+Every push to `main` and every pull request is checked by CI. On Linux, Windows, and macOS: clippy with no warnings, the full test suite, and `cargo check` with the minimum Rust version. On Linux only: formatting, plus dependency licenses, sources, and security advisories through [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). The advisories check does not block pull requests and also runs weekly. A new dependency must come from crates.io and use a GPL-3.0-compatible license; the list is in `deny.toml`. On Linux, building needs the `libxcb1-dev` package (or your distribution's equivalent).
 
-Kontribusi sangat diterima. Commit memakai format [Conventional Commits](https://www.conventionalcommits.org), dan komentar kode serta teks antarmuka ditulis dalam Bahasa Indonesia.
+Contributions are very welcome. Commits follow [Conventional Commits](https://www.conventionalcommits.org). Code, identifiers, comments, and test names are written in English; UI text goes in the locale files, never as literals in the code.
 
-## Lisensi
+## License
 
-Hak cipta © 2026 MikeNoppo.
+Copyright © 2026 MikeNoppo.
 
-SolideoWorship dirilis di bawah [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
+SolideoWorship is released under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
 
-Kamu bebas memakai, mempelajari, mengubah, dan membagikan aplikasi ini, termasuk untuk gereja dan pelayanan apa pun. Siapa pun yang membagikan aplikasi ini atau versi turunannya, gratis maupun berbayar, wajib menyediakan source code lengkapnya di bawah lisensi yang sama dan mempertahankan pemberitahuan hak cipta. Versi tertutup tidak diizinkan.
+You are free to use, study, change, and share this app, including for any church or ministry. Anyone who distributes it or a derived version, free or paid, must make the complete source code available under the same license and keep the copyright notice. Closed-source versions are not allowed.

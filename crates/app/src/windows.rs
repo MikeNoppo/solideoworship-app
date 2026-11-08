@@ -3,8 +3,8 @@ use iced::window::{self, Position, Settings};
 
 use crate::display::Display;
 
-// Splash sengaja tanpa dekorasi dan tidak bisa diubah ukurannya: ia hanya hidup
-// selama pemuatan awal, lalu ditutup setelah jendela kontrol benar-benar terbuka.
+// The splash is deliberately undecorated and not resizable: it only lives during
+// initial loading and closes once the control window has actually opened.
 pub fn splash() -> Settings {
     Settings {
         size: Size::new(560.0, 320.0),
@@ -26,16 +26,16 @@ pub fn control() -> Settings {
     }
 }
 
-// WHY: fullscreen ditetapkan di Settings, bukan lewat set_mode setelah jendela
-// terbuka. winit memilih monitor untuk Fullscreen::Borderless dari monitor tempat
-// jendela sedang berada; bila permintaan datang setelah jendela dibuat, monitor itu
-// kadang belum terpasang dan permintaannya dibuang tanpa error — teruji gagal 1 dari
-// 3 percobaan di macOS. Dengan position ikut di Settings, winit sudah tahu monitornya
-// saat fullscreen diterapkan (3 dari 3 berhasil).
+// WHY: fullscreen is set in Settings, not via set_mode after the window opens.
+// winit picks the monitor for Fullscreen::Borderless from the monitor the window is
+// currently on; when the request arrives after the window is created, that monitor
+// is sometimes not attached yet and the request is dropped without an error —
+// measured 1 failure in 3 attempts on macOS. With position also in Settings, winit
+// already knows the monitor when fullscreen is applied (3 of 3 succeeded).
 //
-// NOTE: sengaja tidak menyetel level atau resizable. macOS mengembalikan level ke
-// normal dan memaksa style mask Titled|Resizable saat masuk fullscreen, jadi
-// menyetelnya hanya menambah variabel yang bisa mengganggu transisi.
+// NOTE: level and resizable are deliberately not set. macOS resets the level to
+// normal and forces a Titled|Resizable style mask when entering fullscreen, so
+// setting them only adds variables that can disturb the transition.
 pub fn output(display: &Display) -> Settings {
     Settings {
         size: display.size,
@@ -47,8 +47,8 @@ pub fn output(display: &Display) -> Settings {
     }
 }
 
-// Jaring pengaman bila fullscreen saat pembuatan tidak diterapkan; menjadi no-op
-// kalau jendela sudah fullscreen.
+// Safety net in case fullscreen at creation was not applied; a no-op when the
+// window is already fullscreen.
 pub fn go_fullscreen<T>(id: window::Id) -> iced::Task<T> {
     window::set_mode(id, window::Mode::Fullscreen)
 }

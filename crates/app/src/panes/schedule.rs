@@ -5,6 +5,7 @@ use iced::widget::{button, column, row, scrollable, text};
 use iced::{Center, Element, Fill};
 
 use crate::App;
+use crate::i18n::{Label, t};
 use crate::message::Message;
 use crate::panes::{notice, pane, title};
 use crate::style;
@@ -16,8 +17,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let is_selected = app.schedule.selected() == Some(index);
 
             list.push(
-                // Dua tombol bersebelahan, bukan tombol di dalam tombol: iced menyerap
-                // event di widget terluar, sehingga tombol bersarang tidak akan bereaksi.
+                // Two buttons side by side, not a button inside a button: iced captures
+                // events at the outermost widget, so a nested button would never react.
                 row![
                     button(
                         column![
@@ -44,7 +45,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     );
 
     let body: Element<'_, Message> = if app.schedule.is_empty() {
-        notice("Susunan acara masih kosong.\nTambahkan dari library di bawah.")
+        notice(t().schedule.empty)
     } else {
         scrollable(items).height(Fill).into()
     };
@@ -55,16 +56,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .and_then(Path::file_stem)
         .and_then(OsStr::to_str);
 
-    let header = row![title("Susunan Acara", name)]
+    let header = row![title(t().schedule.title, name)]
         .push(app.schedule.is_dirty().then(|| {
-            text(if app.schedule.is_recovered() {
-                " ● dipulihkan, belum disimpan"
-            } else {
-                " ● belum disimpan"
-            })
-            .size(11)
-            .style(text::warning)
+            row![
+                text("●").size(11).style(text::warning),
+                text(if app.schedule.is_recovered() {
+                    t().schedule.recovered
+                } else {
+                    t().schedule.unsaved
+                })
+                .size(11)
+                .style(text::warning),
+            ]
+            .spacing(4)
         }))
+        .spacing(6)
         .align_y(Center);
 
     pane(header.into(), body)

@@ -69,9 +69,9 @@ pub enum TextAlign {
     Right,
 }
 
-// Kanvas acuan tempat seluruh ukuran tema dinyatakan. Renderer menskalakan dari sini,
-// sehingga thumbnail kecil, preview besar, dan output proyektor menghasilkan tata
-// letak yang identik — WYSIWYG dijamin oleh satuan, bukan oleh kedisiplinan.
+// Reference canvas in which every theme size is expressed. The renderer scales from here,
+// so a small thumbnail, a large preview, and the projector output produce identical
+// layouts — WYSIWYG is guaranteed by the units, not by discipline.
 pub const CANVAS_WIDTH: f32 = 1920.0;
 pub const CANVAS_HEIGHT: f32 = 1080.0;
 pub const CANVAS_RATIO: f32 = CANVAS_WIDTH / CANVAS_HEIGHT;
@@ -204,13 +204,13 @@ mod tests {
     use crate::slide::ContentKind;
 
     #[test]
-    fn hex_dibaca_dengan_atau_tanpa_pagar() {
+    fn hex_parses_with_or_without_hash() {
         assert_eq!(Rgb::from_hex("#ff0000"), Some(Rgb::new(1.0, 0.0, 0.0)));
         assert_eq!(Rgb::from_hex(" 00FF00 "), Some(Rgb::new(0.0, 1.0, 0.0)));
     }
 
     #[test]
-    fn hex_tidak_valid_ditolak() {
+    fn invalid_hex_is_rejected() {
         for input in [
             "", "#fff", "#12345", "#1234567", "#gg0000", "#+f0000", "#ééé",
         ] {
@@ -219,14 +219,14 @@ mod tests {
     }
 
     #[test]
-    fn hex_bolak_balik_tidak_berubah() {
+    fn hex_round_trip_is_lossless() {
         for hex in ["#000000", "#ffffff", "#0d1221", "#b8c2d9"] {
             assert_eq!(Rgb::from_hex(hex).unwrap().to_hex(), hex);
         }
     }
 
     #[test]
-    fn warna_default_tidak_berubah_lewat_hex() {
+    fn default_colors_survive_hex_round_trip() {
         for theme in [SlideTheme::song(), SlideTheme::scripture()] {
             for color in [theme.background, theme.body, theme.footer] {
                 assert_eq!(Rgb::from_hex(&color.to_hex()), Some(color));
@@ -235,17 +235,17 @@ mod tests {
     }
 
     #[test]
-    fn hex_menjepit_kanal_di_luar_rentang() {
+    fn hex_clamps_out_of_range_channels() {
         assert_eq!(Rgb::new(1.5, -0.2, f32::NAN).to_hex(), "#ff0000");
     }
 
     #[test]
-    fn default_berada_dalam_rentang() {
+    fn defaults_are_within_range() {
         assert_eq!(Styles::default().clamped(), Styles::default());
     }
 
     #[test]
-    fn clamped_menjepit_nilai_ekstrem() {
+    fn clamped_limits_extreme_values() {
         let mut styles = Styles::default();
         styles.song.max_lines = 0;
         styles.scripture.max_chars = u16::MAX;
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn tema_dipilih_sesuai_jenis_konten() {
+    fn theme_is_chosen_by_content_kind() {
         let styles = Styles::default();
 
         assert_eq!(styles.theme(ContentKind::Song), &styles.song.theme);

@@ -184,14 +184,14 @@ mod tests {
     }
 
     #[test]
-    fn tanpa_pengaturan_memakai_default() {
+    fn missing_settings_use_defaults() {
         let library = Library::open_in_memory().unwrap();
 
         assert_eq!(library.styles().unwrap(), Styles::default());
     }
 
     #[test]
-    fn pengaturan_tersimpan_utuh() {
+    fn settings_round_trip_intact() {
         let mut library = Library::open_in_memory().unwrap();
         let mut styles = Styles::default();
         styles.song.max_lines = 6;
@@ -206,15 +206,15 @@ mod tests {
     }
 
     #[test]
-    fn json_rusak_kembali_ke_default() {
+    fn broken_json_falls_back_to_defaults() {
         let library = Library::open_in_memory().unwrap();
-        store_raw(&library, "{bukan json");
+        store_raw(&library, "{not json");
 
         assert_eq!(library.styles().unwrap(), Styles::default());
     }
 
     #[test]
-    fn field_yang_hilang_memakai_default() {
+    fn missing_fields_use_defaults() {
         let library = Library::open_in_memory().unwrap();
         store_raw(&library, r#"{"song":{"max_lines":3}}"#);
 
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn tema_alkitab_sebagian_memakai_default_alkitab() {
+    fn partial_scripture_theme_uses_scripture_defaults() {
         let library = Library::open_in_memory().unwrap();
         store_raw(&library, r#"{"scripture":{"theme":{"align":"left"}}}"#);
 
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn nilai_tidak_valid_dijepit_atau_diganti_default() {
+    fn invalid_values_are_clamped_or_defaulted() {
         let library = Library::open_in_memory().unwrap();
         store_raw(
             &library,

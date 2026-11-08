@@ -228,7 +228,7 @@ mod tests {
     use super::Schedule;
 
     fn song(title: &str) -> ScheduleItem {
-        ScheduleItem::Song(Song::new(title, "satu\n\ndua", None))
+        ScheduleItem::Song(Song::new(title, "one\n\ntwo", None))
     }
 
     fn schedule(titles: &[&str]) -> Schedule {
@@ -245,7 +245,7 @@ mod tests {
         let mut library = Library::open_in_memory().unwrap();
 
         (0..count)
-            .map(|_| library.insert_song(&Song::new("Uji", "", None)).unwrap())
+            .map(|_| library.insert_song(&Song::new("Test", "", None)).unwrap())
             .collect()
     }
 
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn item_baru_langsung_dipilih_dan_dipreview() {
+    fn new_item_is_selected_and_previewed() {
         let schedule = schedule(&["A", "B"]);
 
         assert_eq!(schedule.selected(), Some(1));
@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_berbagi_deck_dengan_item() {
+    fn preview_shares_deck_with_item() {
         let schedule = schedule(&["A"]);
         let preview = schedule.preview().unwrap();
 
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn memilih_indeks_di_luar_daftar_diabaikan() {
+    fn selecting_out_of_range_index_is_ignored() {
         let mut schedule = schedule(&["A", "B"]);
 
         schedule.select(5);
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn menghapus_item_terpilih_mengosongkan_preview() {
+    fn removing_selected_item_clears_preview() {
         let mut schedule = schedule(&["A", "B"]);
 
         schedule.remove(1);
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn menghapus_item_di_atas_pilihan_menggeser_indeks() {
+    fn removing_item_above_selection_shifts_index() {
         let mut schedule = schedule(&["A", "B", "C"]);
         schedule.select(2);
 
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn menghapus_item_di_bawah_pilihan_tidak_mengubah_indeks() {
+    fn removing_item_below_selection_keeps_index() {
         let mut schedule = schedule(&["A", "B", "C"]);
         schedule.select(0);
 
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn menghapus_indeks_di_luar_daftar_diabaikan() {
+    fn removing_out_of_range_index_is_ignored() {
         let mut schedule = schedule(&["A"]);
 
         schedule.remove(3);
@@ -320,11 +320,11 @@ mod tests {
     }
 
     #[test]
-    fn lagu_tanpa_lirik_dipilih_tanpa_preview() {
+    fn song_without_lyrics_is_picked_without_preview() {
         let mut schedule = Schedule::default();
 
         schedule.push(
-            ScheduleItem::Song(Song::new("Kosong", "", None)),
+            ScheduleItem::Song(Song::new("Empty", "", None)),
             None,
             &Styles::default(),
         );
@@ -334,58 +334,58 @@ mod tests {
     }
 
     #[test]
-    fn lagu_yang_diubah_diganti_di_semua_item_asalnya() {
+    fn updated_song_replaces_all_its_items() {
         let ids = song_ids(2);
         let styles = Styles::default();
         let mut schedule = Schedule::default();
         schedule.push(song("A"), Some(ids[0]), &styles);
         schedule.push(song("B"), Some(ids[1]), &styles);
-        schedule.push(song("A lagi"), Some(ids[0]), &styles);
+        schedule.push(song("A again"), Some(ids[0]), &styles);
 
-        schedule.replace_song(ids[0], &Song::new("A baru", "x", None), &styles);
+        schedule.replace_song(ids[0], &Song::new("A new", "x", None), &styles);
 
         let titles: Vec<&str> = schedule
             .entries()
             .iter()
             .map(|entry| &*entry.deck().title)
             .collect();
-        assert_eq!(titles, ["A baru", "B", "A baru"]);
+        assert_eq!(titles, ["A new", "B", "A new"]);
     }
 
     #[test]
-    fn preview_ikut_diperbarui_dan_posisinya_dijepit() {
+    fn preview_is_refreshed_and_position_clamped() {
         let ids = song_ids(1);
         let styles = Styles::default();
         let mut schedule = Schedule::default();
         schedule.push(song("A"), Some(ids[0]), &styles);
         let _ = schedule.preview_mut().unwrap().go_to(1);
 
-        schedule.replace_song(ids[0], &Song::new("A baru", "satu", None), &styles);
+        schedule.replace_song(ids[0], &Song::new("A new", "one", None), &styles);
 
         let preview = schedule.preview().unwrap();
-        assert_eq!(&*preview.deck().title, "A baru");
+        assert_eq!(&*preview.deck().title, "A new");
         assert_eq!(preview.index(), 0);
     }
 
     #[test]
-    fn lagu_yang_dihapus_dilepas_dari_item() {
+    fn deleted_song_is_detached_from_items() {
         let ids = song_ids(1);
         let styles = Styles::default();
         let mut schedule = Schedule::default();
         schedule.push(song("A"), Some(ids[0]), &styles);
 
         schedule.forget_song(ids[0]);
-        schedule.replace_song(ids[0], &Song::new("A baru", "", None), &styles);
+        schedule.replace_song(ids[0], &Song::new("A new", "", None), &styles);
 
         assert_eq!(&*schedule.entries()[0].deck().title, "A");
     }
 
     #[test]
-    fn kompilasi_ulang_memakai_batas_baris_baru() {
+    fn recompile_uses_new_line_limit() {
         let mut schedule = Schedule::default();
         let mut styles = Styles::default();
         schedule.push(
-            ScheduleItem::Song(Song::new("A", "satu\ndua\ntiga\nempat", None)),
+            ScheduleItem::Song(Song::new("A", "one\ntwo\nthree\nfour", None)),
             None,
             &styles,
         );
@@ -399,19 +399,19 @@ mod tests {
     }
 
     #[test]
-    fn item_terpilih_tersedia_untuk_contoh_tema() {
+    fn selected_item_is_available_as_theme_sample() {
         let schedule = schedule(&["A", "B"]);
 
         assert_eq!(schedule.selected_item(), Some(&song("B")));
     }
 
     #[test]
-    fn susunan_acara_baru_tidak_berubah() {
+    fn new_schedule_is_clean() {
         assert!(!Schedule::default().is_dirty());
     }
 
     #[test]
-    fn menambah_dan_menghapus_menandai_perubahan() {
+    fn adding_and_removing_mark_dirty() {
         let mut schedule = schedule(&["A"]);
         assert!(schedule.is_dirty());
 
@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn simpan_revisi_lama_tetap_dianggap_berubah() {
+    fn saving_old_revision_stays_dirty() {
         let mut schedule = schedule(&["A"]);
         let saving = schedule.revision();
         schedule.push(song("B"), None, &Styles::default());
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn kompilasi_ulang_dan_lepas_asal_tidak_menandai_perubahan() {
+    fn recompiling_and_detaching_do_not_mark_dirty() {
         let ids = song_ids(1);
         let mut schedule = Schedule::default();
         schedule.push(song("A"), Some(ids[0]), &Styles::default());
@@ -449,23 +449,23 @@ mod tests {
     }
 
     #[test]
-    fn mengubah_lagu_asal_menandai_perubahan() {
+    fn updating_source_song_marks_dirty() {
         let ids = song_ids(1);
         let mut schedule = Schedule::default();
         schedule.push(song("A"), Some(ids[0]), &Styles::default());
         schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
 
-        schedule.replace_song(ids[0], &Song::new("A baru", "", None), &Styles::default());
+        schedule.replace_song(ids[0], &Song::new("A new", "", None), &Styles::default());
 
         assert!(schedule.is_dirty());
     }
 
     #[test]
-    fn membuka_file_mengganti_isi_tanpa_pilihan_dan_tanpa_perubahan() {
+    fn opening_file_replaces_contents_clean_and_unselected() {
         let mut schedule = schedule(&["A", "B"]);
 
         schedule.load(
-            PathBuf::from("minggu.sdw"),
+            PathBuf::from("sunday.sdw"),
             vec![song("C")],
             &Styles::default(),
         );
@@ -474,22 +474,22 @@ mod tests {
         assert_eq!(schedule.selected(), None);
         assert!(schedule.preview().is_none());
         assert!(!schedule.is_dirty());
-        assert_eq!(schedule.path(), Some(Path::new("minggu.sdw")));
+        assert_eq!(schedule.path(), Some(Path::new("sunday.sdw")));
     }
 
     #[test]
-    fn item_dari_file_tidak_punya_lagu_asal() {
+    fn items_from_file_have_no_source_song() {
         let ids = song_ids(1);
         let mut schedule = Schedule::default();
         schedule.load(PathBuf::from("a.sdw"), vec![song("A")], &Styles::default());
 
-        schedule.replace_song(ids[0], &Song::new("Lain", "", None), &Styles::default());
+        schedule.replace_song(ids[0], &Song::new("Other", "", None), &Styles::default());
 
         assert_eq!(&*schedule.entries()[0].deck().title, "A");
     }
 
     #[test]
-    fn susunan_acara_baru_mengosongkan_semuanya() {
+    fn new_schedule_clears_everything() {
         let mut schedule = schedule(&["A"]);
         schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
 
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn revisi_terus_naik_setelah_baru_atau_buka() {
+    fn revision_keeps_increasing_after_new_or_open() {
         let mut schedule = schedule(&["A"]);
         let before = schedule.revision();
 
@@ -514,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn hasil_simpan_dokumen_lama_tidak_mengenai_dokumen_baru() {
+    fn old_document_save_result_does_not_affect_new_document() {
         let mut schedule = schedule(&["A"]);
         let saving = schedule.revision();
 
@@ -529,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn susunan_acara_pulihan_belum_tersimpan_dan_tanpa_file() {
+    fn recovered_schedule_is_unsaved_and_has_no_file() {
         let mut schedule = schedule(&["A"]);
         schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
 
@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn tanda_pulihan_hilang_setelah_disimpan() {
+    fn recovered_marker_clears_after_save() {
         let mut schedule = Schedule::default();
         schedule.restore(vec![song("B")], &Styles::default());
 

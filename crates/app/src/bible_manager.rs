@@ -4,12 +4,11 @@ use iced::widget::{button, column, container, row, scrollable, space, text, text
 use iced::{Center, Element, Fill};
 use sdw_library::{BibleId, BibleSummary, ImportReport};
 
+use crate::i18n::{fill, plural, t};
 use crate::style;
 use crate::work::Outcome;
 
 const ABBREVIATION_LIMIT: usize = 12;
-const COPYRIGHT_NOTE: &str = "Alkitab tidak disertakan di aplikasi karena hak cipta penerbitnya. \
-                              Impor file Zefania XML milik Anda sendiri, berenkoding UTF-8.";
 
 pub struct BibleManager {
     bibles: Vec<BibleSummary>,
@@ -108,15 +107,28 @@ impl BibleManager {
                 self.file_name = None;
                 self.abbreviation.clear();
 
-                let skipped = if report.skipped > 0 {
-                    format!(", {} dilewati", report.skipped)
+                let template = if report.skipped > 0 {
+                    t().bible_manager.imported_with_skipped
                 } else {
-                    String::new()
+                    t().bible_manager.imported
                 };
 
-                Ok(format!(
-                    "{} berhasil diimpor: {} ayat{skipped}.",
-                    report.bible, report.verses
+                let verses = fill(
+                    plural(
+                        report.verses.into(),
+                        t().bible_manager.verses_one,
+                        t().bible_manager.verses_other,
+                    ),
+                    &[("count", &report.verses)],
+                );
+
+                Ok(fill(
+                    template,
+                    &[
+                        ("bible", &report.bible),
+                        ("verses", &verses),
+                        ("skipped", &report.skipped),
+                    ],
                 )
                 .into_boxed_str())
             }
@@ -134,7 +146,7 @@ impl BibleManager {
 
     pub fn view(&self) -> Element<'_, Message> {
         let installed: Element<'_, Message> = if self.bibles.is_empty() {
-            text("Belum ada terjemahan di library.")
+            text(t().bible_manager.none_installed)
                 .size(13)
                 .style(text::secondary)
                 .into()
@@ -151,13 +163,13 @@ impl BibleManager {
         };
 
         let file = row![
-            button(text("Pilih file…").size(13))
+            button(text(t().bible_manager.pick_file).size(13))
                 .on_press_maybe((!self.busy).then_some(Message::PickFile))
                 .style(button::secondary),
             text(
                 self.file_name
                     .as_deref()
-                    .unwrap_or("Belum ada file dipilih.")
+                    .unwrap_or(t().bible_manager.no_file)
             )
             .size(13)
             .style(text::secondary),
@@ -166,15 +178,25 @@ impl BibleManager {
         .align_y(Center);
 
         let import = row![
-            text("Singkatan").size(13),
-            text_input("mis. TB", &self.abbreviation)
-                .on_input(Message::AbbreviationChanged)
-                .on_submit(Message::Import)
-                .size(13)
-                .width(140),
-            button(text(if self.busy { "Memproses…" } else { "Impor" }).size(13))
-                .on_press_maybe(self.can_import().then_some(Message::Import))
-                .style(button::primary),
+            text(t().bible_manager.abbreviation).size(13),
+            text_input(
+                t().bible_manager.abbreviation_placeholder,
+                &self.abbreviation
+            )
+            .on_input(Message::AbbreviationChanged)
+            .on_submit(Message::Import)
+            .size(13)
+            .width(140),
+            button(
+                text(if self.busy {
+                    t().bible_manager.importing
+                } else {
+                    t().bible_manager.import
+                })
+                .size(13),
+            )
+            .on_press_maybe(self.can_import().then_some(Message::Import))
+            .style(button::primary),
         ]
         .spacing(10)
         .align_y(Center);
@@ -186,19 +208,23 @@ impl BibleManager {
 
         container(
             column![
-                text("Kelola Alkitab").size(18),
-                text("Terjemahan terpasang").size(12).style(text::secondary),
-                installed,
-                text("Impor terjemahan baru")
+                text(t().common.manage_bibles).size(18),
+                text(t().bible_manager.installed)
                     .size(12)
                     .style(text::secondary),
-                text(COPYRIGHT_NOTE).size(12).style(text::secondary),
+                installed,
+                text(t().bible_manager.import_heading)
+                    .size(12)
+                    .style(text::secondary),
+                text(t().bible_manager.copyright_note)
+                    .size(12)
+                    .style(text::secondary),
                 file,
                 import,
                 outcome,
                 row![
                     space::horizontal(),
-                    button("Tutup")
+                    button(t().common.close)
                         .on_press(Message::Close)
                         .style(button::secondary),
                 ],
@@ -214,11 +240,11 @@ impl BibleManager {
     fn bible_row<'a>(&'a self, bible: &'a BibleSummary) -> Element<'a, Message> {
         let actions: Element<'a, Message> = if self.confirm_delete == Some(bible.id) {
             row![
-                text("Hapus terjemahan ini?").size(13),
-                button(text("Ya, hapus").size(12))
+                text(t().bible_manager.confirm_delete).size(13),
+                button(text(t().common.confirm_delete).size(12))
                     .on_press(Message::DeleteConfirmed)
                     .style(button::danger),
-                button(text("Batal").size(12))
+                button(text(t().common.cancel).size(12))
                     .on_press(Message::DeleteCancelled)
                     .style(button::secondary),
             ]
@@ -226,7 +252,7 @@ impl BibleManager {
             .align_y(Center)
             .into()
         } else {
-            button(text("Hapus").size(12))
+            button(text(t().common.delete).size(12))
                 .on_press_maybe((!self.busy).then_some(Message::Delete(bible.id)))
                 .style(button::secondary)
                 .into()
@@ -268,9 +294,9 @@ mod tests {
 
     fn bibles() -> Vec<BibleSummary> {
         let mut library = Library::open_in_memory().unwrap();
-        let zefania = r#"<XMLBIBLE biblename="Uji"><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
-            <VERS vnumber="1">satu</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
-        library.import_zefania(zefania.as_bytes(), "UJI").unwrap();
+        let zefania = r#"<XMLBIBLE biblename="Test"><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
+            <VERS vnumber="1">one</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+        library.import_zefania(zefania.as_bytes(), "TST").unwrap();
         library.bibles().unwrap()
     }
 
@@ -281,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn singkatan_diisi_dari_nama_file() {
+    fn abbreviation_is_filled_from_file_name() {
         assert_eq!(with_file("/data/tb-2.xml").abbreviation, "TB2");
         assert_eq!(
             with_file("/data/terjemahan_baru_lengkap.xml").abbreviation,
@@ -290,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn impor_butuh_file_dan_singkatan() {
+    fn import_needs_file_and_abbreviation() {
         let mut manager = BibleManager::new(Vec::new());
         assert_eq!(manager.update(Message::Import), Action::None);
 
@@ -300,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn impor_mengirim_path_dan_singkatan_sekali_saja() {
+    fn import_sends_path_and_abbreviation_once() {
         let mut manager = with_file("/data/tb.xml");
         let _ = manager.update(Message::AbbreviationChanged(" TB ".into()));
 
@@ -316,34 +342,36 @@ mod tests {
     }
 
     #[test]
-    fn impor_berhasil_mengosongkan_isian() {
+    fn successful_import_clears_form() {
         let mut manager = with_file("/data/tb.xml");
         let _ = manager.update(Message::Import);
         let mut library = Library::open_in_memory().unwrap();
         let zefania = r#"<XMLBIBLE><BIBLEBOOK bnumber="1"><CHAPTER cnumber="1">
-            <VERS vnumber="1">satu</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
+            <VERS vnumber="1">one</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
         let report = library.import_zefania(zefania.as_bytes(), "TB").unwrap();
 
         manager.imported(Ok(report));
 
         assert!(manager.file.is_none());
-        assert!(matches!(&manager.outcome, Some(Ok(message)) if message.contains("1 ayat")));
+        assert!(
+            matches!(&manager.outcome, Some(Ok(message)) if &**message == "TB imported: 1 verse.")
+        );
         assert_eq!(manager.update(Message::PickFile), Action::PickFile);
     }
 
     #[test]
-    fn impor_gagal_menampilkan_alasan_dan_mempertahankan_file() {
+    fn failed_import_shows_reason_and_keeps_file() {
         let mut manager = with_file("/data/tb.xml");
         let _ = manager.update(Message::Import);
 
-        manager.imported(Err("rusak".into()));
+        manager.imported(Err("broken".into()));
 
         assert!(manager.file.is_some());
-        assert!(matches!(&manager.outcome, Some(Err(error)) if &**error == "rusak"));
+        assert!(matches!(&manager.outcome, Some(Err(error)) if &**error == "broken"));
     }
 
     #[test]
-    fn hapus_terjemahan_perlu_konfirmasi() {
+    fn deleting_translation_needs_confirmation() {
         let list = bibles();
         let mut manager = BibleManager::new(list.clone());
 
@@ -357,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn batal_memilih_file_tidak_mengubah_apa_pun() {
+    fn cancelling_file_pick_changes_nothing() {
         let mut manager = with_file("/data/tb.xml");
 
         let _ = manager.update(Message::FilePicked(None));

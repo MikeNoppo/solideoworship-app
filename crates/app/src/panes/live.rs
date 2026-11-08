@@ -2,6 +2,7 @@ use iced::widget::{button, column, container, scrollable, text};
 use iced::{Element, Fill, FillPortion};
 
 use crate::App;
+use crate::i18n::t;
 use crate::message::{Message, Step};
 use crate::panes::{notice, pane, title, transport};
 use crate::render::slide::{self, Visibility};
@@ -9,10 +10,7 @@ use crate::style;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let Some(live) = &app.live else {
-        return pane(
-            title("Live", None),
-            notice("Belum ada yang tayang. Tekan Tayangkan untuk mendorong preview ke live."),
-        );
+        return pane(title(t().slides.live, None), notice(t().slides.live_empty));
     };
 
     let rows =
@@ -20,7 +18,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .iter()
             .enumerate()
             .fold(column![].spacing(3), |list, (index, item)| {
-                let heading = item.label.as_deref().unwrap_or("Slide");
+                let heading = item.label.as_deref().unwrap_or(t().slides.fallback_label);
                 let is_selected = live.index() == index;
 
                 list.push(
@@ -45,7 +43,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let body = column![
         scrollable(rows).height(FillPortion(4)),
-        container(text("Live Output").size(11).style(text::secondary)).padding([4, 10]),
+        container(text(t().slides.live_output).size(11).style(text::secondary)).padding([4, 10]),
         container(slide::stage(
             Some(live.current()),
             &app.live_theme,
@@ -65,5 +63,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(2);
 
-    pane(title("Live", Some(&live.deck().title)), body.into())
+    pane(
+        title(t().slides.live, Some(&live.deck().title)),
+        body.into(),
+    )
 }

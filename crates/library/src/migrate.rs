@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn database_baru_dimigrasi_sampai_versi_terakhir() {
+    fn new_database_is_migrated_to_latest_version() {
         let mut conn = Connection::open_in_memory().unwrap();
 
         migrate(&mut conn).unwrap();
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn migrasi_ulang_tidak_mengubah_apa_pun() {
+    fn rerunning_migrations_changes_nothing() {
         let mut conn = Connection::open_in_memory().unwrap();
 
         migrate(&mut conn).unwrap();
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn skema_lebih_baru_ditolak() {
+    fn newer_schema_is_rejected() {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "user_version", 99).unwrap();
 

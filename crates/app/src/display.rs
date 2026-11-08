@@ -1,5 +1,7 @@
 use iced::{Point, Size};
 
+use crate::i18n::t;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Display {
     pub id: u32,
@@ -24,15 +26,19 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
 
             Display {
                 id: info.id,
-                // WHY: label memakai info.width/height mentah, bukan size yang sudah
-                // dibagi scale factor. Operator mencocokkan layar lewat resolusi yang
-                // tertulis di pengaturan sistem, dan di Windows angka itu piksel fisik.
-                label: format!(
-                    "{name} — {}×{}{}",
-                    info.width,
-                    info.height,
-                    if info.is_primary { " (utama)" } else { "" }
-                )
+                // WHY: the label uses the raw info.width/height, not the size already
+                // divided by the scale factor. The operator matches screens by the
+                // resolution shown in the system settings, which on Windows is physical pixels.
+                label: if info.is_primary {
+                    format!(
+                        "{name} — {}×{} {}",
+                        info.width,
+                        info.height,
+                        t().toolbar.primary_screen
+                    )
+                } else {
+                    format!("{name} — {}×{}", info.width, info.height)
+                }
                 .into_boxed_str(),
                 origin: Point::new(info.x as f32 / divisor, info.y as f32 / divisor),
                 size: Size::new(info.width as f32 / divisor, info.height as f32 / divisor),
@@ -42,10 +48,10 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
         })
         .collect();
 
-    // Kandidat proyektor didahulukan: layar eksternal, lalu yang bukan layar utama.
-    // Nama dipakai sebagai kunci terakhir, bukan id, karena id adalah handle OS
-    // (CGDirectDisplayID / HMONITOR) yang bisa berubah antar sesi sehingga urutannya
-    // — dan karenanya pilihan default — tidak stabil.
+    // Projector candidates come first: external screens, then non-primary ones.
+    // The name is the final key, not the id, because the id is an OS handle
+    // (CGDirectDisplayID / HMONITOR) that can change between sessions, so the order
+    // — and therefore the default choice — would not be stable.
     displays.sort_by(|a, b| {
         (a.is_builtin, a.is_primary, &a.label).cmp(&(b.is_builtin, b.is_primary, &b.label))
     });
@@ -53,11 +59,11 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
     Ok(displays)
 }
 
-// WHY: display-info memakai satuan berbeda per platform. macOS mengambil dari
-// CGDisplayBounds dan Linux (X11/Wayland) sudah membagi sendiri dengan scale
-// factor, jadi keduanya poin logis; Windows memakai DEVMODE dmPosition/dmPelsWidth
-// yang piksel fisik. iced selalu menafsirkan window::Position::Specific sebagai
-// poin logis, sehingga hanya Windows yang perlu dikonversi.
+// WHY: display-info uses different units per platform. macOS reads
+// CGDisplayBounds and Linux (X11/Wayland) already divides by the scale factor
+// itself, so both are logical points; Windows uses DEVMODE dmPosition/dmPelsWidth,
+// which are physical pixels. iced always treats window::Position::Specific as
+// logical points, so only Windows needs converting.
 #[cfg(windows)]
 fn coordinate_divisor(scale_factor: f32) -> f32 {
     if scale_factor > 0.0 {

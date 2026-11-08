@@ -163,11 +163,11 @@ mod tests {
     }
 
     fn song(title: &str) -> Song {
-        Song::new(title, "[Verse 1]\nsatu\ndua", Some("© Uji"))
+        Song::new(title, "[Verse 1]\none\ntwo", Some("© Test"))
     }
 
     #[test]
-    fn lagu_tersimpan_utuh() {
+    fn song_round_trips_intact() {
         let mut library = library();
         let original = song("Kaulah Harapan");
 
@@ -177,10 +177,10 @@ mod tests {
     }
 
     #[test]
-    fn lagu_bisa_diubah() {
+    fn song_can_be_updated() {
         let mut library = library();
-        let id = library.insert_song(&song("Lama")).unwrap();
-        let changed = Song::new("Baru", "tiga", None);
+        let id = library.insert_song(&song("Old")).unwrap();
+        let changed = Song::new("New", "tiga", None);
 
         library.update_song(id, &changed).unwrap();
 
@@ -188,9 +188,9 @@ mod tests {
     }
 
     #[test]
-    fn judul_kosong_ditolak() {
+    fn empty_title_is_rejected() {
         let mut library = library();
-        let id = library.insert_song(&song("Ada")).unwrap();
+        let id = library.insert_song(&song("Existing")).unwrap();
 
         assert!(matches!(
             library.insert_song(&song("  ")),
@@ -203,29 +203,29 @@ mod tests {
     }
 
     #[test]
-    fn mengubah_lagu_yang_sudah_dihapus_gagal() {
+    fn updating_deleted_song_fails() {
         let mut library = library();
-        let id = library.insert_song(&song("Uji")).unwrap();
+        let id = library.insert_song(&song("Test")).unwrap();
         library.delete_song(id).unwrap();
 
         assert!(matches!(
-            library.update_song(id, &song("Uji")),
+            library.update_song(id, &song("Test")),
             Err(Error::NotFound)
         ));
         assert!(matches!(library.song(id), Err(Error::NotFound)));
     }
 
     #[test]
-    fn menghapus_dua_kali_tidak_gagal() {
+    fn deleting_twice_does_not_fail() {
         let mut library = library();
-        let id = library.insert_song(&song("Uji")).unwrap();
+        let id = library.insert_song(&song("Test")).unwrap();
 
         library.delete_song(id).unwrap();
         library.delete_song(id).unwrap();
     }
 
     #[test]
-    fn pencarian_kosong_menampilkan_semua_urut_judul() {
+    fn empty_search_lists_all_by_title() {
         let library = library_with(&[
             ("bapa Yang Kekal", ""),
             ("Allah Peduli", ""),
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn judul_dicari_dengan_awalan_kata() {
+    fn title_matches_word_prefix() {
         let library = library_with(&[("Kaulah Harapan", ""), ("Bapa Yang Kekal", "")]);
 
         assert_eq!(titles(&library, "kaul"), ["Kaulah Harapan"]);
@@ -247,40 +247,43 @@ mod tests {
     }
 
     #[test]
-    fn lirik_ikut_dicari() {
-        let library = library_with(&[("Uji", "[Reff]\nKaulah harapan di tengah badai")]);
+    fn lyrics_are_searched_too() {
+        let library = library_with(&[("Test", "[Reff]\nKaulah harapan di tengah badai")]);
 
-        assert_eq!(titles(&library, "badai"), ["Uji"]);
+        assert_eq!(titles(&library, "badai"), ["Test"]);
     }
 
     #[test]
-    fn semua_kata_harus_cocok() {
-        let library = library_with(&[("Satu", "kasih setia"), ("Dua", "kasih saja")]);
+    fn all_words_must_match() {
+        let library = library_with(&[("One", "kasih setia"), ("Two", "kasih saja")]);
 
-        assert_eq!(titles(&library, "kasih setia"), ["Satu"]);
+        assert_eq!(titles(&library, "kasih setia"), ["One"]);
     }
 
     #[test]
-    fn kecocokan_judul_didahulukan_dari_lirik() {
+    fn title_matches_rank_above_lyrics() {
         let library = library_with(&[
-            ("Lagu Lain", "di dalam lirik ada anugerah anugerah anugerah"),
+            (
+                "Other Song",
+                "di dalam lirik ada anugerah anugerah anugerah",
+            ),
             ("Anugerah", "tanpa kata itu"),
         ]);
 
-        assert_eq!(titles(&library, "anugerah"), ["Anugerah", "Lagu Lain"]);
+        assert_eq!(titles(&library, "anugerah"), ["Anugerah", "Other Song"]);
     }
 
     #[test]
-    fn tanda_baca_dan_diakritik_tidak_menghalangi() {
-        let library = library_with(&[("Uji", "Dari dulu hingga s'lamanya\nsejahtera")]);
+    fn punctuation_and_diacritics_do_not_block_matches() {
+        let library = library_with(&[("Test", "Dari dulu hingga s'lamanya\nsejahtera")]);
 
-        assert_eq!(titles(&library, "s'lamanya"), ["Uji"]);
-        assert_eq!(titles(&library, "sejahtéra"), ["Uji"]);
+        assert_eq!(titles(&library, "s'lamanya"), ["Test"]);
+        assert_eq!(titles(&library, "sejahtéra"), ["Test"]);
     }
 
     #[test]
-    fn input_aneh_tidak_pernah_error() {
-        let library = library_with(&[("Uji", "satu")]);
+    fn odd_input_never_errors() {
+        let library = library_with(&[("Test", "one")]);
 
         for query in [
             "\"",
@@ -291,9 +294,9 @@ mod tests {
             "(",
             ")",
             "NEAR(a b)",
-            "-satu",
-            "title:satu",
-            "^satu",
+            "-one",
+            "title:one",
+            "^one",
             "{}",
             "'",
             "a\"b",
@@ -304,14 +307,14 @@ mod tests {
     }
 
     #[test]
-    fn kata_operator_dicari_sebagai_kata_biasa() {
-        let library = library_with(&[("Uji", "satu"), ("Lain", "kasih and setia")]);
+    fn operator_words_are_searched_as_plain_words() {
+        let library = library_with(&[("Test", "one"), ("Other", "kasih and setia")]);
 
-        assert_eq!(titles(&library, "AND"), ["Lain"]);
+        assert_eq!(titles(&library, "AND"), ["Other"]);
     }
 
     #[test]
-    fn hasil_dibatasi() {
+    fn results_are_limited() {
         let library = library_with(&[("A", "kasih"), ("B", "kasih"), ("C", "kasih")]);
 
         assert_eq!(library.search_songs("kasih", 2).unwrap().len(), 2);
@@ -320,24 +323,22 @@ mod tests {
     }
 
     #[test]
-    fn indeks_ikut_berubah_saat_lagu_diubah_dan_dihapus() {
+    fn index_follows_song_updates_and_deletes() {
         let mut library = library_with(&[]);
-        let id = library
-            .insert_song(&Song::new("Lama", "satu", None))
-            .unwrap();
+        let id = library.insert_song(&Song::new("Old", "one", None)).unwrap();
 
         library
-            .update_song(id, &Song::new("Baru", "dua", None))
+            .update_song(id, &Song::new("New", "two", None))
             .unwrap();
-        assert!(titles(&library, "lama").is_empty());
-        assert_eq!(titles(&library, "baru"), ["Baru"]);
+        assert!(titles(&library, "old").is_empty());
+        assert_eq!(titles(&library, "new"), ["New"]);
 
         library.delete_song(id).unwrap();
-        assert!(titles(&library, "baru").is_empty());
+        assert!(titles(&library, "new").is_empty());
     }
 
     #[test]
-    fn ekspresi_dibatasi_delapan_kata() {
+    fn expression_is_limited_to_eight_words() {
         let expression = match_expression("a b c d e f g h i j").unwrap();
 
         assert_eq!(expression.matches('*').count(), 8);

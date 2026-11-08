@@ -9,7 +9,6 @@ const FORMAT: &str = "solideoworship-schedule";
 const VERSION: u32 = 1;
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ScheduleFileError {
     Io(io::Error),
     NotSchedule,
@@ -21,20 +20,16 @@ pub enum ScheduleFileError {
 impl fmt::Display for ScheduleFileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => write!(f, "File susunan acara tidak bisa diakses: {error}"),
-            Self::NotSchedule => f.write_str("File ini bukan susunan acara SolideoWorship."),
+            Self::Io(error) => write!(f, "Could not access the schedule file: {error}"),
+            Self::NotSchedule => f.write_str("This file is not a SolideoWorship schedule."),
             Self::NewerVersion(version) => write!(
                 f,
-                "File ini dibuat oleh versi SolideoWorship yang lebih baru (format versi \
-                 {version}). Perbarui aplikasi untuk membukanya."
+                "This file was created by a newer version of SolideoWorship (format version \
+                 {version}). Update the app to open it."
             ),
-            Self::Malformed(detail) => write!(f, "File susunan acara rusak: {detail}"),
+            Self::Malformed(detail) => write!(f, "The schedule file is broken: {detail}"),
             Self::InvalidItem { index } => {
-                write!(
-                    f,
-                    "Item ke-{} di file susunan acara tidak valid.",
-                    index + 1
-                )
+                write!(f, "Item {} in the schedule file is invalid.", index + 1)
             }
         }
     }
@@ -231,25 +226,25 @@ mod tests {
         let verses = vec![
             Verse {
                 number: 16,
-                text: "satu".into(),
+                text: "one".into(),
             },
             Verse {
                 number: 17,
-                text: "dua".into(),
+                text: "two".into(),
             },
         ];
 
         vec![
-            ScheduleItem::Song(Song::new("Kaulah Harapan", "[Reff]\nsatu", Some("© Uji"))),
+            ScheduleItem::Song(Song::new("Kaulah Harapan", "[Reff]\none", Some("© Test"))),
             ScheduleItem::Passage(Passage::new(reference, "TB", verses).unwrap()),
-            ScheduleItem::Song(Song::new("Tanpa Copyright", "dua", None)),
+            ScheduleItem::Song(Song::new("Tanpa Copyright", "two", None)),
         ]
     }
 
     #[test]
-    fn susunan_acara_tersimpan_utuh() {
+    fn schedule_round_trips_intact() {
         let dir = TempDir::new("schedule-roundtrip");
-        let path = dir.path().join("minggu.sdw");
+        let path = dir.path().join("sunday.sdw");
 
         save(&path, &items()).unwrap();
 
@@ -257,10 +252,10 @@ mod tests {
     }
 
     #[test]
-    fn menyimpan_menimpa_file_lama_tanpa_sisa_file_sementara() {
+    fn saving_overwrites_old_file_without_leftover_temp_file() {
         let dir = TempDir::new("schedule-overwrite");
-        let path = dir.path().join("minggu.sdw");
-        fs::write(&path, "isi lama").unwrap();
+        let path = dir.path().join("sunday.sdw");
+        fs::write(&path, "old contents").unwrap();
 
         save(&path, &items()[..1]).unwrap();
 
@@ -269,11 +264,11 @@ mod tests {
     }
 
     #[test]
-    fn gagal_menulis_file_sementara_tidak_menyentuh_file_lama() {
+    fn failed_temp_write_leaves_old_file_untouched() {
         let dir = TempDir::new("schedule-temp-fails");
-        let path = dir.path().join("minggu.sdw");
+        let path = dir.path().join("sunday.sdw");
         save(&path, &items()).unwrap();
-        fs::create_dir(dir.path().join("minggu.sdw.tmp")).unwrap();
+        fs::create_dir(dir.path().join("sunday.sdw.tmp")).unwrap();
 
         let result = save(&path, &items()[..1]);
 
@@ -282,9 +277,9 @@ mod tests {
     }
 
     #[test]
-    fn file_bisa_dibaca_manusia_dan_berversi() {
+    fn file_is_human_readable_and_versioned() {
         let dir = TempDir::new("schedule-format");
-        let path = dir.path().join("minggu.sdw");
+        let path = dir.path().join("sunday.sdw");
 
         save(&path, &items()).unwrap();
         let json = fs::read_to_string(&path).unwrap();
@@ -296,16 +291,16 @@ mod tests {
 
     fn open_text(name: &str, text: &str) -> Result<Vec<ScheduleItem>, ScheduleFileError> {
         let dir = TempDir::new(name);
-        let path = dir.path().join("uji.sdw");
+        let path = dir.path().join("test.sdw");
         fs::write(&path, text).unwrap();
 
         open(&path)
     }
 
     #[test]
-    fn file_sampah_bukan_susunan_acara() {
+    fn garbage_file_is_not_a_schedule() {
         assert!(matches!(
-            open_text("schedule-garbage", "bukan json"),
+            open_text("schedule-garbage", "not json"),
             Err(ScheduleFileError::NotSchedule)
         ));
         assert!(matches!(
@@ -318,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn versi_lebih_baru_ditolak() {
+    fn newer_version_is_rejected() {
         assert!(matches!(
             open_text(
                 "schedule-newer",
@@ -329,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn struktur_item_rusak_dilaporkan() {
+    fn malformed_item_structure_is_reported() {
         assert!(matches!(
             open_text(
                 "schedule-malformed",
@@ -340,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn item_tidak_valid_disebut_nomornya() {
+    fn invalid_item_is_reported_by_number() {
         let text = r#"{"format":"solideoworship-schedule","version":1,"items":[
             {"type":"song","title":"A","lyrics":"","copyright":null},
             {"type":"passage","book":99,"chapter":1,"verses":null,"translation":"TB",
@@ -354,11 +349,11 @@ mod tests {
     }
 
     #[test]
-    fn file_yang_tidak_ada_adalah_error_io() {
+    fn missing_file_is_an_io_error() {
         let dir = TempDir::new("schedule-missing");
 
         assert!(matches!(
-            open(&dir.path().join("tidak-ada.sdw")),
+            open(&dir.path().join("missing.sdw")),
             Err(ScheduleFileError::Io(_))
         ));
     }

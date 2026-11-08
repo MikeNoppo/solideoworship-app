@@ -3,6 +3,7 @@ use iced::{Center, Element, Fill};
 use sdw_core::OutputState;
 
 use crate::App;
+use crate::i18n::{Label, t};
 use crate::message::Message;
 use crate::style;
 
@@ -10,11 +11,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let is_open = app.output.is_some();
 
     let output_toggle = if is_open {
-        button("Tutup output")
+        button(t().toolbar.close_output)
             .on_press(Message::OutputDismissed)
             .style(button::danger)
     } else {
-        button("Buka output")
+        button(t().toolbar.open_output)
             .on_press_maybe(app.selected.map(|_| Message::OutputRequested))
             .style(button::success)
     };
@@ -22,8 +23,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let state_button = |state: OutputState| {
         button(text(state.label()))
             .on_press_maybe(is_open.then_some(Message::OutputStateChanged(state)))
-            // Saat output tertutup tidak ada status yang sedang berlaku, jadi tidak
-            // ada tombol yang boleh tampak aktif.
+            // While the output is closed no state is in effect, so no button may
+            // look active.
             .style(if is_open && app.output_state == state {
                 button::primary
             } else {
@@ -34,30 +35,30 @@ pub fn view(app: &App) -> Element<'_, Message> {
     container(
         row![
             text("SolideoWorship").size(18),
-            button("Baru")
+            button(t().toolbar.new)
                 .on_press(Message::ScheduleNewRequested)
                 .style(button::secondary),
-            button("Buka…")
+            button(t().toolbar.open)
                 .on_press(Message::ScheduleOpenRequested)
                 .style(button::secondary),
-            button("Simpan")
+            button(t().common.save)
                 .on_press(Message::ScheduleSaveRequested)
                 .style(button::secondary),
-            button("Simpan sebagai…")
+            button(t().toolbar.save_as)
                 .on_press(Message::ScheduleSaveAsRequested)
                 .style(button::secondary),
-            button("Layar")
+            button(t().toolbar.screens)
                 .on_press(Message::ScreensToggled)
                 .style(if app.screens_open {
                     button::primary
                 } else {
                     button::secondary
                 }),
-            button("Tema")
+            button(t().toolbar.theme)
                 .on_press(Message::ThemeRequested)
                 .style(button::secondary),
             space::horizontal(),
-            button("Tayangkan")
+            button(t().toolbar.go_live)
                 .on_press_maybe(app.schedule.preview().map(|_| Message::GoLive))
                 .style(button::primary),
             state_button(OutputState::Show),
@@ -91,16 +92,16 @@ pub fn screens(app: &App) -> Element<'_, Message> {
         });
 
     let body: Element<'_, Message> = if app.displays.is_empty() {
-        text("Belum ada layar terdeteksi.").size(13).into()
+        text(t().toolbar.no_screens).size(13).into()
     } else {
         choices.into()
     };
 
     container(
         row![
-            text("Layar output").size(13),
+            text(t().toolbar.output_screen).size(13),
             body,
-            button("Muat ulang")
+            button(t().toolbar.reload)
                 .on_press(Message::DisplaysRequested)
                 .style(button::secondary),
         ]

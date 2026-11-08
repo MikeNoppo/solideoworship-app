@@ -45,6 +45,14 @@ The app is an `iced::daemon`, not an `iced::application`, because it drives two 
 
 Songs and scripture both compile into a `SlideDeck` of `Slide`s. A schedule entry keeps its source `ScheduleItem` next to the compiled deck, so decks can be recompiled when slide limits change. The live engine and the renderer are meant to know only `Slide` — never where it came from. Adding images, video, or slide decks later should mean adding a compiler, not touching the live engine. Keep this boundary intact.
 
+### Internationalisation
+
+UI copy never appears as a literal in code. It lives in `crates/app/locales/<code>.json`; `en.json` is the source of truth. `crates/app/build.rs` turns the locales into nested `Strings` structs of `&'static str` plus one static table per language, so views read `i18n::t().section.key` and `text(..)` stays `Fragment::Borrowed` (rule 3 below). An unknown key, a mismatched `{placeholder}`, or leading/trailing whitespace in a translation fails the build; a missing or empty value falls back to English with a `cargo:warning`. Keep separators and spacing in the layout code, not in translations, and put a label used in several places under `common` instead of duplicating it. Counts use `_one`/`_other` key pairs picked with `i18n::plural`. Placeholders are filled with `i18n::fill`, only where a `String` is built anyway (status messages, errors), never for static labels. Fields never read trigger `dead_code`, which flags unused keys. Keys are snake_case; Rust keywords are emitted as raw identifiers (`t().theme.r#type`).
+
+The language is chosen once in `main` (`SDW_LANG`, then the `language`/`language.txt` file in the data dir, decoded from UTF-8 or UTF-16, then the OS locale via `sys-locale` — already compiled in through cosmic-text — then English) and stored in a `OnceLock`. There is no in-app switcher by design — the installer writes the `language` file — which is why `t()` can be a global instead of state threaded through every `view`.
+
+`sdw-core` and `sdw-library` stay free of i18n: their `Display` impls are English developer messages. The app maps their error variants to translated text through `i18n::Localize`, and enum labels through `i18n::Label` — both live in `i18n.rs`. The library error enums are deliberately not `#[non_exhaustive]`, so a new variant fails to compile until it is translated. Bible book names and abbreviations in `crates/core/src/bible.rs` are Indonesian *data* used by the reference parser, not UI copy; localizing them is deferred.
+
 ### Performance rules (deliberate, not incidental)
 
 1. Never load the whole library into memory. Song lists hold `(id, title)`; full lyrics load on selection. Bible verses are queried per displayed range.
@@ -82,4 +90,4 @@ Check the version resolved in `Cargo.lock` and read the crate source in `~/.carg
 
 ## Conventions
 
-Code comments are written in Indonesian, as is UI copy. Follow the global comment rules — comments explain *why*, not *what*.
+Code, identifiers, comments, test names, and docs are written in English. UI copy goes in the locale files (see Internationalisation), never in code. Follow the global comment rules — comments explain *why*, not *what*.

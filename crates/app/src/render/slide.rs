@@ -20,9 +20,9 @@ impl Visibility {
     };
 }
 
-// Kotak 16:9 yang mengisi ruang yang tersedia tanpa pernah mengubah proporsi. Dipakai
-// preview operator, panel live, dan jendela proyektor — satu fungsi, sehingga apa yang
-// dilihat operator selalu sama dengan yang dilihat jemaat.
+// A 16:9 box that fills the available space without ever changing its proportions.
+// Used by the operator preview, the live panel, and the projector window — one
+// function, so what the operator sees is always what the congregation sees.
 pub fn stage<'a, Message>(
     slide: Option<&'a Slide>,
     theme: &'a SlideTheme,
@@ -59,8 +59,8 @@ fn canvas<'a, Message>(
 where
     Message: 'a,
 {
-    // Semua ukuran tema dinyatakan pada kanvas 1920x1080, lalu diskalakan sekali di
-    // sini. Itu sebabnya thumbnail 160 px dan proyektor 1920 px punya tata letak sama.
+    // Every theme size is expressed on a 1920x1080 canvas and scaled once here.
+    // That is why a 160 px thumbnail and a 1920 px projector share the same layout.
     let scale = width / CANVAS_WIDTH;
     let height = width / CANVAS_RATIO;
 

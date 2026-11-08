@@ -2,6 +2,7 @@ use iced::widget::{column, container, scrollable, text};
 use iced::{Element, Fill, FillPortion};
 
 use crate::App;
+use crate::i18n::t;
 use crate::message::{Message, Step};
 use crate::panes::{notice, pane, thumbnails, title, transport};
 use crate::render::slide::{self, Visibility};
@@ -10,8 +11,8 @@ use crate::style;
 pub fn view(app: &App) -> Element<'_, Message> {
     let Some(preview) = app.schedule.preview() else {
         return pane(
-            title("Preview", None),
-            notice("Pilih item dari susunan acara, atau tambahkan dari library di bawah."),
+            title(t().common.preview, None),
+            notice(t().slides.preview_empty),
         );
     };
 
@@ -25,7 +26,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
             Message::PreviewSlideSelected,
         ))
         .height(FillPortion(4)),
-        container(text("Preview Output").size(11).style(text::secondary)).padding([4, 10]),
+        container(
+            text(t().slides.preview_output)
+                .size(11)
+                .style(text::secondary)
+        )
+        .padding([4, 10]),
         container(slide::stage(
             Some(preview.current()),
             theme,
@@ -45,5 +51,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(2);
 
-    pane(title("Preview", Some(&preview.deck().title)), body.into())
+    pane(
+        title(t().common.preview, Some(&preview.deck().title)),
+        body.into(),
+    )
 }
