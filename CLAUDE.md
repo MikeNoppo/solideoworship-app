@@ -14,6 +14,7 @@ Locked scope decisions: MVP covers **songs/lyrics and Bible verses only** (image
 cargo run -p sdw-app     # build + launch the app
 cargo check              # fast type-check while iterating
 cargo test -p sdw-core   # pure domain logic — no GUI needed
+cargo test --workspace   # everything, including SQLite against an in-memory database
 cargo clippy --all-targets
 cargo fmt
 ```
@@ -26,7 +27,9 @@ Cargo workspace. The split exists to keep iced out of the domain layer's rebuild
 
 - `crates/core` (`sdw-core`) — domain types and pure logic. **No iced, no rusqlite.** Unit-testable without a GUI.
 - `crates/app` (`sdw-app`) — the iced daemon binary.
-- `crates/library` (`sdw-library`) — planned: SQLite storage via `rusqlite` (`bundled` feature, FTS5). Not created yet.
+- `crates/library` (`sdw-library`) — SQLite storage via `rusqlite` (`bundled` feature, FTS5). One `Library` struct is the whole interface; `rusqlite` types never appear in it. Tests go through `Library::open_in_memory()`, not a trait.
+
+Schema changes are appended to `MIGRATIONS` in `migrate.rs` and tracked with `PRAGMA user_version`. Never edit a migration that has shipped — testers keep their databases between milestones.
 
 ### Two windows, one state
 
@@ -34,7 +37,7 @@ The app is an `iced::daemon`, not an `iced::application`, because it drives two 
 
 ### Planned unifying abstraction
 
-Songs and scripture both compile into a `SlideDeck` of `Slide`s. The live engine and the renderer are meant to know only `Slide` — never where it came from. Adding images, video, or slide decks later should mean adding a compiler, not touching the live engine. Keep this boundary intact.
+Songs and scripture both compile into a `SlideDeck` of `Slide`s. A schedule entry keeps its source `ScheduleItem` next to the compiled deck, so decks can be recompiled when slide limits change. The live engine and the renderer are meant to know only `Slide` — never where it came from. Adding images, video, or slide decks later should mean adding a compiler, not touching the live engine. Keep this boundary intact.
 
 ### Performance rules (deliberate, not incidental)
 
@@ -62,6 +65,8 @@ Most iced material online targets 0.12/0.13 and will not compile here.
 - `iced::run(update, view)` takes two args and requires `State: Default`; it is shorthand for `iced::application(State::default, update, view).run()`. Title, theme, subscription, and scale factor are builder methods on `application(..)`/`daemon(..)`.
 - `Command` no longer exists; async work returns `Task`.
 - Borrowed widget trees need an explicit lifetime: `Column<'_, Message>`.
+- **Never block inside `Task::perform`.** With the `smol` feature, task futures, subscription streams, and event forwarding share smol's single executor thread, and events reach `listen_with` through a bounded channel that drops on overflow. A slow query there loses operator key presses. SQLite goes through `work::Store::run` (one dedicated thread, FIFO); other blocking work goes through `work::background`.
+- `text_input` without `on_submit` lets Enter through as `Status::Ignored`, and `text_editor` never captures Escape. Global shortcuts would fire while typing, so every `text_input` in the operator window gets an `on_submit`, and while a dialog is open the subscription swaps to dialog-only shortcuts (no Escape mapping).
 
 Check the version resolved in `Cargo.lock` and read the crate source in `~/.cargo/registry` rather than assuming an API exists.
 
