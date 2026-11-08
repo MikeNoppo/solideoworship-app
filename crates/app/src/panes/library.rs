@@ -1,4 +1,4 @@
-use iced::widget::{Column, button, column, container, row, scrollable, text, text_input};
+use iced::widget::{Column, button, column, container, row, scrollable, space, text, text_input};
 use iced::{Center, Element, Fill};
 
 use crate::message::{LibraryTab, Message};
@@ -35,6 +35,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .on_submit(Message::SearchSubmitted)
                 .size(13)
                 .width(260),
+            space::horizontal(),
+            (app.library_tab == LibraryTab::Songs).then(|| {
+                button(text("Lagu baru").size(13))
+                    .padding([4, 12])
+                    .on_press(Message::SongCreateRequested)
+                    .style(button::success)
+            }),
         ]
         .spacing(12)
         .align_y(Center)
@@ -58,7 +65,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 fn songs(app: &App) -> Element<'_, Message> {
     if app.song_results.is_empty() {
         return notice(if app.search.trim().is_empty() {
-            "Library lagu masih kosong."
+            "Library lagu masih kosong. Klik Lagu baru untuk menambahkan lagu pertama."
         } else {
             "Tidak ada lagu yang cocok dengan pencarian."
         });
@@ -68,7 +75,17 @@ fn songs(app: &App) -> Element<'_, Message> {
         .song_results
         .iter()
         .fold(column![].spacing(3), |list, song| {
-            list.push(result(&song.title, Message::SongPicked(song.id)))
+            list.push(
+                row![
+                    result(&song.title, Message::SongPicked(song.id)),
+                    button(text("Ubah").size(12))
+                        .padding([6, 10])
+                        .on_press(Message::SongEditRequested(song.id))
+                        .style(button::secondary),
+                ]
+                .spacing(4)
+                .align_y(Center),
+            )
         });
 
     let results = if app.song_results.len() >= SONG_LIMIT {

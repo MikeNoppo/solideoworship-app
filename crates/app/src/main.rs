@@ -1,4 +1,5 @@
 mod display;
+mod editor;
 mod message;
 mod panes;
 mod paths;
@@ -12,12 +13,14 @@ mod work;
 use std::time::Duration;
 
 use iced::keyboard::{self, key::Named};
+use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
-use sdw_core::{OutputState, Presentation, ScheduleItem, Styles};
-use sdw_library::SongSummary;
+use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
+use sdw_library::{SongId, SongSummary};
 
 use crate::display::Display;
+use crate::editor::Editor;
 use crate::message::{LibraryTab, Message, Step};
 use crate::sample::Sample;
 use crate::schedule::Schedule;
@@ -67,6 +70,7 @@ struct App {
     library_error: Option<Box<str>>,
 
     song_results: Vec<SongSummary>,
+    editor: Option<Editor>,
     catalogue: Vec<Sample>,
     schedule: Schedule,
     styles: Styles,
@@ -266,19 +270,79 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SongPicked(id) => self
-                .store
-                .run(move |library| library.song(id), Message::SongLoaded),
-            Message::SongLoaded(result) => {
+            Message::SongPicked(id) => self.store.run(
+                move |library| library.song(id),
+                move |result| Message::SongLoaded(id, result),
+            ),
+            Message::SongLoaded(id, result) => {
                 match result {
-                    Ok(song) => self.schedule.push(ScheduleItem::Song(song), &self.styles),
+                    Ok(song) => {
+                        self.schedule
+                            .push(ScheduleItem::Song(song), Some(id), &self.styles);
+                    }
                     Err(error) => self.library_error = Some(error),
                 }
                 Task::none()
             }
+            Message::SongCreateRequested => self.open_editor(None, &Song::new("", "", None)),
+            Message::SongEditRequested(id) => self.store.run(
+                move |library| library.song(id),
+                move |result| Message::SongEditLoaded(id, result),
+            ),
+            Message::SongEditLoaded(id, result) => match result {
+                Ok(song) => self.open_editor(Some(id), &song),
+                Err(error) => {
+                    self.library_error = Some(error);
+                    Task::none()
+                }
+            },
+            Message::Editor(message) => {
+                let Some(editor) = &mut self.editor else {
+                    return Task::none();
+                };
+
+                match editor.update(message) {
+                    editor::Action::None => Task::none(),
+                    editor::Action::Close => {
+                        self.editor = None;
+                        Task::none()
+                    }
+                    editor::Action::Save { origin, song } => self.store.run(
+                        move |library| {
+                            let id = match origin {
+                                Some(id) => library.update_song(id, &song).map(|()| id)?,
+                                None => library.insert_song(&song)?,
+                            };
+
+                            Ok((id, song))
+                        },
+                        Message::SongSaved,
+                    ),
+                    editor::Action::Delete(id) => self.store.run(
+                        move |library| library.delete_song(id),
+                        move |result| Message::SongDeleted(id, result),
+                    ),
+                }
+            }
+            Message::SongSaved(result) => match result {
+                Ok((id, song)) => {
+                    self.editor = None;
+                    self.schedule.replace_song(id, &song, &self.styles);
+                    self.search_songs()
+                }
+                Err(error) => self.editor_failed(error),
+            },
+            Message::SongDeleted(id, result) => match result {
+                Ok(()) => {
+                    self.editor = None;
+                    self.schedule.forget_song(id);
+                    self.search_songs()
+                }
+                Err(error) => self.editor_failed(error),
+            },
             Message::LibraryAdded(index) => {
                 if let Some(sample) = self.catalogue.get(index) {
-                    self.schedule.push(sample.item.clone(), &self.styles);
+                    self.schedule.push(sample.item.clone(), None, &self.styles);
                 }
                 Task::none()
             }
@@ -313,6 +377,14 @@ impl App {
             Phase::Splash if self.splash_ready => subscriptions
                 .push(iced::time::every(SPLASH_MINIMUM).map(|_| Message::SplashElapsed)),
             Phase::Splash => {}
+            Phase::Operator if self.editor.is_some() => {
+                subscriptions.push(event::listen_with(|event, _status, _window| match event {
+                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                        key, modifiers, ..
+                    }) if modifiers.command() => editor_shortcut(key),
+                    _ => None,
+                }));
+            }
             Phase::Operator => subscriptions.push(event::listen_with(|event, status, _window| {
                 match (event, status) {
                     (
@@ -359,6 +431,21 @@ impl App {
         // Splash baru ditutup setelah jendela kontrol benar-benar terbuka, supaya tidak
         // ada jeda kosong tanpa jendela sama sekali.
         opened.discard().chain(Task::done(Message::ControlOpened))
+    }
+
+    fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
+        self.editor = Some(Editor::new(origin, song, self.styles.song.max_lines));
+
+        operation::focus(editor::TITLE_INPUT)
+    }
+
+    fn editor_failed(&mut self, error: Box<str>) -> Task<Message> {
+        match &mut self.editor {
+            Some(editor) => editor.fail(error),
+            None => self.library_error = Some(error),
+        }
+
+        Task::none()
     }
 
     fn search_songs(&self) -> Task<Message> {
@@ -491,6 +578,13 @@ impl App {
 // membekukan event loop, termasuk jendela output ke proyektor.
 fn load_displays() -> Task<Message> {
     work::background(display::all).map(Message::DisplaysLoaded)
+}
+
+fn editor_shortcut(key: keyboard::Key) -> Option<Message> {
+    match key.as_ref() {
+        keyboard::Key::Character("s") => Some(Message::Editor(editor::Message::Save)),
+        _ => None,
+    }
 }
 
 fn shortcut(key: keyboard::Key) -> Option<Message> {

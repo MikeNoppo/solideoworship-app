@@ -4,6 +4,7 @@ use sdw_core::{OutputState, Presentation, Song};
 use sdw_library::{SongId, SongSummary};
 
 use crate::display::Display;
+use crate::editor;
 use crate::work::Outcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +81,12 @@ pub enum Message {
     SearchSubmitted,
     SongsFound(Box<str>, Outcome<Vec<SongSummary>>),
     SongPicked(SongId),
-    SongLoaded(Outcome<Song>),
+    SongLoaded(SongId, Outcome<Song>),
+    SongCreateRequested,
+    SongEditRequested(SongId),
+    SongEditLoaded(SongId, Outcome<Song>),
+    SongSaved(Outcome<(SongId, Song)>),
+    SongDeleted(SongId, Outcome<()>),
+    Editor(editor::Message),
     LibraryAdded(usize),
 }

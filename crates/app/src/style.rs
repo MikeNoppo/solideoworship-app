@@ -41,6 +41,27 @@ pub fn screen(_theme: &Theme) -> container::Style {
     }
 }
 
+pub fn backdrop(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+        ..container::Style::default()
+    }
+}
+
+pub fn dialog(theme: &Theme) -> container::Style {
+    let palette = theme.extended_palette();
+
+    container::Style {
+        background: Some(palette.background.base.color.into()),
+        border: Border {
+            radius: 8.0.into(),
+            width: 1.0,
+            color: palette.background.strong.color,
+        },
+        ..container::Style::default()
+    }
+}
+
 pub fn splash(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
 

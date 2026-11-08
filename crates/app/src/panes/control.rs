@@ -1,9 +1,10 @@
-use iced::widget::{column, container, row, text};
+use iced::widget::{center, column, container, opaque, row, stack, text};
 use iced::{Element, Fill, FillPortion};
 
 use crate::App;
 use crate::message::Message;
 use crate::panes::{library, live, preview, schedule, toolbar};
+use crate::style;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let stage = row![
@@ -31,5 +32,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .height(Fill),
     );
 
-    container(layout).width(Fill).height(Fill).into()
+    let base = container(layout).width(Fill).height(Fill);
+
+    match &app.editor {
+        Some(editor) => stack![
+            base,
+            opaque(
+                center(editor.view(&app.styles.song.theme).map(Message::Editor))
+                    .padding(32)
+                    .style(style::backdrop),
+            ),
+        ]
+        .into(),
+        None => base.into(),
+    }
 }

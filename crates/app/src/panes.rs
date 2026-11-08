@@ -6,11 +6,16 @@ pub mod schedule;
 pub mod splash;
 pub mod toolbar;
 
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, grid, row, text};
 use iced::{Center, Element, Fill};
+use sdw_core::slide::Slide;
+use sdw_core::theme::SlideTheme;
 
 use crate::message::Message;
+use crate::render::slide;
 use crate::style;
+
+const THUMBNAIL_WIDTH: f32 = 146.0;
 
 pub fn pane<'a>(title: Element<'a, Message>, body: Element<'a, Message>) -> Element<'a, Message> {
     container(
@@ -65,4 +70,34 @@ pub fn transport(
     .spacing(8)
     .align_y(Center)
     .into()
+}
+
+pub fn thumbnails<'a, M>(
+    slides: &'a [Slide],
+    selected: usize,
+    theme: &'a SlideTheme,
+    on_select: impl Fn(usize) -> M,
+) -> Element<'a, M>
+where
+    M: Clone + 'a,
+{
+    let items = slides.iter().enumerate().map(|(index, item)| {
+        let is_selected = selected == index;
+
+        button(
+            column![
+                slide::thumbnail(item, theme, THUMBNAIL_WIDTH),
+                text(item.label.as_deref().unwrap_or(""))
+                    .size(11)
+                    .style(style::caption(is_selected)),
+            ]
+            .spacing(3),
+        )
+        .padding(4)
+        .on_press(on_select(index))
+        .style(style::row(is_selected))
+        .into()
+    });
+
+    grid(items).fluid(THUMBNAIL_WIDTH + 16.0).spacing(6).into()
 }
