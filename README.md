@@ -75,13 +75,14 @@ While a dialog (song editor, theme settings) is open, operator shortcuts are dis
 
 ## Language
 
-The interface language is chosen once, at startup. There is deliberately no language switcher inside the app. The installer will write the choice, and until then it can be set by hand:
+The interface language is chosen once, at startup. There is deliberately no language switcher inside the app. The first match wins:
 
 1. The `SDW_LANG` environment variable, e.g. `SDW_LANG=id`.
-2. Otherwise, a plain-text file named `language` in the [data folder](#data-location) containing a language code such as `id` or `en`.
-3. Otherwise, English.
+2. A plain-text file named `language` (or `language.txt`) in the [data folder](#data-location) containing a language code such as `id` or `en`. The installer will write this file; until then it can be created by hand. UTF-8 (with or without BOM) and UTF-16, as written by Notepad or PowerShell, are all accepted. An unrecognized code is reported on the console.
+3. The operating system's language, if it is one the app supports.
+4. Otherwise, English.
 
-Codes are case-insensitive and may carry a region (`id-ID`, `en_US.UTF-8`). Unknown codes fall back to English.
+Codes are case-insensitive and may carry a region (`id-ID`, `en_US.UTF-8`).
 
 ### Adding a translation
 
@@ -90,7 +91,9 @@ UI text lives in [`crates/app/locales`](crates/app/locales), one JSON file per l
 1. Copy `en.json` to `<code>.json` (a lowercase language code, e.g. `de.json`) and translate the values. Leave keys and `{placeholders}` unchanged.
 2. Run `cargo build`. The build script turns every locale into a static table, so the new language is picked up automatically.
 
-The build fails if a translation has a key that does not exist in `en.json` or uses different placeholders. A missing or empty value falls back to English with a build warning, so a partial translation still builds.
+Messages with a count come in pairs: `_one` is used when the count is exactly 1, `_other` otherwise. Languages without plural forms use the same text for both.
+
+The build fails if a translation has a key that does not exist in `en.json`, uses different placeholders, or starts or ends with whitespace (spacing belongs in the layout, not the text). A missing or empty value falls back to English with a build warning, so a partial translation still builds.
 
 ## Roadmap
 
