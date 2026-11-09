@@ -79,42 +79,53 @@ impl SongSlides<'_> {
 }
 
 pub fn scripture(passage: &Passage, max_chars: usize) -> SlideDeck {
-    let max_chars = max_chars.max(1);
     let reference = passage.reference();
     let translation = passage.translation();
     let book_chapter = format!("{} {}", reference.book().name(), reference.chapter());
-    let verses = passage.verses();
-    let mut slides = Vec::new();
-    let mut start = 0;
-    let mut length = 0;
-
-    for (index, verse) in verses.iter().enumerate() {
-        let chars = verse.text.chars().count();
-
-        // A verse is never split in the middle; the character limit only decides how many
-        // whole verses fit on one slide.
-        if index > start && length + chars > max_chars {
-            slides.push(verse_slide(
-                &book_chapter,
-                translation,
-                &verses[start..index],
-            ));
-            start = index;
-            length = 0;
-        }
-
-        length += chars;
-    }
-
-    if start < verses.len() {
-        slides.push(verse_slide(&book_chapter, translation, &verses[start..]));
-    }
+    let slides = verse_groups(passage.verses(), max_chars)
+        .map(|group| verse_slide(&book_chapter, translation, group))
+        .collect();
 
     SlideDeck {
         title: format!("{reference} ({translation})").into_boxed_str(),
         kind: ContentKind::Scripture,
         slides,
     }
+}
+
+pub fn scripture_len(passage: &Passage, max_chars: usize) -> usize {
+    verse_groups(passage.verses(), max_chars).count()
+}
+
+fn verse_groups(verses: &[Verse], max_chars: usize) -> impl Iterator<Item = &[Verse]> {
+    let max_chars = max_chars.max(1);
+    let mut rest = verses;
+
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+
+        let mut length = 0;
+        let mut end = 0;
+
+        for (index, verse) in rest.iter().enumerate() {
+            let chars = verse.text.chars().count();
+
+            // A verse is never split in the middle; the character limit only decides how many
+            // whole verses fit on one slide.
+            if index > 0 && length + chars > max_chars {
+                break;
+            }
+
+            length += chars;
+            end = index + 1;
+        }
+
+        let (group, tail) = rest.split_at(end);
+        rest = tail;
+        Some(group)
+    })
 }
 
 fn verse_slide(book_chapter: &str, translation: &str, group: &[Verse]) -> Slide {
@@ -142,7 +153,7 @@ fn verse_slide(book_chapter: &str, translation: &str, group: &[Verse]) -> Slide 
 
 #[cfg(test)]
 mod tests {
-    use super::{scripture, song};
+    use super::{scripture, scripture_len, song};
     use crate::bible::{Book, Passage, Reference, Verse};
     use crate::song::Song;
 
@@ -299,6 +310,30 @@ mod tests {
         assert_eq!(deck.len(), 2);
         assert!(deck.slides[0].body.starts_with("16 "));
         assert!(deck.slides[1].body.starts_with("17 "));
+    }
+
+    #[test]
+    fn slide_count_matches_the_compiled_deck() {
+        let verses = (1..=40)
+            .map(|number| {
+                (
+                    number,
+                    if number % 3 == 0 {
+                        "a much longer verse text"
+                    } else {
+                        "short"
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let passage = passage(19, 119, &verses);
+
+        for max_chars in [1, 20, 60, 220, 10_000] {
+            assert_eq!(
+                scripture_len(&passage, max_chars),
+                scripture(&passage, max_chars).len()
+            );
+        }
     }
 
     #[test]
