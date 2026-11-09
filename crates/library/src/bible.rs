@@ -15,6 +15,7 @@ pub struct BibleSummary {
     pub id: BibleId,
     pub abbreviation: Box<str>,
     pub title: Box<str>,
+    pub verses: u32,
 }
 
 impl fmt::Display for BibleSummary {
@@ -39,13 +40,16 @@ impl Library {
         let bibles = self
             .conn
             .prepare_cached(
-                "SELECT id, abbreviation, title FROM bibles ORDER BY abbreviation COLLATE NOCASE",
+                "SELECT id, abbreviation, title, \
+                 (SELECT COUNT(*) FROM verses WHERE bible_id = bibles.id) \
+                 FROM bibles ORDER BY abbreviation COLLATE NOCASE",
             )?
             .query_map([], |row| {
                 Ok(BibleSummary {
                     id: BibleId(row.get(0)?),
                     abbreviation: row.get::<_, String>(1)?.into_boxed_str(),
                     title: row.get::<_, String>(2)?.into_boxed_str(),
+                    verses: row.get(3)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -119,6 +123,7 @@ impl Library {
                 id: BibleId(id),
                 abbreviation: abbreviation.into(),
                 title: title.into(),
+                verses,
             },
             verses,
             skipped: duplicates + reader.skipped(),
