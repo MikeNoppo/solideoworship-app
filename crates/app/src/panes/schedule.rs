@@ -162,6 +162,7 @@ fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message
             )),
     )
     .on_press(Message::DragStarted(index))
+    .on_release(Message::DragEnded)
     .on_enter(Message::RowHovered(Some(index)))
     .interaction(iced::mouse::Interaction::Pointer)
     .into()
