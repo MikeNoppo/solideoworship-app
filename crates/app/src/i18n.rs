@@ -234,7 +234,26 @@ pub fn plural(count: u64, one: &'static str, other: &'static str) -> &'static st
 }
 
 pub fn count(value: usize, one: &'static str, other: &'static str) -> Box<str> {
-    fill(plural(value as u64, one, other), &[("count", &value)]).into_boxed_str()
+    fill(
+        plural(value as u64, one, other),
+        &[("count", &grouped(value as u64))],
+    )
+    .into_boxed_str()
+}
+
+pub fn grouped(value: u64) -> String {
+    let digits = value.to_string();
+    let separator = t().common.digit_group;
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3 * separator.len());
+
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push_str(separator);
+        }
+        grouped.push(digit);
+    }
+
+    grouped
 }
 
 pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
@@ -272,6 +291,16 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+
+    #[test]
+    fn large_counts_are_grouped_by_thousands() {
+        let separator = t().common.digit_group;
+
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(31_102), format!("31{separator}102"));
+        assert_eq!(grouped(1_234_567), format!("1{separator}234{separator}567"));
+    }
 
     #[test]
     fn every_language_has_a_table() {

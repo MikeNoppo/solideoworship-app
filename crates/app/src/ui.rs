@@ -260,16 +260,27 @@ pub fn empty<'a, M: 'a>(
         icon::view(glyph, 20.0, style::TEXT_3).into()
     };
 
-    column![symbol, label(title, 13.0, style::SEMIBOLD, style::TEXT)]
-        .push(body.map(|body| {
-            label(body, 12.0, style::INTER, style::TEXT_3)
-                .line_height(1.45)
-                .align_x(Center)
-                .width(Fill)
-        }))
-        .spacing(10)
-        .align_x(Center)
-        .into()
+    empty_with(symbol, title, body)
+}
+
+pub fn empty_with<'a, M: 'a>(
+    symbol: impl Into<Element<'a, M>>,
+    title: &'a str,
+    body: Option<&'a str>,
+) -> Element<'a, M> {
+    column![
+        symbol.into(),
+        label(title, 13.0, style::SEMIBOLD, style::TEXT)
+    ]
+    .push(body.map(|body| {
+        label(body, 12.0, style::INTER, style::TEXT_3)
+            .line_height(1.45)
+            .align_x(Center)
+            .width(Fill)
+    }))
+    .spacing(10)
+    .align_x(Center)
+    .into()
 }
 
 pub fn sheet<'a, M: 'a>(

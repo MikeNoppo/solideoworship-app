@@ -120,18 +120,6 @@ pub fn slide_card<'a, M: Clone + 'a>(card: Card<'a>, on_press: M) -> Element<'a,
         .into()
 }
 
-pub fn notice<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
-    container(text(message).size(13).style(text::secondary))
-        .padding(12)
-        .into()
-}
-
-pub fn alert<'a, M: 'a>(message: &'a str) -> Element<'a, M> {
-    container(text(message).size(13).style(text::danger))
-        .padding(12)
-        .into()
-}
-
 pub fn dialog<'a, M>(content: impl Into<Element<'a, M>>) -> Element<'a, M>
 where
     M: 'a,

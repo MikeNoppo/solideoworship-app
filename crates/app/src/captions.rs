@@ -2,6 +2,7 @@ use sdw_core::{ContentKind, OutputState};
 
 use crate::App;
 use crate::i18n::{Label, count, fill, t};
+use crate::message::LibraryTab;
 
 #[derive(Default)]
 pub struct Captions {
@@ -226,6 +227,12 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
             }
             None => format!("{on_air} · {}", status.nothing_live),
         };
+    }
+
+    if app.library_tab == LibraryTab::Scripture
+        && let Some(status) = app.bible.status()
+    {
+        return status;
     }
 
     if app.schedule.is_recovered() {

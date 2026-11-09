@@ -50,6 +50,7 @@ pub enum Notice {
 pub enum Menu {
     Schedule,
     Screens,
+    Translations,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,8 +2,10 @@ use iced::widget::{Column, button, column, container, hover, row, stack, text_in
 use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_library::SongSummary;
 
+use crate::bible_tab;
 use crate::i18n::{Label, t};
-use crate::message::{LibraryTab, Message};
+use crate::message::{LibraryTab, Menu, Message};
+use crate::popover::{Align, popover};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, icon_button, label};
 use crate::{App, icon};
@@ -75,7 +77,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ),
         LibraryTab::Scripture => (
             row![
-                container(app.bible.header().map(Message::Bible)).width(Fill),
+                translations(app, enabled),
+                app.bible.input().map(Message::Bible),
                 action(
                     Tone::Secondary,
                     Some(icon::LIBRARY),
@@ -283,6 +286,72 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
     .style(style::fill(style::RAISED));
 
     hover(base, container(actions).align_right(Fill).center_y(40))
+}
+
+fn translations(app: &App, enabled: bool) -> Element<'_, Message> {
+    let selected = app.bible.selected();
+    let has_bibles = enabled && !app.bible.bibles().is_empty();
+
+    let anchor = button(
+        row![
+            label(
+                selected.map_or(t().bible.no_translation, |bible| &bible.abbreviation),
+                13.0,
+                style::SEMIBOLD,
+                style::fade(style::TEXT, has_bibles),
+            ),
+            icon::view(icon::CHEVRON_DOWN, 14.0, style::TEXT_3),
+        ]
+        .spacing(8)
+        .height(Fill)
+        .align_y(Center),
+    )
+    .height(32)
+    .padding([0, 10])
+    .on_press_maybe(has_bibles.then_some(Message::MenuToggled(Menu::Translations)))
+    .style(style::pressable(Tone::Secondary, 8.0));
+
+    let menu = (app.menu == Some(Menu::Translations)).then(|| {
+        let items = app
+            .bible
+            .bibles()
+            .iter()
+            .fold(Column::new().spacing(2), |list, bible| {
+                let is_selected = selected.is_some_and(|selected| selected.id == bible.id);
+
+                list.push(
+                    button(
+                        row![
+                            label(&bible.abbreviation, 13.0, style::SEMIBOLD, style::TEXT)
+                                .width(56),
+                            label(&bible.title, 13.0, style::INTER, style::TEXT_2).width(Fill),
+                        ]
+                        .push(is_selected.then(|| icon::view(icon::CHECK, 14.0, style::TEXT)))
+                        .spacing(10)
+                        .align_y(Center),
+                    )
+                    .width(Fill)
+                    .padding([8, 10])
+                    .on_press(Message::Bible(bible_tab::Message::BibleSelected(bible.id)))
+                    .style(style::pressable(
+                        if is_selected {
+                            Tone::Selected
+                        } else {
+                            Tone::Row
+                        },
+                        6.0,
+                    )),
+                )
+            });
+
+        container(items)
+            .width(300)
+            .padding(6)
+            .style(style::menu)
+            .into()
+    });
+
+    popover(anchor, menu, Align::Start, Message::MenuDismissed).into()
 }
 
 fn placeholder(content: Element<'_, Message>) -> Element<'_, Message> {

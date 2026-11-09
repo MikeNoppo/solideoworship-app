@@ -301,6 +301,17 @@ pub fn field(_theme: &Theme, status: text_input::Status) -> text_input::Style {
     }
 }
 
+pub fn invalid_field(theme: &Theme, status: text_input::Status) -> text_input::Style {
+    text_input::Style {
+        border: Border {
+            color: LIVE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..field(theme, status)
+    }
+}
+
 pub fn screen(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Color::BLACK.into()),

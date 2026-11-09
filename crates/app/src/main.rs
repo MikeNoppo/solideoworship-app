@@ -600,6 +600,9 @@ impl App {
             Message::ModalDismissed => match &self.modal {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Dismiss)),
                 Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Cancel)),
+                Some(Modal::Bibles(_)) => {
+                    self.update(Message::BibleManager(bible_manager::Message::Close))
+                }
                 _ => Task::none(),
             },
             Message::ThemeRequested => {
@@ -742,6 +745,10 @@ impl App {
                 }
             }
             Message::Bible(message) => {
+                if matches!(message, bible_tab::Message::BibleSelected(_)) {
+                    self.menu = None;
+                }
+
                 let action = self.bible.update(message);
                 self.bible_action(action)
             }
@@ -760,7 +767,12 @@ impl App {
                 }
             },
             Message::PassageFound(bible, reference, result) => {
-                let action = self.bible.found(bible, &reference, result);
+                let action = self.bible.found(
+                    bible,
+                    &reference,
+                    result,
+                    usize::from(self.styles.scripture.max_chars),
+                );
                 self.bible_action(action)
             }
             Message::BibleManagerRequested => {
