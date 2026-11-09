@@ -13,7 +13,8 @@
     "disconnected": "Disconnected",
     "verses_one": "{count} verse",
     "verses_other": "{count} verses",
-    "digit_group": ","
+    "digit_group": ",",
+    "undo": "Undo"
   },
   "app": {
     "output_window_title": "SolideoWorship — Output",
@@ -75,7 +76,8 @@
     "empty_body": "Songs and passages you add from the library show up here, in service order.",
     "tip_title": "Build the service order",
     "tip_body": "Add songs or verses from the library below. Drag rows to reorder, Delete removes the selected item.",
-    "remove": "Remove from schedule"
+    "remove": "Remove from schedule",
+    "removed": "“{title}” was removed from the schedule"
   },
   "welcome": {
     "eyebrow": "WELCOME",

@@ -178,6 +178,18 @@ fn toast(toast: &Toast) -> Element<'_, Message> {
             icon::TRASH_2,
             ui::icon_button(icon::X, style::TEXT_3, 28.0, Some(Message::ToastDismissed)).into(),
         ),
+        Toast::Removed { .. } => (
+            icon::TRASH_2,
+            action(
+                Tone::Secondary,
+                None,
+                t().common.undo,
+                None,
+                Some(Message::ToastAccepted),
+            )
+            .height(28)
+            .into(),
+        ),
     };
 
     container(

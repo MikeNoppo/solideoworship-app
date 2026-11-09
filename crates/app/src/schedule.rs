@@ -258,12 +258,12 @@ impl Schedule {
         });
     }
 
-    pub fn remove(&mut self, index: usize) {
+    pub fn remove(&mut self, index: usize) -> Option<Entry> {
         if index >= self.entries.len() {
-            return;
+            return None;
         }
 
-        self.entries.remove(index);
+        let entry = self.entries.remove(index);
         self.revision += 1;
 
         match self.selected {
@@ -276,6 +276,16 @@ impl Schedule {
             }
             _ => {}
         }
+
+        Some(entry)
+    }
+
+    pub fn reinsert(&mut self, index: usize, entry: Entry) {
+        let index = index.min(self.entries.len());
+
+        self.entries.insert(index, entry);
+        self.revision += 1;
+        self.select(index);
     }
 
     fn refresh_preview(&mut self) {
@@ -342,6 +352,19 @@ mod tests {
         let preview = schedule.preview().unwrap();
 
         assert!(Arc::ptr_eq(&preview.share(), &schedule.entries[0].deck));
+    }
+
+    #[test]
+    fn removed_entry_can_be_put_back_in_place() {
+        let mut schedule = schedule(&["A", "B", "C"]);
+        let key = schedule.entries[1].key();
+
+        let entry = schedule.remove(1).unwrap();
+        schedule.reinsert(1, entry);
+
+        assert_eq!(schedule.entries[1].key(), key);
+        assert_eq!(preview_title(&schedule), Some("B"));
+        assert!(schedule.remove(9).is_none());
     }
 
     #[test]

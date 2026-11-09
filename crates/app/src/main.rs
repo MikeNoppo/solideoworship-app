@@ -98,21 +98,29 @@ struct Drag {
 }
 
 enum Toast {
-    Saved { id: SongId, text: Box<str> },
+    Saved {
+        id: SongId,
+        text: Box<str>,
+    },
     Deleted(Box<str>),
+    Removed {
+        index: usize,
+        entry: Entry,
+        text: Box<str>,
+    },
 }
 
 impl Toast {
     fn saved(&self) -> Option<SongId> {
         match self {
             Self::Saved { id, .. } => Some(*id),
-            Self::Deleted(_) => None,
+            Self::Deleted(_) | Self::Removed { .. } => None,
         }
     }
 
     fn text(&self) -> &str {
         match self {
-            Self::Saved { text, .. } | Self::Deleted(text) => text,
+            Self::Saved { text, .. } | Self::Deleted(text) | Self::Removed { text, .. } => text,
         }
     }
 }
@@ -363,8 +371,7 @@ impl App {
             }
 
             Message::ScheduleRemoved(index) => {
-                self.schedule.remove(index);
-                self.hovered_row = None;
+                self.remove_entry(index);
                 Task::none()
             }
             Message::RowHovered(row) => {
@@ -393,7 +400,7 @@ impl App {
             }
             Message::SelectedRemoved => {
                 if let Some(index) = self.schedule.selected() {
-                    self.schedule.remove(index);
+                    self.remove_entry(index);
                 }
                 Task::none()
             }
@@ -601,6 +608,10 @@ impl App {
             }
             Message::ToastAccepted => match self.toast.take() {
                 Some(Toast::Saved { id, .. }) => self.update(Message::SongPicked(id)),
+                Some(Toast::Removed { index, entry, .. }) => {
+                    self.schedule.reinsert(index, entry);
+                    Task::none()
+                }
                 _ => Task::none(),
             },
             Message::ModalDismissed => match &self.modal {
@@ -959,6 +970,17 @@ impl App {
                 window::size(id).map(move |size| Message::WindowResized(id, size)),
             ])
         })
+    }
+
+    fn remove_entry(&mut self, index: usize) {
+        let Some(entry) = self.schedule.remove(index) else {
+            return;
+        };
+
+        self.hovered_row = None;
+        self.drag = None;
+        let text = fill(t().schedule.removed, &[("title", &entry.deck().title)]).into_boxed_str();
+        self.show_toast(Toast::Removed { index, entry, text });
     }
 
     fn show_toast(&mut self, toast: Toast) {
@@ -1890,6 +1912,30 @@ mod tests {
         assert_eq!(&*app.schedule.entries()[0].deck().title, "B");
         assert_eq!(app.schedule.selected(), Some(0));
         assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn removing_a_row_can_be_undone() {
+        let mut app = dirty_app();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new("B", "two", None)),
+            None,
+            &app.styles,
+        );
+        app.hovered_row = Some(1);
+        let _ = app.update(Message::DragStarted(0));
+
+        let _ = app.update(Message::SelectedRemoved);
+
+        assert_eq!(app.schedule.entries().len(), 1);
+        assert!(app.hovered_row.is_none());
+        assert!(app.drag.is_none());
+        assert!(matches!(app.toast, Some(super::Toast::Removed { .. })));
+
+        let _ = app.update(Message::ToastAccepted);
+
+        assert_eq!(&*app.schedule.entries()[0].deck().title, "A");
+        assert_eq!(app.schedule.selected(), Some(0));
     }
 
     #[test]
