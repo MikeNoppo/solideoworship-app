@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Library};
 
 const STYLES_KEY: &str = "styles";
+const SHADOWS_KEY: &str = "shadows";
 
 impl Library {
     pub fn styles(&self) -> Result<Styles, Error> {
@@ -31,10 +32,31 @@ impl Library {
     pub fn save_styles(&mut self, styles: &Styles) -> Result<(), Error> {
         let json = serde_json::to_string(&StylesDto::from(styles)).map_err(io::Error::from)?;
 
+        self.store_setting(STYLES_KEY, &json)
+    }
+
+    pub fn shadows(&self) -> Result<bool, Error> {
+        let stored: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                [SHADOWS_KEY],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(stored.as_deref() != Some("off"))
+    }
+
+    pub fn save_shadows(&mut self, shadows: bool) -> Result<(), Error> {
+        self.store_setting(SHADOWS_KEY, if shadows { "on" } else { "off" })
+    }
+
+    fn store_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         self.conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            (STYLES_KEY, json),
+            (key, value),
         )?;
 
         Ok(())
@@ -203,6 +225,18 @@ mod tests {
         library.save_styles(&styles).unwrap();
 
         assert_eq!(library.styles().unwrap(), styles);
+    }
+
+    #[test]
+    fn shadows_are_on_until_turned_off() {
+        let mut library = Library::open_in_memory().unwrap();
+        assert!(library.shadows().unwrap());
+
+        library.save_shadows(false).unwrap();
+        assert!(!library.shadows().unwrap());
+
+        library.save_shadows(true).unwrap();
+        assert!(library.shadows().unwrap());
     }
 
     #[test]
