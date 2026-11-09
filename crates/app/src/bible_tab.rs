@@ -111,7 +111,6 @@ impl BibleTab {
             Message::BibleSelected(bible) => {
                 self.selected = Some(bible);
                 self.is_automatic = false;
-                self.added = false;
                 self.lookup()
             }
             Message::InputChanged(input) => {
@@ -127,7 +126,6 @@ impl BibleTab {
                 };
                 self.input = input;
                 self.add_when_found = false;
-                self.added = false;
                 self.lookup()
             }
             Message::Example(example) => self.update(Message::InputChanged(example.to_owned())),
@@ -491,6 +489,7 @@ impl BibleTab {
     fn lookup(&mut self) -> Action {
         self.found = None;
         self.missing = None;
+        self.added = false;
 
         match (self.selected, &self.reference) {
             (Some(bible), Ok(reference)) => {
@@ -750,6 +749,21 @@ mod tests {
 
         let _ = tab.update(Message::InputChanged("Yoh 3:16 ".into()));
         let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
+    }
+
+    #[test]
+    fn switching_bibles_after_adding_offers_the_new_passage() {
+        let list = bibles(&["BIS", "TB"]);
+        let mut tab = BibleTab::default();
+        let _ = tab.set_bibles(list.clone());
+        let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
+        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.update(Message::Submitted);
+
+        let (bible, reference) = lookup(tab.set_bibles(list[1..].to_vec()));
+        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+
         assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
     }
 
