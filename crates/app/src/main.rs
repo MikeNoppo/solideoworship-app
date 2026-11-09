@@ -565,7 +565,7 @@ impl App {
 
                         self.store.run(
                             move |library| library.delete_song(id),
-                            move |result| Message::SongDeleted(ticket, id, title.clone(), result),
+                            move |result| Message::SongDeleted(ticket, id, title, result),
                         )
                     }
                 }
