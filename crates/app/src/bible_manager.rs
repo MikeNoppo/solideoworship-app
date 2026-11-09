@@ -24,6 +24,7 @@ pub struct BibleManager {
     abbreviation: String,
     confirm_delete: Option<BibleId>,
     busy: bool,
+    importing: bool,
     outcome: Option<Result<Box<str>, Box<str>>>,
 }
 
@@ -60,6 +61,7 @@ impl BibleManager {
             abbreviation: String::new(),
             confirm_delete: None,
             busy: false,
+            importing: false,
             outcome: None,
         };
         manager.set_bibles(bibles);
@@ -101,6 +103,7 @@ impl BibleManager {
             Message::Import => {
                 if let Some(path) = self.file.clone().filter(|_| self.can_import()) {
                     self.busy = true;
+                    self.importing = true;
                     self.outcome = None;
 
                     return Action::Import {
@@ -128,6 +131,7 @@ impl BibleManager {
 
     pub fn imported(&mut self, result: Outcome<ImportReport>) {
         self.busy = false;
+        self.importing = false;
         self.outcome = Some(match result {
             Ok(report) => {
                 self.file = None;
@@ -381,16 +385,14 @@ impl BibleManager {
         );
 
         let (glyph, caption, color) = match &self.outcome {
-            _ if self.busy && self.confirm_delete.is_none() && self.file.is_some() => {
-                (icon::LOADER_CIRCLE, &*self.reading, style::TEXT_2)
-            }
+            _ if self.importing => (icon::LOADER_CIRCLE, &*self.reading, style::TEXT_2),
             Some(Err(error)) => (icon::CIRCLE_ALERT, &**error, style::LIVE),
             Some(Ok(message)) => (icon::CIRCLE_CHECK, &**message, style::TEXT_2),
             None if self.file.is_some() => (icon::FILE_CHECK, &*self.ready, style::TEXT_2),
             None => (icon::INFO, t().bible_manager.choose_first, style::TEXT_3),
         };
 
-        let import = if self.busy && self.file.is_some() {
+        let import = if self.importing {
             action(
                 Tone::Primary,
                 Some(icon::LOADER_CIRCLE),
@@ -562,6 +564,19 @@ mod tests {
 
         manager.imported(Err("broken".into()));
         assert_eq!(manager.update(Message::Close), Action::Close);
+    }
+
+    #[test]
+    fn deleting_with_a_file_picked_is_not_shown_as_an_import() {
+        let list = bibles();
+        let mut manager = BibleManager::new(list.clone());
+        let _ = manager.update(Message::FilePicked(Some(PathBuf::from("/data/tb.xml"))));
+        let _ = manager.update(Message::Delete(list[0].id));
+
+        let _ = manager.update(Message::DeleteConfirmed);
+
+        assert!(manager.busy);
+        assert!(!manager.importing);
     }
 
     #[test]
