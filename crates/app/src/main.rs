@@ -230,13 +230,10 @@ impl App {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
-        let is_resize = matches!(
-            message,
-            Message::WindowResized(..) | Message::RowHovered(_) | Message::DragOver(_)
-        );
+        let refreshes_captions = message.refreshes_captions();
         let task = self.handle(message);
 
-        if is_resize {
+        if !refreshes_captions {
             return task;
         }
 

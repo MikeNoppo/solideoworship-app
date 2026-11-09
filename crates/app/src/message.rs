@@ -143,3 +143,77 @@ pub enum Message {
     BibleImported(u64, Outcome<ImportReport>),
     BibleDeleted(u64, Outcome<()>),
 }
+impl Message {
+    pub fn refreshes_captions(&self) -> bool {
+        match self {
+            Self::MenuToggled(..)
+            | Self::MenuDismissed
+            | Self::WindowCloseRequested(..)
+            | Self::WindowResized(..)
+            | Self::RowHovered(..)
+            | Self::DragOver(..)
+            | Self::ToastDismissed
+            | Self::ToastExpired(..)
+            | Self::ModalDismissed
+            | Self::Editor(..)
+            | Self::Theme(..)
+            | Self::SaveShortcut
+            | Self::BibleManager(..) => false,
+            Self::SplashOpened
+            | Self::SplashElapsed
+            | Self::ControlOpened
+            | Self::LibraryOpened(..)
+            | Self::RecoveryLoaded(..)
+            | Self::DisplaysRequested
+            | Self::DisplaysLoaded(..)
+            | Self::DisplaySelected(..)
+            | Self::NoticeDismissed(..)
+            | Self::OutputRequested
+            | Self::OutputOpened(..)
+            | Self::OutputDismissed
+            | Self::OutputStateChanged(..)
+            | Self::OutputStateToggled(..)
+            | Self::WindowClosed(..)
+            | Self::SelectedRemoved
+            | Self::ScheduleRemoved(..)
+            | Self::DragStarted(..)
+            | Self::DragEnded
+            | Self::PreviewSlideSelected(..)
+            | Self::LiveSlideSelected(..)
+            | Self::LiveMoved(..)
+            | Self::GoLive
+            | Self::LibraryTabSelected(..)
+            | Self::SearchChanged(..)
+            | Self::SearchSubmitted
+            | Self::SearchFocused
+            | Self::SongsCounted(..)
+            | Self::SongsFound(..)
+            | Self::LibraryErrorDismissed
+            | Self::SongPicked(..)
+            | Self::SongLoaded(..)
+            | Self::SongCreateRequested
+            | Self::SongEditRequested(..)
+            | Self::SongEditLoaded(..)
+            | Self::SongSaved(..)
+            | Self::SongDeleted(..)
+            | Self::ToastAccepted
+            | Self::ThemeRequested
+            | Self::StylesSaved(..)
+            | Self::ScheduleNewRequested
+            | Self::ScheduleOpenRequested
+            | Self::ScheduleFilePicked(..)
+            | Self::ScheduleOpened(..)
+            | Self::ScheduleSaveRequested
+            | Self::ScheduleSaveAsRequested
+            | Self::ScheduleSavePathChosen(..)
+            | Self::ScheduleSaved(..)
+            | Self::Unsaved(..)
+            | Self::Bible(..)
+            | Self::BiblesLoaded(..)
+            | Self::PassageFound(..)
+            | Self::BibleManagerRequested
+            | Self::BibleImported(..)
+            | Self::BibleDeleted(..) => true,
+        }
+    }
+}
