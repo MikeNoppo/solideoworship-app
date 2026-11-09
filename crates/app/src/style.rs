@@ -1,8 +1,9 @@
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use iced::font::Weight;
 use iced::theme::Palette;
-use iced::widget::{button, container, scrollable, text, text_editor, text_input};
+use iced::widget::{button, container, scrollable, text_editor, text_input};
 use iced::{Background, Border, Color, Font, Shadow, Theme, Vector};
 
 pub const BG: Color = Color::from_rgb8(0x0A, 0x0A, 0x0B);
@@ -105,6 +106,28 @@ pub fn boxed(
     }
 }
 
+static SHADOWS: AtomicBool = AtomicBool::new(true);
+
+pub fn set_shadows(enabled: bool) {
+    SHADOWS.store(enabled, Ordering::Relaxed);
+}
+
+pub fn shadows() -> bool {
+    SHADOWS.load(Ordering::Relaxed)
+}
+
+fn shadow(alpha: f32, offset: f32, blur_radius: f32) -> Shadow {
+    if !shadows() {
+        return Shadow::default();
+    }
+
+    Shadow {
+        color: Color::from_rgba(0.0, 0.0, 0.0, alpha),
+        offset: Vector::new(0.0, offset),
+        blur_radius,
+    }
+}
+
 pub fn menu(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(SURFACE.into()),
@@ -113,11 +136,7 @@ pub fn menu(_theme: &Theme) -> container::Style {
             width: 1.0,
             radius: 10.0.into(),
         },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-            offset: Vector::new(0.0, 12.0),
-            blur_radius: 32.0,
-        },
+        shadow: shadow(0.5, 12.0, 32.0),
         ..container::Style::default()
     }
 }
@@ -130,11 +149,7 @@ pub fn toast(_theme: &Theme) -> container::Style {
             width: 1.0,
             radius: 10.0.into(),
         },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-            offset: Vector::new(0.0, 8.0),
-            blur_radius: 24.0,
-        },
+        shadow: shadow(0.5, 8.0, 24.0),
         ..container::Style::default()
     }
 }
@@ -251,11 +266,7 @@ pub fn sheet(_theme: &Theme) -> container::Style {
             width: 1.0,
             radius: 14.0.into(),
         },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.6),
-            offset: Vector::new(0.0, 24.0),
-            blur_radius: 64.0,
-        },
+        shadow: shadow(0.6, 24.0, 64.0),
         ..container::Style::default()
     }
 }
@@ -312,13 +323,6 @@ pub fn invalid_field(theme: &Theme, status: text_input::Status) -> text_input::S
     }
 }
 
-pub fn screen(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Color::BLACK.into()),
-        ..container::Style::default()
-    }
-}
-
 pub fn backdrop(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
@@ -352,82 +356,29 @@ pub fn logo_row(radius: f32) -> impl Fn(&Theme) -> container::Style {
 }
 
 pub fn sample(color: Color) -> impl Fn(&Theme) -> container::Style {
-    move |theme| container::Style {
+    move |_theme| container::Style {
         background: Some(color.into()),
         border: Border {
             radius: 4.0.into(),
             width: 1.0,
-            color: theme.extended_palette().background.strong.color,
+            color: BORDER_STRONG,
         },
         ..container::Style::default()
     }
 }
 
 pub fn swatch(color: Color, is_selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |theme, status| {
-        let palette = theme.extended_palette();
-
-        button::Style {
-            background: Some(color.into()),
-            border: Border {
-                radius: 4.0.into(),
-                width: if is_selected || status == button::Status::Hovered {
-                    2.0
-                } else {
-                    1.0
-                },
-                color: if is_selected {
-                    palette.primary.strong.color
-                } else {
-                    palette.background.strong.color
-                },
-            },
-            ..button::Style::default()
-        }
-    }
-}
-
-// Secondary text inside a selected row must follow the primary text color; the
-// built-in text::secondary style stays grey and nearly vanishes on the blue background.
-pub fn caption(is_selected: bool) -> impl Fn(&Theme) -> text::Style {
-    move |theme| {
-        let palette = theme.extended_palette();
-
-        text::Style {
-            color: Some(if is_selected {
-                palette.primary.base.text
+    move |_theme, status| button::Style {
+        background: Some(color.into()),
+        border: Border {
+            radius: 9.0.into(),
+            width: if is_selected { 2.0 } else { 1.0 },
+            color: if is_selected || status == button::Status::Hovered {
+                INVERSE
             } else {
-                palette.secondary.base.color
-            }),
-        }
-    }
-}
-
-// A selectable row (schedule item, slide, search result). Built on the text button
-// style so the background is transparent when inactive and does not compete for
-// attention with the slide area.
-pub fn row(is_selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |theme, status| {
-        let palette = theme.extended_palette();
-
-        let background = match (is_selected, status) {
-            (true, _) => Some(palette.primary.base.color.into()),
-            (false, button::Status::Hovered) => Some(palette.background.weak.color.into()),
-            _ => None,
-        };
-
-        button::Style {
-            background,
-            text_color: if is_selected {
-                palette.primary.base.text
-            } else {
-                palette.background.base.text
+                BORDER_STRONG
             },
-            border: Border {
-                radius: 4.0.into(),
-                ..Border::default()
-            },
-            ..button::Style::default()
-        }
+        },
+        ..button::Style::default()
     }
 }

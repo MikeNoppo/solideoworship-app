@@ -33,7 +33,7 @@ use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
-use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
+use sdw_core::{ContentKind, OutputState, Presentation, ScheduleItem, Song, Styles};
 use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::bible_manager::BibleManager;
@@ -103,6 +103,7 @@ enum Toast {
         text: Box<str>,
     },
     Deleted(Box<str>),
+    Done(Box<str>),
     Removed {
         index: usize,
         entry: Entry,
@@ -114,13 +115,16 @@ impl Toast {
     fn saved(&self) -> Option<SongId> {
         match self {
             Self::Saved { id, .. } => Some(*id),
-            Self::Deleted(_) | Self::Removed { .. } => None,
+            Self::Deleted(_) | Self::Done(_) | Self::Removed { .. } => None,
         }
     }
 
     fn text(&self) -> &str {
         match self {
-            Self::Saved { text, .. } | Self::Deleted(text) | Self::Removed { text, .. } => text,
+            Self::Saved { text, .. }
+            | Self::Deleted(text)
+            | Self::Done(text)
+            | Self::Removed { text, .. } => text,
         }
     }
 }
@@ -166,6 +170,8 @@ struct App {
     modal: Option<Modal>,
     toast: Option<Toast>,
     toast_serial: u64,
+    flash: Option<Box<str>>,
+    flash_serial: u64,
     hovered_row: Option<usize>,
     drag: Option<Drag>,
     modal_ticket: u64,
@@ -196,7 +202,10 @@ impl App {
         };
         let library_opened = app
             .store
-            .run(|library| library.styles(), Message::LibraryOpened);
+            .run(
+            |library| Ok((library.styles()?, library.shadows()?)),
+            Message::LibraryOpened,
+        );
         let recovery_path = app.recovery.path().to_path_buf();
         let recovery_loaded =
             work::background(move || recovery::load(&recovery_path)).map(Message::RecoveryLoaded);
@@ -265,8 +274,9 @@ impl App {
                 self.library_ready = true;
 
                 let search = match result {
-                    Ok(styles) => {
+                    Ok((styles, shadows)) => {
                         self.styles = styles;
+                        style::set_shadows(shadows);
                         self.schedule.recompile(&self.styles);
                         Task::batch([self.search_songs(), self.count_songs(), self.load_bibles()])
                     }
@@ -597,6 +607,12 @@ impl App {
                 self.toast = None;
                 Task::none()
             }
+            Message::FlashExpired(serial) => {
+                if serial == self.flash_serial {
+                    self.flash = None;
+                }
+                Task::none()
+            }
             Message::ToastExpired(serial) => {
                 if serial == self.toast_serial {
                     self.toast = None;
@@ -623,6 +639,7 @@ impl App {
                 if self.modal.is_none() {
                     self.open_modal(Modal::Theme(Box::new(ThemeDialog::new(
                         &self.styles,
+                        style::shadows(),
                         self.schedule.selected_item(),
                     ))));
                 }
@@ -640,21 +657,36 @@ impl App {
                         self.modal = None;
                         Task::none()
                     }
-                    theme_dialog::Action::Save(styles) => self.store.run(
-                        move |library| library.save_styles(&styles).map(|()| styles),
+                    theme_dialog::Action::Save(styles, shadows) => self.store.run(
+                        move |library| {
+                            library.save_styles(&styles)?;
+                            library.save_shadows(shadows)?;
+                            Ok((styles, shadows))
+                        },
                         move |result| Message::StylesSaved(ticket, result),
                     ),
                 }
             }
             Message::StylesSaved(ticket, result) => {
                 match result {
-                    Ok(styles) => {
+                    Ok((styles, shadows)) => {
+                        let saved = match self.modal_for(ticket) {
+                            Some(Modal::Theme(dialog)) => match dialog.kind() {
+                                ContentKind::Song => t().theme.song_saved,
+                                ContentKind::Scripture => t().theme.bible_saved,
+                            },
+                            _ => t().theme.song_saved,
+                        };
+
                         self.close_modal(ticket);
                         self.styles = styles;
+                        style::set_shadows(shadows);
                         self.schedule.recompile(&self.styles);
+                        self.show_toast(Toast::Done(t().theme.saved.into()));
+                        self.flash(format!("{saved} · {}", t().theme.saved_detail));
                     }
                     Err(error) => match self.modal_for(ticket) {
-                        Some(Modal::Theme(dialog)) => dialog.fail(error),
+                        Some(Modal::Theme(dialog)) => dialog.fail(&error),
                         _ => self.library_error = Some(error),
                     },
                 }
@@ -931,6 +963,14 @@ impl App {
             );
         }
 
+        if self.flash.is_some() {
+            subscriptions.push(
+                iced::time::every(TOAST_TIME)
+                    .with(self.flash_serial)
+                    .map(|(serial, _)| Message::FlashExpired(serial)),
+            );
+        }
+
         Subscription::batch(subscriptions)
     }
 
@@ -978,6 +1018,11 @@ impl App {
         self.drag = None;
         let text = fill(t().schedule.removed, &[("title", &entry.deck().title)]).into_boxed_str();
         self.show_toast(Toast::Removed { index, entry, text });
+    }
+
+    fn flash(&mut self, text: String) {
+        self.flash_serial += 1;
+        self.flash = Some(text.into_boxed_str());
     }
 
     fn show_toast(&mut self, toast: Toast) {
@@ -1471,7 +1516,7 @@ mod tests {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
-        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(&app.styles, None))));
+        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(&app.styles, true, None))));
 
         let _ = app.update(Message::WindowCloseRequested(control));
 
@@ -1599,7 +1644,7 @@ mod tests {
         let mut styles = app.styles.clone();
         styles.song.max_lines = 7;
 
-        let _ = app.update(Message::StylesSaved(old_ticket, Ok(styles)));
+        let _ = app.update(Message::StylesSaved(old_ticket, Ok((styles, true))));
 
         assert!(matches!(app.modal, Some(Modal::Theme(_))));
         assert_eq!(app.styles.song.max_lines, 7);

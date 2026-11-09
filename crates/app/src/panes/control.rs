@@ -83,7 +83,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let dialog = match &app.modal {
         Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
-        Some(Modal::Theme(dialog)) => dialog.view().map(Message::Theme),
+        Some(Modal::Theme(dialog)) => dialog.view(app.control_width).map(Message::Theme),
         Some(Modal::Unsaved(pending)) => unsaved::view(*pending),
         Some(Modal::Bibles(manager)) => manager.view().map(Message::BibleManager),
         None => return base.into(),
@@ -176,6 +176,10 @@ fn toast(toast: &Toast) -> Element<'_, Message> {
         ),
         Toast::Deleted(_) => (
             icon::TRASH_2,
+            ui::icon_button(icon::X, style::TEXT_3, 28.0, Some(Message::ToastDismissed)).into(),
+        ),
+        Toast::Done(_) => (
+            icon::CIRCLE_CHECK,
             ui::icon_button(icon::X, style::TEXT_3, 28.0, Some(Message::ToastDismissed)).into(),
         ),
         Toast::Removed { .. } => (

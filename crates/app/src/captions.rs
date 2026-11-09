@@ -164,6 +164,10 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
         );
     }
 
+    if let Some(flash) = &app.flash {
+        return flash.to_string();
+    }
+
     if app.displays.is_empty() {
         return status.no_screens.to_owned();
     }

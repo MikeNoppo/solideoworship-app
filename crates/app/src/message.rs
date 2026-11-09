@@ -72,7 +72,7 @@ pub enum Message {
     SplashOpened,
     SplashElapsed,
     ControlOpened,
-    LibraryOpened(Outcome<Styles>),
+    LibraryOpened(Outcome<(Styles, bool)>),
     RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
 
     DisplaysRequested,
@@ -119,12 +119,13 @@ pub enum Message {
     SongDeleted(u64, SongId, Box<str>, Outcome<()>),
     ToastDismissed,
     ToastExpired(u64),
+    FlashExpired(u64),
     ToastAccepted,
     ModalDismissed,
     Editor(editor::Message),
     ThemeRequested,
     Theme(theme_dialog::Message),
-    StylesSaved(u64, Outcome<Styles>),
+    StylesSaved(u64, Outcome<(Styles, bool)>),
     SaveShortcut,
     ScheduleNewRequested,
     ScheduleOpenRequested,
@@ -163,6 +164,7 @@ impl Message {
             | Self::SplashElapsed
             | Self::ControlOpened
             | Self::LibraryOpened(..)
+            | Self::FlashExpired(..)
             | Self::RecoveryLoaded(..)
             | Self::DisplaysRequested
             | Self::DisplaysLoaded(..)

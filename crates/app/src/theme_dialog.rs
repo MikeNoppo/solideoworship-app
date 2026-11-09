@@ -1,5 +1,7 @@
-use iced::widget::{button, column, container, row, scrollable, slider, space, text, text_input};
-use iced::{Center, Element, Fill, FillPortion};
+use iced::widget::{
+    Column, Row, button, column, container, row, slider, space, stack, text_input, toggler,
+};
+use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_core::bible::{Book, Passage, Reference, Verse};
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
@@ -7,22 +9,32 @@ use sdw_core::theme::{
 };
 use sdw_core::{ScheduleItem, Song, Styles};
 
-use crate::i18n::{Label, t};
-use crate::panes::{dialog, thumbnails};
+use crate::i18n::{Label, fill, t};
+use crate::icon;
+use crate::panes::{Card, slide_card};
 use crate::render::slide::{self, Visibility, color};
-use crate::style;
+use crate::style::{self, Tone};
+use crate::ui::{self, action, label};
+
+const WIDTH: f32 = 1120.0;
+const HEIGHT: f32 = 800.0;
+const FORM_WIDTH: f32 = 420.0;
+const PADDING: f32 = 24.0;
+const COLUMNS: usize = 4;
+const GAP: f32 = 12.0;
+const CHARS_STEP: u16 = 10;
 
 const PRESETS: [Rgb; 10] = [
     Rgb::from_rgb8(0, 0, 0),
-    Rgb::from_rgb8(13, 18, 33),
-    Rgb::from_rgb8(30, 41, 74),
-    Rgb::from_rgb8(46, 24, 58),
-    Rgb::from_rgb8(22, 48, 38),
-    Rgb::from_rgb8(66, 24, 24),
+    Rgb::from_rgb8(20, 20, 22),
+    Rgb::from_rgb8(39, 39, 42),
+    Rgb::from_rgb8(63, 63, 70),
+    Rgb::from_rgb8(23, 30, 54),
+    Rgb::from_rgb8(22, 42, 34),
+    Rgb::from_rgb8(46, 34, 26),
+    Rgb::from_rgb8(245, 240, 230),
+    Rgb::from_rgb8(228, 228, 231),
     Rgb::from_rgb8(255, 255, 255),
-    Rgb::from_rgb8(184, 194, 217),
-    Rgb::from_rgb8(255, 214, 102),
-    Rgb::from_rgb8(128, 202, 255),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,8 +72,20 @@ impl ColorSlot {
     }
 }
 
+#[derive(Default)]
+struct Captions {
+    body_size: Box<str>,
+    footer_size: Box<str>,
+    line_height: Box<str>,
+    margin: Box<str>,
+    limit: Box<str>,
+    sample: Box<str>,
+    note: Box<str>,
+}
+
 pub struct ThemeDialog {
     draft: Styles,
+    shadows: bool,
     kind: ContentKind,
     hex: [String; 3],
     song: ScheduleItem,
@@ -70,6 +94,7 @@ pub struct ThemeDialog {
     selected: usize,
     busy: bool,
     error: Option<Box<str>>,
+    captions: Captions,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +109,7 @@ pub enum Message {
     Align(TextAlign),
     MaxLines(u16),
     MaxChars(u16),
+    Shadows(bool),
     SlideSelected(usize),
     Reset,
     Save,
@@ -93,12 +119,12 @@ pub enum Message {
 #[derive(Debug, PartialEq)]
 pub enum Action {
     None,
-    Save(Styles),
+    Save(Styles, bool),
     Close,
 }
 
 impl ThemeDialog {
-    pub fn new(styles: &Styles, current: Option<&ScheduleItem>) -> Self {
+    pub fn new(styles: &Styles, shadows: bool, current: Option<&ScheduleItem>) -> Self {
         let (song, scripture) = match current {
             Some(item @ ScheduleItem::Song(_)) => (item.clone(), sample_passage()),
             Some(item @ ScheduleItem::Passage(_)) => (sample_song(), item.clone()),
@@ -113,6 +139,7 @@ impl ThemeDialog {
 
         let mut dialog = Self {
             draft: styles.clone(),
+            shadows,
             kind,
             hex: Default::default(),
             song,
@@ -121,9 +148,15 @@ impl ThemeDialog {
             selected: 0,
             busy: false,
             error: None,
+            captions: Captions::default(),
         };
         dialog.sync_hex();
+        dialog.describe();
         dialog
+    }
+
+    pub fn kind(&self) -> ContentKind {
+        self.kind
     }
 
     pub fn update(&mut self, message: Message) -> Action {
@@ -148,8 +181,16 @@ impl ThemeDialog {
             Message::LineHeight(height) => self.theme_mut().line_height = height,
             Message::Margin(margin) => self.theme_mut().margin = margin,
             Message::Align(align) => self.theme_mut().align = align,
-            Message::MaxLines(lines) => self.draft.song.max_lines = lines,
-            Message::MaxChars(chars) => self.draft.scripture.max_chars = chars,
+            Message::MaxLines(lines) => {
+                self.draft.song.max_lines = lines.clamp(*MAX_LINES.start(), *MAX_LINES.end());
+            }
+            Message::MaxChars(chars) => {
+                self.draft.scripture.max_chars = chars.clamp(*MAX_CHARS.start(), *MAX_CHARS.end());
+            }
+            Message::Shadows(shadows) => {
+                self.shadows = shadows;
+                return Action::None;
+            }
             Message::SlideSelected(index) => {
                 if index < self.deck.len() {
                     self.selected = index;
@@ -172,199 +213,448 @@ impl ThemeDialog {
 
                 self.busy = true;
                 self.error = None;
-                return Action::Save(self.draft.clone().clamped());
+                return Action::Save(self.draft.clone().clamped(), self.shadows);
             }
+            Message::Cancel if self.busy => return Action::None,
             Message::Cancel => return Action::Close,
         }
 
         self.recompile();
+        self.describe();
         Action::None
     }
 
-    pub fn fail(&mut self, error: Box<str>) {
+    pub fn fail(&mut self, error: &str) {
         self.busy = false;
-        self.error = Some(error);
+        self.error = Some(
+            fill(
+                t().theme.save_failed,
+                &[("error", &error.trim_end_matches('.'))],
+            )
+            .into_boxed_str(),
+        );
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        let theme = self.draft.theme(self.kind);
+    pub fn view(&self, window_width: f32) -> Element<'_, Message> {
+        let width = WIDTH.min(window_width - 64.0);
 
-        let tabs = [ContentKind::Song, ContentKind::Scripture]
-            .into_iter()
-            .fold(row![].spacing(6), |list, kind| {
-                list.push(
-                    button(text(kind.label()).size(13))
-                        .padding([4, 14])
-                        .on_press(Message::KindSelected(kind))
-                        .style(if self.kind == kind {
-                            button::primary
-                        } else {
-                            button::secondary
-                        }),
-                )
-            });
-
-        let colors = ColorSlot::ALL
-            .into_iter()
-            .fold(column![].spacing(12), |list, slot| {
-                list.push(self.color_row(slot, slot.get(theme)))
-            });
-
-        let align = [TextAlign::Left, TextAlign::Center, TextAlign::Right]
-            .into_iter()
-            .fold(row![].spacing(6), |list, align| {
-                list.push(
-                    button(text(align.label()).size(13))
-                        .padding([4, 12])
-                        .on_press(Message::Align(align))
-                        .style(if theme.align == align {
-                            button::primary
-                        } else {
-                            button::secondary
-                        }),
-                )
-            });
-
-        let limit = match self.kind {
-            ContentKind::Song => control(
-                t().theme.lines_per_slide,
-                self.draft.song.max_lines.to_string(),
-                slider(MAX_LINES, self.draft.song.max_lines, Message::MaxLines),
-            ),
-            ContentKind::Scripture => control(
-                t().theme.chars_per_slide,
-                self.draft.scripture.max_chars.to_string(),
-                slider(MAX_CHARS, self.draft.scripture.max_chars, Message::MaxChars).step(10u16),
-            ),
-        };
-
-        let controls = column![
-            heading(t().theme.colors),
-            colors,
-            heading(t().theme.text),
-            control(
-                t().theme.font_size,
-                format!("{:.0}", theme.body_size),
-                slider(BODY_SIZE, theme.body_size, Message::BodySize).step(1.0_f32),
-            ),
-            control(
-                t().theme.footer_size,
-                format!("{:.0}", theme.footer_size),
-                slider(FOOTER_SIZE, theme.footer_size, Message::FooterSize).step(1.0_f32),
-            ),
-            control(
-                t().theme.line_height,
-                format!("{:.2}", theme.line_height),
-                slider(LINE_HEIGHT, theme.line_height, Message::LineHeight).step(0.05_f32),
-            ),
-            control(
-                t().theme.margin,
-                format!("{:.0}", theme.margin),
-                slider(MARGIN, theme.margin, Message::Margin).step(5.0_f32),
-            ),
-            row![
-                text(t().theme.alignment).size(13),
-                space::horizontal(),
-                align
-            ]
-            .align_y(Center),
-            heading(t().theme.slide_split),
-            limit,
-        ]
-        .spacing(12)
-        .padding([0, 12]);
-
-        let preview = column![
-            text(t().common.preview).size(12).style(text::secondary),
-            container(slide::stage(
-                self.deck.slides.get(self.selected),
-                theme,
-                Visibility::FULL,
-            ))
-            .width(Fill)
-            .height(FillPortion(5))
-            .padding(6)
-            .style(style::screen),
-            scrollable(thumbnails(
-                &self.deck.slides,
-                self.selected,
-                theme,
-                Message::SlideSelected,
-            ))
-            .height(FillPortion(4)),
-            text(t().theme.applies_next).size(11).style(text::secondary),
-        ]
-        .spacing(6)
-        .width(FillPortion(3))
-        .height(Fill);
-
-        let footer = row![
-            button(t().theme.reset)
-                .on_press(Message::Reset)
-                .style(button::secondary),
-            self.error
-                .as_deref()
-                .map(|error| text(error).size(13).style(text::danger)),
-            space::horizontal(),
-            button(t().common.cancel)
-                .on_press(Message::Cancel)
-                .style(button::secondary),
-            button(if self.busy {
-                t().common.saving
-            } else {
-                t().common.save
-            })
-            .on_press_maybe((!self.busy).then_some(Message::Save))
-            .style(button::primary),
-        ]
-        .spacing(10)
-        .align_y(Center);
-
-        dialog(
+        ui::sheet(
             column![
-                text(t().theme.title).size(18),
-                tabs,
-                row![
-                    scrollable(controls).width(FillPortion(2)).height(Fill),
-                    preview
-                ]
-                .spacing(16)
-                .height(Fill),
-                footer,
-            ]
-            .spacing(12),
+                self.header(),
+                row![self.form(), ui::line(style::BORDER), self.preview(width)].height(Fill),
+                ui::sheet_footer(self.footer()),
+            ],
+            WIDTH,
+            HEIGHT,
         )
     }
 
-    fn color_row(&self, slot: ColorSlot, current: Rgb) -> Element<'_, Message> {
-        let presets = PRESETS.into_iter().fold(row![].spacing(4), |list, preset| {
+    fn header(&self) -> Element<'_, Message> {
+        let tabs = [
+            (ContentKind::Song, icon::MUSIC),
+            (ContentKind::Scripture, icon::BOOK_OPEN),
+        ]
+        .into_iter()
+        .fold(row![].spacing(2), |list, (kind, glyph)| {
+            let is_active = self.kind == kind;
+            let color = if is_active {
+                style::TEXT
+            } else {
+                style::TEXT_3
+            };
+
             list.push(
-                button(text(""))
-                    .width(22)
-                    .height(22)
-                    .on_press(Message::ColorPicked(slot, preset))
-                    .style(style::swatch(color(preset), preset == current)),
+                button(
+                    row![
+                        icon::view(glyph, 13.0, color),
+                        label(
+                            kind.label(),
+                            13.0,
+                            if is_active {
+                                style::SEMIBOLD
+                            } else {
+                                style::MEDIUM
+                            },
+                            color,
+                        ),
+                    ]
+                    .spacing(6)
+                    .height(Fill)
+                    .align_y(Center),
+                )
+                .height(Fill)
+                .padding([0, 12])
+                .on_press(Message::KindSelected(kind))
+                .style(style::pressable(
+                    if is_active { Tone::Selected } else { Tone::Row },
+                    6.0,
+                )),
             )
         });
 
         column![
-            row![
-                text(slot.label()).size(13).width(60),
-                container(text(""))
-                    .width(28)
-                    .height(22)
-                    .style(style::sample(color(current))),
-                text_input("#rrggbb", &self.hex[slot.index()])
-                    .on_input(move |value| Message::HexChanged(slot, value))
-                    .on_submit(Message::Save)
-                    .size(13)
-                    .width(100),
-            ]
-            .spacing(8)
-            .align_y(Center),
-            presets,
+            container(
+                row![
+                    column![
+                        label(t().theme.title, 16.0, style::SEMIBOLD, style::TEXT),
+                        label(t().theme.subtitle, 12.0, style::INTER, style::TEXT_3),
+                    ]
+                    .spacing(3),
+                    container(tabs).height(34).padding(3).style(style::boxed(
+                        Some(style::SURFACE),
+                        style::BORDER,
+                        8.0
+                    )),
+                    space::horizontal(),
+                    ui::icon_button(
+                        icon::X,
+                        style::TEXT_2,
+                        32.0,
+                        (!self.busy).then_some(Message::Cancel)
+                    ),
+                ]
+                .spacing(16)
+                .align_y(Center),
+            )
+            .padding(Padding {
+                top: 0.0,
+                right: 16.0,
+                bottom: 0.0,
+                left: PADDING,
+            })
+            .center_y(64),
+            ui::hrule(style::BORDER),
         ]
-        .spacing(6)
+        .into()
+    }
+
+    fn form(&self) -> Element<'_, Message> {
+        let theme = self.draft.theme(self.kind);
+
+        let colors = ColorSlot::ALL
+            .into_iter()
+            .fold(Column::new().spacing(10), |list, slot| {
+                list.push(field(slot.label(), self.hex_field(slot, slot.get(theme))))
+            });
+
+        let presets = PRESETS.into_iter().fold(row![].spacing(6), |list, preset| {
+            let is_selected = preset == theme.background;
+
+            list.push(
+                button(space::horizontal())
+                    .width(18)
+                    .height(18)
+                    .padding(0)
+                    .on_press(Message::ColorPicked(ColorSlot::Background, preset))
+                    .style(style::swatch(color(preset), is_selected)),
+            )
+        });
+
+        let sliders = column![
+            control(
+                t().theme.font_size,
+                &self.captions.body_size,
+                slider(BODY_SIZE, theme.body_size, Message::BodySize).step(1.0_f32),
+            ),
+            control(
+                t().theme.footer_size,
+                &self.captions.footer_size,
+                slider(FOOTER_SIZE, theme.footer_size, Message::FooterSize).step(1.0_f32),
+            ),
+            control(
+                t().theme.line_height,
+                &self.captions.line_height,
+                slider(LINE_HEIGHT, theme.line_height, Message::LineHeight).step(0.05_f32),
+            ),
+            control(
+                t().theme.margin,
+                &self.captions.margin,
+                slider(MARGIN, theme.margin, Message::Margin).step(5.0_f32),
+            ),
+        ]
+        .spacing(16);
+
+        let align = [
+            (TextAlign::Left, icon::TEXT_ALIGN_START),
+            (TextAlign::Center, icon::TEXT_ALIGN_CENTER),
+            (TextAlign::Right, icon::TEXT_ALIGN_END),
+        ]
+        .into_iter()
+        .fold(row![].spacing(2), |list, (align, glyph)| {
+            let is_active = theme.align == align;
+
+            list.push(ui::hint(
+                button(
+                    container(icon::view(
+                        glyph,
+                        14.0,
+                        if is_active {
+                            style::TEXT
+                        } else {
+                            style::TEXT_3
+                        },
+                    ))
+                    .center(Fill),
+                )
+                .width(Fill)
+                .height(Fill)
+                .padding(0)
+                .on_press(Message::Align(align))
+                .style(style::pressable(
+                    if is_active { Tone::Selected } else { Tone::Row },
+                    6.0,
+                )),
+                align.label(),
+            ))
+        });
+
+        let align = container(align).height(34).padding(3).style(style::boxed(
+            Some(style::SURFACE),
+            style::BORDER,
+            8.0,
+        ));
+
+        let (limit_title, less, more, range) = match self.kind {
+            ContentKind::Song => {
+                let lines = self.draft.song.max_lines;
+
+                (
+                    t().theme.lines_per_slide,
+                    (lines > *MAX_LINES.start()).then(|| Message::MaxLines(lines - 1)),
+                    (lines < *MAX_LINES.end()).then(|| Message::MaxLines(lines + 1)),
+                    None,
+                )
+            }
+            ContentKind::Scripture => {
+                let chars = self.draft.scripture.max_chars;
+
+                (
+                    t().theme.chars_per_slide,
+                    (chars > *MAX_CHARS.start())
+                        .then(|| Message::MaxChars(chars.saturating_sub(CHARS_STEP))),
+                    (chars < *MAX_CHARS.end()).then(|| Message::MaxChars(chars + CHARS_STEP)),
+                    Some(t().theme.chars_range),
+                )
+            }
+        };
+
+        let stepper = container(
+            row![
+                ui::icon_button(icon::MINUS, style::TEXT_2, 28.0, less),
+                container(label(
+                    &self.captions.limit,
+                    13.0,
+                    style::SEMIBOLD,
+                    style::TEXT
+                ))
+                .center_x(Fill),
+                ui::icon_button(icon::PLUS, style::TEXT_2, 28.0, more),
+            ]
+            .align_y(Center),
+        )
+        .height(34)
+        .padding(3)
+        .style(style::boxed(
+            Some(style::SURFACE),
+            style::BORDER_STRONG,
+            8.0,
+        ));
+
+        let layout = row![
+            column![ui::eyebrow(t().theme.alignment), align]
+                .spacing(10)
+                .width(Fill),
+            column![ui::eyebrow(limit_title), stepper]
+                .push(range.map(|range| label(range, 11.0, style::INTER, style::TEXT_3)))
+                .spacing(10)
+                .width(Fill),
+        ]
+        .spacing(16);
+
+        let shadows = row![
+            column![
+                label(t().theme.shadows, 13.0, style::INTER, style::TEXT_2),
+                label(t().theme.shadows_hint, 11.0, style::INTER, style::TEXT_3),
+            ]
+            .spacing(3)
+            .width(Fill),
+            toggler(self.shadows).on_toggle(Message::Shadows).size(18),
+        ]
+        .spacing(12)
+        .align_y(Center);
+
+        container(ui::scroll(
+            column![
+                column![
+                    ui::eyebrow(t().theme.colors),
+                    colors,
+                    field(t().theme.presets, presets),
+                ]
+                .spacing(10),
+                column![ui::eyebrow(t().theme.text_heading), sliders].spacing(12),
+                layout,
+                column![ui::eyebrow(t().theme.interface), shadows].spacing(12),
+            ]
+            .spacing(24)
+            .padding(Padding {
+                top: 20.0,
+                right: PADDING - ui::SCROLL_GUTTER,
+                bottom: 24.0,
+                left: PADDING,
+            }),
+        ))
+        .width(FORM_WIDTH)
+        .height(Fill)
+        .into()
+    }
+
+    fn hex_field(&self, slot: ColorSlot, current: Rgb) -> Element<'_, Message> {
+        stack![
+            text_input("#rrggbb", &self.hex[slot.index()])
+                .on_input(move |value| Message::HexChanged(slot, value))
+                .on_submit(Message::Save)
+                .font(style::MONO)
+                .size(13)
+                .line_height(Pixels(18.0))
+                .padding(Padding {
+                    top: 6.0,
+                    right: 10.0,
+                    bottom: 6.0,
+                    left: 36.0,
+                })
+                .style(style::field),
+            container(
+                container(space::horizontal())
+                    .width(20)
+                    .height(20)
+                    .style(style::sample(color(current)))
+            )
+            .padding(Padding::ZERO.left(8))
+            .center_y(Fill),
+        ]
+        .width(150)
+        .height(32)
+        .into()
+    }
+
+    fn preview(&self, sheet_width: f32) -> Element<'_, Message> {
+        let theme = self.draft.theme(self.kind);
+        let inner = sheet_width - FORM_WIDTH - 1.0 - PADDING * 2.0;
+        let stage_height = (inner * 9.0 / 16.0).floor();
+        let card_width =
+            ((inner - ui::SCROLL_GUTTER - GAP * (COLUMNS - 1) as f32) / COLUMNS as f32).floor();
+
+        let cards = self.deck.slides.chunks(COLUMNS).enumerate().fold(
+            Column::new().spacing(14),
+            |rows, (chunk, slides)| {
+                rows.push(slides.iter().enumerate().fold(
+                    Row::new().spacing(GAP),
+                    |cells, (offset, item)| {
+                        let index = chunk * COLUMNS + offset;
+
+                        cells.push(slide_card(
+                            Card {
+                                slide: item,
+                                theme,
+                                number: ui::number(index + 1),
+                                width: card_width,
+                                is_selected: self.selected == index,
+                                is_live: false,
+                                compact: true,
+                            },
+                            Message::SlideSelected(index),
+                        ))
+                    },
+                ))
+            },
+        );
+
+        container(
+            column![
+                row![
+                    label(t().common.preview, 13.0, style::SEMIBOLD, style::TEXT).width(Fill),
+                    label(&self.captions.sample, 12.0, style::INTER, style::TEXT_3),
+                ]
+                .align_y(Center),
+                container(slide::stage(
+                    self.deck.slides.get(self.selected),
+                    theme,
+                    Visibility::FULL,
+                ))
+                .width(Fill)
+                .height(stage_height)
+                .padding(1)
+                .clip(true)
+                .style(style::boxed(
+                    Some(color(theme.background)),
+                    style::BORDER_STRONG,
+                    8.0
+                )),
+                ui::scroll(cards).height(Fill),
+                container(ui::note(icon::INFO, &self.captions.note, style::TEXT_2))
+                    .padding([10, 14])
+                    .width(Fill)
+                    .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0)),
+            ]
+            .spacing(14),
+        )
+        .padding(Padding {
+            top: 20.0,
+            right: PADDING,
+            bottom: 20.0,
+            left: PADDING,
+        })
+        .width(Fill)
+        .height(Fill)
+        .style(style::fill(style::SURFACE))
+        .into()
+    }
+
+    fn footer(&self) -> Element<'_, Message> {
+        let save = if self.busy {
+            action(
+                Tone::Primary,
+                Some(icon::LOADER_CIRCLE),
+                t().common.saving,
+                None,
+                None,
+            )
+        } else {
+            action(
+                Tone::Primary,
+                Some(icon::CHECK),
+                t().theme.save,
+                Some(ui::SAVE_KEY),
+                Some(Message::Save),
+            )
+        };
+
+        row![
+            action(
+                Tone::Ghost,
+                Some(icon::ROTATE_CCW),
+                t().theme.reset,
+                None,
+                (!self.busy).then_some(Message::Reset),
+            ),
+            container(self.error.as_deref().map(|error| ui::note(
+                icon::CIRCLE_ALERT,
+                error,
+                style::LIVE
+            )))
+            .padding([0, 12])
+            .width(Fill),
+            action(
+                Tone::Ghost,
+                None,
+                t().common.cancel,
+                None,
+                (!self.busy).then_some(Message::Cancel),
+            ),
+            save,
+        ]
+        .spacing(8)
+        .align_y(Center)
         .into()
     }
 
@@ -390,26 +680,56 @@ impl ThemeDialog {
         self.deck = sample.compile(&self.draft.clone().clamped());
         self.selected = self.selected.min(self.deck.len().saturating_sub(1));
     }
+
+    fn describe(&mut self) {
+        let theme = self.draft.theme(self.kind);
+        let pixels = |value: f32| {
+            fill(t().theme.pixels, &[("value", &format!("{value:.0}"))]).into_boxed_str()
+        };
+        let chars = self.draft.scripture.max_chars;
+
+        self.captions = Captions {
+            body_size: pixels(theme.body_size),
+            footer_size: pixels(theme.footer_size),
+            line_height: format!("{:.2}", theme.line_height).into_boxed_str(),
+            margin: pixels(theme.margin),
+            limit: match self.kind {
+                ContentKind::Song => self.draft.song.max_lines.to_string().into_boxed_str(),
+                ContentKind::Scripture => chars.to_string().into_boxed_str(),
+            },
+            sample: fill(t().theme.sample_from, &[("title", &self.deck.title)]).into_boxed_str(),
+            note: match self.kind {
+                ContentKind::Song => t().theme.song_note.into(),
+                ContentKind::Scripture => {
+                    fill(t().theme.bible_note, &[("count", &chars)]).into_boxed_str()
+                }
+            },
+        };
+    }
 }
 
-fn heading(label: &str) -> Element<'_, Message> {
-    text(label).size(12).style(text::secondary).into()
+fn field<'a>(caption: &'a str, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    row![
+        label(caption, 13.0, style::INTER, style::TEXT_2).width(Fill),
+        content.into(),
+    ]
+    .align_y(Center)
+    .into()
 }
 
 fn control<'a>(
-    label: &'a str,
-    value: String,
+    caption: &'a str,
+    value: &'a str,
     input: impl Into<Element<'a, Message>>,
 ) -> Element<'a, Message> {
     column![
         row![
-            text(label).size(13),
-            space::horizontal(),
-            text(value).size(13).style(text::secondary),
+            label(caption, 13.0, style::INTER, style::TEXT_2).width(Fill),
+            label(value, 12.0, style::MEDIUM, style::TEXT_2),
         ],
         input.into(),
     ]
-    .spacing(4)
+    .spacing(8)
     .into()
 }
 
@@ -449,7 +769,7 @@ mod tests {
     use super::{Action, ColorSlot, Message, ThemeDialog};
 
     fn dialog() -> ThemeDialog {
-        ThemeDialog::new(&Styles::default(), None)
+        ThemeDialog::new(&Styles::default(), true, None)
     }
 
     #[test]
@@ -460,7 +780,7 @@ mod tests {
     #[test]
     fn selected_item_becomes_sample_and_picks_tab() {
         let item = ScheduleItem::Song(Song::new("Selected", "one", None));
-        let dialog = ThemeDialog::new(&Styles::default(), Some(&item));
+        let dialog = ThemeDialog::new(&Styles::default(), true, Some(&item));
 
         assert_eq!(dialog.kind, ContentKind::Song);
         assert_eq!(&*dialog.deck.title, "Selected");
@@ -548,7 +868,7 @@ mod tests {
         let mut dialog = dialog();
         let _ = dialog.update(Message::MaxLines(500));
 
-        let Action::Save(styles) = dialog.update(Message::Save) else {
+        let Action::Save(styles, _) = dialog.update(Message::Save) else {
             panic!("expected a save action");
         };
 
@@ -561,8 +881,42 @@ mod tests {
         let mut dialog = dialog();
         let _ = dialog.update(Message::Save);
 
-        dialog.fail("broken".into());
+        dialog.fail("broken.");
 
-        assert!(matches!(dialog.update(Message::Save), Action::Save(_)));
+        assert!(dialog.error.as_deref().unwrap().contains("broken"));
+        assert!(!dialog.error.as_deref().unwrap().contains("broken.."));
+        assert!(matches!(dialog.update(Message::Save), Action::Save(..)));
+    }
+
+    #[test]
+    fn shadows_choice_is_saved_with_the_theme() {
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::Shadows(false));
+
+        assert!(matches!(
+            dialog.update(Message::Save),
+            Action::Save(_, false)
+        ));
+    }
+
+    #[test]
+    fn steppers_stay_within_their_ranges() {
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::MaxLines(0));
+        let _ = dialog.update(Message::MaxChars(5000));
+
+        assert_eq!(dialog.draft.song.max_lines, *MAX_LINES.start());
+        assert_eq!(
+            dialog.draft.scripture.max_chars,
+            *sdw_core::theme::MAX_CHARS.end()
+        );
+    }
+
+    #[test]
+    fn cancel_waits_for_a_running_save() {
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::Save);
+
+        assert_eq!(dialog.update(Message::Cancel), Action::None);
     }
 }
