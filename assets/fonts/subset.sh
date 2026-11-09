@@ -13,10 +13,10 @@ TEXT_FEATURES=kern,liga,calt,ccmp,locl,mark,mkmk,tnum
 
 ICONS="arrow-left arrow-right book-open book-x check chevron-down circle-alert circle-check
 circle-dashed circle-x corner-down-left database download eraser eye file-check file-code
-file-plus file-text folder-open history info laptop library list-plus loader-circle monitor
-monitor-off monitor-up monitor-x mouse-pointer-click music palette pencil play plus refresh-cw
-rows-3 save search search-x square tag text-align-center text-align-end text-align-start
-trash-2 unplug x"
+file-plus file-text folder-open history info laptop layout-grid library list-plus loader-circle
+minus monitor monitor-off monitor-up monitor-x mouse-pointer-click music palette pencil play plus
+refresh-cw rotate-ccw rows-3 save save-all search search-x square tag text-align-center
+text-align-end text-align-start trash-2 unplug x"
 
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
