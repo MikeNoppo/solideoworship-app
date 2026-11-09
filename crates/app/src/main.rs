@@ -1302,7 +1302,7 @@ mod tests {
     use std::path::PathBuf;
 
     use iced::window;
-    use sdw_core::{ScheduleItem, Song};
+    use sdw_core::{OutputState, ScheduleItem, Song};
 
     use sdw_library::{Library, SongSummary};
 
@@ -1311,6 +1311,7 @@ mod tests {
     use super::{App, Modal, Notice};
     use crate::display::Display;
     use crate::editor;
+    use crate::i18n::{fill, t};
     use crate::message::{Message, Pending, UnsavedChoice};
     use crate::theme_dialog::ThemeDialog;
 
@@ -1706,6 +1707,56 @@ mod tests {
         app.output = Some(window::Id::unique());
         app.output_display = Some(1);
         app
+    }
+
+    fn live_with_two_songs() -> App {
+        let mut app = app_on_air();
+        for title in ["First", "Second"] {
+            app.schedule.push(
+                ScheduleItem::Song(Song::new(title, "one\n\ntwo", None)),
+                None,
+                &app.styles,
+            );
+        }
+        app.schedule.select(0);
+        let _ = app.update(Message::GoLive);
+        app
+    }
+
+    #[test]
+    fn status_names_the_live_item_while_another_is_previewed() {
+        let mut app = live_with_two_songs();
+        assert!(
+            app.captions
+                .status
+                .starts_with(&*fill(t().status.on_air, &[("screen", &"HDMI-1")]))
+        );
+
+        app.schedule.select(1);
+        let _ = app.update(Message::SearchFocused);
+
+        let preview = fill(t().status.preview, &[("title", &"Second")]);
+        assert!(app.captions.status.ends_with(&*preview));
+    }
+
+    #[test]
+    fn black_and_clear_explain_how_to_return() {
+        let mut app = live_with_two_songs();
+
+        let _ = app.update(Message::OutputStateToggled(OutputState::Black));
+        assert!(app.captions.status.starts_with(t().status.black));
+        assert!(app.captions.live_position.starts_with(t().toolbar.black));
+        assert!(app.captions.mode_hint.starts_with(t().slides.black_body));
+
+        let _ = app.update(Message::OutputStateToggled(OutputState::Clear));
+        assert!(app.captions.status.starts_with(t().status.clear));
+
+        let _ = app.update(Message::OutputStateToggled(OutputState::Clear));
+        assert!(app.captions.mode_hint.is_empty());
+        assert_eq!(
+            &*app.captions.live_position,
+            fill(t().slides.position, &[("position", &1), ("total", &2)])
+        );
     }
 
     #[test]

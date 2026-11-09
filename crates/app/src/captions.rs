@@ -1,7 +1,7 @@
-use sdw_core::ContentKind;
+use sdw_core::{ContentKind, OutputState};
 
 use crate::App;
-use crate::i18n::{count, fill, t};
+use crate::i18n::{Label, count, fill, t};
 
 #[derive(Default)]
 pub struct Captions {
@@ -10,6 +10,7 @@ pub struct Captions {
     pub schedule_count: Box<str>,
     pub preview_meta: Box<str>,
     pub live_position: Box<str>,
+    pub mode_hint: Box<str>,
     pub closed_body: Box<str>,
     pub song_body: Box<str>,
     pub songs_done: Box<str>,
@@ -63,13 +64,36 @@ impl Captions {
             .live
             .as_ref()
             .map(|live| {
-                fill(
+                let position = fill(
                     t().slides.position,
                     &[("position", &live.position()), ("total", &live.len())],
-                )
+                );
+
+                match app.output_state {
+                    OutputState::Show => position,
+                    state => format!("{} · {position}", state.label()),
+                }
                 .into_boxed_str()
             })
             .unwrap_or_default();
+        self.mode_hint = match app.output_state {
+            OutputState::Show => Box::default(),
+            OutputState::Black => format!(
+                "{} · {}",
+                t().slides.black_body,
+                fill(
+                    t().slides.black_hint,
+                    &[(
+                        "position",
+                        &app.live.as_ref().map_or(0, |live| live.position())
+                    )],
+                )
+            )
+            .into_boxed_str(),
+            OutputState::Clear => {
+                format!("{} · {}", t().slides.clear_body, t().slides.clear_hint).into_boxed_str()
+            }
+        };
 
         let screen = [("screen", &screen_name as &dyn std::fmt::Display)];
         self.closed_body = fill(t().slides.closed_body, &screen).into_boxed_str();
@@ -158,19 +182,48 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
     }
 
     if app.output.is_some() {
+        match app.output_state {
+            OutputState::Black => return format!("{} · {}", status.black, status.black_detail),
+            OutputState::Clear => return format!("{} · {}", status.clear, status.clear_detail),
+            OutputState::Show => {}
+        }
+
         let on_air = fill(status.on_air, &[("screen", &screen_name)]);
+        let preview = app
+            .schedule
+            .selected()
+            .and_then(|index| app.schedule.entries().get(index));
 
         return match &app.live {
-            Some(live) => format!(
-                "{on_air} · {}",
-                fill(
-                    status.showing,
-                    &[
-                        ("position", &live.position()),
-                        ("title", &live.deck().title),
-                    ],
+            Some(live) => match preview.filter(|entry| !entry.is_shown_by(live)) {
+                Some(entry) => format!(
+                    "{} · {}",
+                    fill(
+                        status.live,
+                        &[
+                            ("title", &live.deck().title),
+                            ("position", &live.position()),
+                        ],
+                    ),
+                    fill(status.preview, &[("title", &entry.deck().title)]),
+                ),
+                None => format!(
+                    "{on_air} · {}",
+                    fill(
+                        status.showing,
+                        &[
+                            ("position", &live.position()),
+                            ("title", &live.deck().title),
+                        ],
+                    )
+                ),
+            },
+            None if preview.is_some() => {
+                format!(
+                    "{on_air} · {} · {}",
+                    status.nothing_live, status.go_live_hint
                 )
-            ),
+            }
             None => format!("{on_air} · {}", status.nothing_live),
         };
     }

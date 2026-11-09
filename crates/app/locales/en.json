@@ -127,7 +127,13 @@
     "list_empty": "Slides appear here once something is live.",
     "previous": "Previous",
     "next": "Next slide",
-    "disconnected_body": "Closed because {screen} was disconnected"
+    "disconnected_body": "Closed because {screen} was disconnected",
+    "black_chip": "BLACK",
+    "clear_chip": "CLEAR",
+    "black_body": "Projector is fully black",
+    "black_hint": "press B to show slide {position} again",
+    "clear_body": "Text hidden, theme background stays",
+    "clear_hint": "press C to show it again"
   },
   "status": {
     "ready": "Ready",
@@ -147,7 +153,14 @@
     "slides": "Slides",
     "no_screens": "No output screens detected",
     "closed": "Output closed",
-    "disconnected": "{screen} disconnected"
+    "disconnected": "{screen} disconnected",
+    "go_live_hint": "press Enter to go live",
+    "black": "Projector is black",
+    "black_detail": "B again returns to Show",
+    "clear": "Text cleared, theme background stays",
+    "clear_detail": "C again returns to Show",
+    "live": "Live: {title}, slide {position}",
+    "preview": "Preview: {title} (not on screen yet)"
   },
   "unsaved": {
     "title": "The schedule has not been saved",

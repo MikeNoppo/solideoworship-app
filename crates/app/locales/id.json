@@ -127,7 +127,13 @@
     "list_empty": "Slide muncul di sini setelah ada yang tayang.",
     "previous": "Sebelumnya",
     "next": "Slide berikutnya",
-    "disconnected_body": "Ditutup karena {screen} terputus"
+    "disconnected_body": "Ditutup karena {screen} terputus",
+    "black_chip": "HITAM",
+    "clear_chip": "KOSONG",
+    "black_body": "Proyektor hitam sepenuhnya",
+    "black_hint": "tekan B untuk menampilkan slide {position} lagi",
+    "clear_body": "Teks disembunyikan, latar tema tetap tampil",
+    "clear_hint": "tekan C untuk menampilkannya lagi"
   },
   "status": {
     "ready": "Siap",
@@ -147,7 +153,14 @@
     "slides": "Slide",
     "no_screens": "Tidak ada layar output terdeteksi",
     "closed": "Output tertutup",
-    "disconnected": "{screen} terputus"
+    "disconnected": "{screen} terputus",
+    "go_live_hint": "tekan Enter untuk menayangkan",
+    "black": "Proyektor hitam",
+    "black_detail": "B lagi untuk kembali ke Tampil",
+    "clear": "Teks dikosongkan, latar tema tetap tampil",
+    "clear_detail": "C lagi untuk kembali ke Tampil",
+    "live": "Tayang: {title}, slide {position}",
+    "preview": "Preview: {title} (belum tampil di layar)"
   },
   "unsaved": {
     "title": "Susunan acara belum disimpan",

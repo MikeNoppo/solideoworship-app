@@ -1,4 +1,4 @@
-use iced::widget::{Column, Space, button, column, container, row};
+use iced::widget::{Column, Space, button, column, container, row, stack};
 use iced::{Border, Center, Element, Fill, Padding};
 use sdw_core::OutputState;
 
@@ -60,14 +60,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .align_y(Center);
 
     let frame: Element<'_, Message> = match live {
-        Some(live) => container(slide::stage(
-            Some(live.current()),
-            &app.live_theme,
-            Visibility {
-                background: app.output_state.shows_background(),
-                body: app.output_state.shows_content(),
-            },
-        ))
+        Some(live) => container(
+            stack![slide::stage(
+                Some(live.current()),
+                &app.live_theme,
+                Visibility {
+                    background: app.output_state.shows_background(),
+                    body: app.output_state.shows_content(),
+                },
+            )]
+            .push(mode_notice(app)),
+        )
         .width(Fill)
         .height(frame_height)
         .padding(2)
@@ -198,6 +201,40 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .padding(PADDING)
         .style(style::fill(style::SURFACE))
         .into()
+}
+
+fn mode_notice(app: &App) -> Option<Element<'_, Message>> {
+    let (glyph, chip) = match app.output_state {
+        OutputState::Show => return None,
+        OutputState::Black => (icon::SQUARE, t().slides.black_chip),
+        OutputState::Clear => (icon::ERASER, t().slides.clear_chip),
+    };
+
+    let chip = container(
+        row![
+            icon::view(glyph, 12.0, style::TEXT_2),
+            label(chip, 10.0, style::SEMIBOLD, style::TEXT_2),
+        ]
+        .spacing(6)
+        .align_y(Center),
+    )
+    .padding([0, 8])
+    .center_y(22)
+    .style(style::rounded(style::INVERSE.scale_alpha(0.08), 5.0));
+
+    Some(
+        container(
+            column![
+                chip,
+                label(&app.captions.mode_hint, 11.0, style::INTER, style::TEXT_3).center(),
+            ]
+            .spacing(10)
+            .align_x(Center),
+        )
+        .padding(20)
+        .center(Fill)
+        .into(),
+    )
 }
 
 fn mode<'a>(
