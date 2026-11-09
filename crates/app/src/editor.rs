@@ -168,6 +168,7 @@ impl Editor {
                 }
             }
             Message::Cancel => return Action::Close,
+            Message::Dismiss if self.confirm_delete && !self.busy => self.confirm_delete = false,
             Message::Dismiss => {
                 if !self.busy && self.song() == self.original {
                     return Action::Close;
@@ -806,6 +807,19 @@ mod tests {
         let _ = editor.update(Message::TitleChanged("Other".into()));
 
         assert_eq!(editor.update(Message::Dismiss), Action::None);
+    }
+
+    #[test]
+    fn escape_backs_out_of_the_delete_prompt_first() {
+        let mut library = sdw_library::Library::open_in_memory().unwrap();
+        let song = Song::new("Test", "one", None);
+        let id = library.insert_song(&song).unwrap();
+        let mut editor = Editor::new(Some(id), &song, 4);
+        let _ = editor.update(Message::Delete);
+
+        assert_eq!(editor.update(Message::Dismiss), Action::None);
+        assert!(!editor.confirm_delete);
+        assert_eq!(editor.update(Message::Dismiss), Action::Close);
     }
 
     #[test]
