@@ -1,12 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use sdw_core::{Presentation, ScheduleItem, SlideDeck, Song, Styles};
 use sdw_library::SongId;
 
 use crate::i18n::{Label, count, t};
 
+static NEXT_KEY: AtomicU64 = AtomicU64::new(0);
+
 pub struct Entry {
+    key: u64,
     item: ScheduleItem,
     origin: Option<SongId>,
     deck: Arc<SlideDeck>,
@@ -18,6 +22,7 @@ impl Entry {
         let (deck, meta) = compile(&item, styles);
 
         Self {
+            key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
             item,
             origin,
             deck,
@@ -37,8 +42,8 @@ impl Entry {
         &self.meta
     }
 
-    pub fn is_shown_by(&self, presentation: &Presentation) -> bool {
-        presentation.shares(&self.deck)
+    pub fn key(&self) -> u64 {
+        self.key
     }
 
     pub fn item(&self) -> &ScheduleItem {
@@ -189,7 +194,10 @@ impl Schedule {
 
         for (index, entry) in self.entries.iter_mut().enumerate() {
             if entry.origin == Some(id) {
-                *entry = Entry::new(ScheduleItem::Song(song.clone()), Some(id), styles);
+                *entry = Entry {
+                    key: entry.key,
+                    ..Entry::new(ScheduleItem::Song(song.clone()), Some(id), styles)
+                };
                 selected_changed |= self.selected == Some(index);
                 self.revision += 1;
             }
@@ -292,7 +300,7 @@ mod tests {
     use sdw_core::{ScheduleItem, Song, Styles};
     use sdw_library::{Library, SongId};
 
-    use super::Schedule;
+    use super::{Entry, Schedule};
 
     fn song(title: &str) -> ScheduleItem {
         ScheduleItem::Song(Song::new(title, "one\n\ntwo", None))
@@ -334,6 +342,25 @@ mod tests {
         let preview = schedule.preview().unwrap();
 
         assert!(Arc::ptr_eq(&preview.share(), &schedule.entries[0].deck));
+    }
+
+    #[test]
+    fn edits_and_recompiles_keep_entry_keys() {
+        let ids = song_ids(1);
+        let styles = Styles::default();
+        let mut schedule = Schedule::default();
+        schedule.push(song("A"), Some(ids[0]), &styles);
+        schedule.push(song("B"), None, &styles);
+        let keys = schedule.entries.iter().map(Entry::key).collect::<Vec<_>>();
+
+        schedule.recompile(&styles);
+        schedule.replace_song(ids[0], &Song::new("A new", "x", None), &styles);
+
+        assert_ne!(keys[0], keys[1]);
+        assert_eq!(
+            schedule.entries.iter().map(Entry::key).collect::<Vec<_>>(),
+            keys
+        );
     }
 
     #[test]

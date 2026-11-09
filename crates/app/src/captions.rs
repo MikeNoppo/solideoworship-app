@@ -182,7 +182,7 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
             .and_then(|index| app.schedule.entries().get(index));
 
         return match &app.live {
-            Some(live) => match preview.filter(|entry| !entry.is_shown_by(live)) {
+            Some(live) => match preview.filter(|entry| !app.is_live(entry)) {
                 Some(entry) => format!(
                     "{} · {}",
                     fill(

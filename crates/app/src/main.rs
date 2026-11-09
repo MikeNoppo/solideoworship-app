@@ -45,7 +45,7 @@ use crate::files::SaveTarget;
 use crate::i18n::{fill, t};
 use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
-use crate::schedule::Schedule;
+use crate::schedule::{Entry, Schedule};
 use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
 
@@ -166,6 +166,7 @@ struct App {
     schedule: Schedule,
     styles: Styles,
     live: Option<Presentation>,
+    live_entry: Option<u64>,
     live_theme: SlideTheme,
     live_sections: Vec<Box<str>>,
 
@@ -437,6 +438,11 @@ impl App {
                         })
                         .collect();
                     self.live = live;
+                    self.live_entry = self
+                        .schedule
+                        .selected()
+                        .and_then(|index| self.schedule.entries().get(index))
+                        .map(Entry::key);
                 }
                 Task::none()
             }
@@ -1176,6 +1182,10 @@ impl App {
             .retain(|notice| *notice != Notice::Disconnected);
     }
 
+    fn is_live(&self, entry: &Entry) -> bool {
+        self.live.is_some() && self.live_entry == Some(entry.key())
+    }
+
     fn selected_display(&self) -> Option<&Display> {
         self.displays
             .iter()
@@ -1880,6 +1890,17 @@ mod tests {
         assert_eq!(&*app.schedule.entries()[0].deck().title, "B");
         assert_eq!(app.schedule.selected(), Some(0));
         assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn live_item_stays_live_after_a_recompile() {
+        let mut app = live_with_two_songs();
+        let styles = app.styles.clone();
+
+        app.schedule.recompile(&styles);
+
+        assert!(app.is_live(&app.schedule.entries()[0]));
+        assert!(!app.is_live(&app.schedule.entries()[1]));
     }
 
     #[test]

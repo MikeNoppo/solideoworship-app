@@ -97,11 +97,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
 fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message> {
     let is_selected = app.schedule.selected() == Some(index);
-    let is_live = app.output.is_some()
-        && app
-            .live
-            .as_ref()
-            .is_some_and(|live| entry.is_shown_by(live));
+    let is_live = app.output.is_some() && app.is_live(entry);
 
     let glyph = match entry.deck().kind {
         ContentKind::Song => icon::MUSIC,

@@ -65,7 +65,7 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
     let live_index = app
         .live
         .as_ref()
-        .filter(|live| app.output.is_some() && entry.is_some_and(|entry| entry.is_shown_by(live)))
+        .filter(|_| app.output.is_some() && entry.is_some_and(|entry| app.is_live(entry)))
         .map(Presentation::index);
 
     let layout = columns(app.control_width);
