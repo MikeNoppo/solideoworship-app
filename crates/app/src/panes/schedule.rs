@@ -113,12 +113,7 @@ fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message
         .is_some_and(|drag| drag.over == index && drag.from != index);
 
     let content = row![
-        label(
-            app.captions.number(index),
-            12.0,
-            style::MEDIUM,
-            style::TEXT_3
-        ),
+        label(ui::number(index + 1), 12.0, style::MEDIUM, style::TEXT_3),
         container(icon::view(glyph, 14.0, style::TEXT_2))
             .center(28)
             .style(style::boxed(Some(style::RAISED), style::BORDER, 6.0)),

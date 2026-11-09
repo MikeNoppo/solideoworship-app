@@ -89,7 +89,7 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
                             Card {
                                 slide: item,
                                 theme,
-                                number: app.captions.number(index),
+                                number: ui::number(index + 1),
                                 width,
                                 is_selected: preview.index() == index,
                                 is_live: live_index == Some(index),

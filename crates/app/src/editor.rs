@@ -64,7 +64,6 @@ pub struct Editor {
     ready: Box<str>,
     lines_hint: Box<str>,
     confirm: Box<str>,
-    numbers: Vec<Box<str>>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +114,6 @@ impl Editor {
                 t().editor.hint_lines_other,
             ),
             confirm: Box::default(),
-            numbers: Vec::new(),
         };
         editor.describe();
         editor
@@ -344,7 +342,7 @@ impl Editor {
                                 Card {
                                     slide: item,
                                     theme,
-                                    number: self.numbers.get(index).map_or("", |number| number),
+                                    number: ui::number(index + 1),
                                     width,
                                     is_selected: self.selected == index,
                                     is_live: false,
@@ -558,12 +556,6 @@ impl Editor {
             ],
         )
         .into_boxed_str();
-
-        let known = self.numbers.len();
-        if slides > known {
-            self.numbers
-                .extend((known + 1..=slides).map(|number| number.to_string().into_boxed_str()));
-        }
     }
 
     fn save(&mut self) -> Action {

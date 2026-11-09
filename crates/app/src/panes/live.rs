@@ -290,7 +290,7 @@ fn slide_row<'a>(
 
     let content = row![
         label(
-            app.captions.number(index),
+            ui::number(index + 1),
             12.0,
             style::MEDIUM,
             if is_current {

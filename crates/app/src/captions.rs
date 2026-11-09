@@ -23,14 +23,9 @@ pub struct Captions {
     pub disconnected_frame: Box<str>,
     pub results: Box<str>,
     pub no_match: Box<str>,
-    pub numbers: Vec<Box<str>>,
 }
 
 impl Captions {
-    pub fn number(&self, index: usize) -> &str {
-        self.numbers.get(index).map_or("", |number| number)
-    }
-
     pub fn refresh(&mut self, app: &App) {
         let display = app.selected_display();
         let screen_name = display.map_or("", |display| &display.name);
@@ -147,15 +142,6 @@ impl Captions {
             _ => fill(t().welcome.bibles_done, &[("count", &bibles.len())]),
         }
         .into_boxed_str();
-
-        let needed = entries
-            .max(app.live.as_ref().map_or(0, |live| live.len()))
-            .max(app.schedule.preview().map_or(0, |preview| preview.len()));
-        let known = self.numbers.len();
-        if needed > known {
-            self.numbers
-                .extend((known + 1..=needed).map(|number| number.to_string().into_boxed_str()));
-        }
     }
 }
 

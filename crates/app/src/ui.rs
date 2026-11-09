@@ -1,3 +1,5 @@
+use std::sync::{PoisonError, RwLock};
+
 use std::time::Duration;
 
 use iced::widget::{
@@ -15,6 +17,23 @@ pub const SAVE_KEY: &str = if cfg!(target_os = "macos") {
 } else {
     "Ctrl S"
 };
+
+pub fn number(value: usize) -> &'static str {
+    static NUMBERS: RwLock<Vec<&'static str>> = RwLock::new(Vec::new());
+
+    if let Some(&number) = NUMBERS
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(value)
+    {
+        return number;
+    }
+
+    let mut numbers = NUMBERS.write().unwrap_or_else(PoisonError::into_inner);
+    let known = numbers.len();
+    numbers.extend((known..=value).map(|number| &*Box::leak(number.to_string().into_boxed_str())));
+    numbers[value]
+}
 
 pub fn label<'a>(content: &'a str, size: f32, font: Font, color: Color) -> Text<'a> {
     text(content).size(size).font(font).color(color)
@@ -353,4 +372,17 @@ pub fn note<'a, M: 'a>(glyph: &'static str, caption: &'a str, color: Color) -> E
     .spacing(8)
     .align_y(Center)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::number;
+
+    #[test]
+    fn numbers_are_cached_as_text() {
+        assert_eq!(number(176), "176");
+        assert_eq!(number(0), "0");
+        assert_eq!(number(12), "12");
+        assert!(std::ptr::eq(number(12), number(12)));
+    }
 }

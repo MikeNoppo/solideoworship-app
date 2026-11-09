@@ -42,7 +42,6 @@ enum Missing {
 struct Found {
     passage: Passage,
     meta: Box<str>,
-    numbers: Box<[Box<str>]>,
     long_note: Option<Box<str>>,
     slides: usize,
     max_chars: usize,
@@ -172,12 +171,6 @@ impl BibleTab {
                         count(total, t().common.verses_one, t().common.verses_other)
                     )
                     .into_boxed_str(),
-                    numbers: passage
-                        .verses()
-                        .iter()
-                        .take(PREVIEW_LIMIT)
-                        .map(|verse| verse.number.to_string().into_boxed_str())
-                        .collect(),
                     long_note: (total > PREVIEW_LIMIT).then(|| {
                         fill(
                             t().bible.long_note,
@@ -413,23 +406,32 @@ impl BibleTab {
             left: 16.0,
         });
 
-        let verses = found.passage.verses().iter().zip(&found.numbers).fold(
-            Column::new(),
-            |list, (verse, number)| {
-                list.push(ui::hrule(style::BORDER)).push(
-                    container(
-                        row![
-                            label(number, 11.0, style::MEDIUM, style::TEXT_3).width(22),
-                            label(&verse.text, 13.0, style::INTER, style::TEXT_2)
-                                .line_height(1.5)
-                                .width(Fill),
-                        ]
-                        .spacing(12),
+        let verses =
+            found
+                .passage
+                .verses()
+                .iter()
+                .take(PREVIEW_LIMIT)
+                .fold(Column::new(), |list, verse| {
+                    list.push(ui::hrule(style::BORDER)).push(
+                        container(
+                            row![
+                                label(
+                                    ui::number(verse.number.into()),
+                                    11.0,
+                                    style::MEDIUM,
+                                    style::TEXT_3
+                                )
+                                .width(22),
+                                label(&verse.text, 13.0, style::INTER, style::TEXT_2)
+                                    .line_height(1.5)
+                                    .width(Fill),
+                            ]
+                            .spacing(12),
+                        )
+                        .padding([10, 16]),
                     )
-                    .padding([10, 16]),
-                )
-            },
-        );
+                });
 
         let note = found.long_note.as_deref().map(|note| {
             column![
@@ -719,7 +721,6 @@ mod tests {
         let _ = tab.found(bible, &reference, Ok(Some(passage)), MAX_CHARS);
 
         let found = tab.found.as_ref().unwrap();
-        assert_eq!(found.numbers.len(), super::PREVIEW_LIMIT);
         assert!(found.long_note.as_deref().unwrap().contains("176"));
 
         let Action::Add(added) = tab.update(Message::Submitted) else {
