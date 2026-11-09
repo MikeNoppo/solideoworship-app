@@ -161,7 +161,7 @@ impl BibleTab {
         match result {
             Ok(Some(passage)) => {
                 let total = passage.verses().len();
-                let slides = compile::scripture(&passage, max_chars).len();
+                let slides = compile::scripture_len(&passage, max_chars);
                 let size = if total > PREVIEW_LIMIT {
                     fill(t().bible.split, &[("count", &max_chars)])
                 } else {
