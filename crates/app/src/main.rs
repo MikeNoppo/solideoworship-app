@@ -23,11 +23,12 @@ mod ui;
 mod windows;
 mod work;
 
-use std::fs::File;
+use std::ffi::OsStr;
+use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
@@ -41,7 +42,7 @@ use crate::bible_tab::BibleTab;
 use crate::captions::Captions;
 use crate::display::Display;
 use crate::editor::Editor;
-use crate::files::SaveTarget;
+use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
 use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
@@ -176,6 +177,7 @@ struct App {
     drag: Option<Drag>,
     modal_ticket: u64,
     after_save: Option<Pending>,
+    saved_at: Option<SystemTime>,
     bible: BibleTab,
     schedule: Schedule,
     styles: Styles,
@@ -200,9 +202,7 @@ impl App {
             recovery: Recovery::new(paths::recovery_file()),
             ..Self::default()
         };
-        let library_opened = app
-            .store
-            .run(
+        let library_opened = app.store.run(
             |library| Ok((library.styles()?, library.shadows()?)),
             Message::LibraryOpened,
         );
@@ -627,6 +627,10 @@ impl App {
                 }
                 _ => Task::none(),
             },
+            Message::ModalSubmitted => match &self.modal {
+                Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Save)),
+                _ => Task::none(),
+            },
             Message::ModalDismissed => match &self.modal {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Dismiss)),
                 Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Cancel)),
@@ -730,18 +734,40 @@ impl App {
             }
             Message::ScheduleFilePicked(path) => match path {
                 Some(path) => work::background(move || {
-                    schedule_file::open(&path)
-                        .map(|items| (path, items))
-                        .map_err(work::describe)
+                    let items = schedule_file::open(&path).map_err(work::describe)?;
+                    let modified = fs::metadata(&path)
+                        .and_then(|metadata| metadata.modified())
+                        .ok();
+
+                    Ok((path, items, modified))
                 })
                 .map(Message::ScheduleOpened),
                 None => Task::none(),
             },
             Message::ScheduleOpened(result) => {
                 match result {
-                    Ok((path, items)) => {
+                    Ok((path, items, modified)) => {
+                        let opened = fill(
+                            t().status.opened,
+                            &[(
+                                "file",
+                                &path.file_name().unwrap_or_default().to_string_lossy(),
+                            )],
+                        );
                         self.schedule.load(path, items, &self.styles);
-                        self.notices.retain(|notice| *notice != Notice::Recovered);
+                        self.saved_at = modified;
+                        self.notices.retain(|notice| {
+                            !matches!(notice, Notice::Recovered | Notice::Taken(_))
+                        });
+                        self.flash(if self.live.is_some() {
+                            format!(
+                                "{opened} · {} · {}",
+                                t().status.rebuilt,
+                                t().status.live_unchanged
+                            )
+                        } else {
+                            format!("{opened} · {}", t().status.rebuilt)
+                        });
                     }
                     Err(error) => self.notify(Notice::Failure(error)),
                 }
@@ -777,14 +803,30 @@ impl App {
                 match result {
                     Ok(path) => {
                         self.schedule.mark_saved(path, revision);
-                        self.notices.retain(|notice| *notice != Notice::Recovered);
+                        self.saved_at = Some(SystemTime::now());
+                        self.notices.retain(|notice| {
+                            !matches!(notice, Notice::Recovered | Notice::Taken(_))
+                        });
 
                         match pending {
                             Some(pending) if !self.schedule.is_dirty() => self.proceed(pending),
                             _ => Task::none(),
                         }
                     }
-                    Err(error) => {
+                    Err(SaveFailure::Taken(name)) => {
+                        self.notices
+                            .retain(|notice| !matches!(notice, Notice::Taken(_)));
+                        self.notify(Notice::Taken(
+                            fill(t().files.taken_title, &[("name", &name)]).into_boxed_str(),
+                        ));
+                        self.flash(format!(
+                            "{} · {}",
+                            t().status.not_saved,
+                            t().status.name_taken
+                        ));
+                        Task::none()
+                    }
+                    Err(SaveFailure::Failed(error)) => {
                         self.notify(Notice::Failure(error));
                         Task::none()
                     }
@@ -913,7 +955,7 @@ impl App {
                 .push(iced::time::every(SPLASH_MINIMUM).map(|_| Message::SplashElapsed)),
             Phase::Splash => {}
             Phase::Operator if self.modal.is_some() => {
-                subscriptions.push(event::listen_with(|event, _status, _window| match event {
+                subscriptions.push(event::listen_with(|event, status, _window| match event {
                     iced::Event::Keyboard(keyboard::Event::KeyPressed {
                         key, modifiers, ..
                     }) if modifiers.command() => save_shortcut(key),
@@ -921,6 +963,10 @@ impl App {
                         key: keyboard::Key::Named(Named::Escape),
                         ..
                     }) => Some(Message::ModalDismissed),
+                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(Named::Enter),
+                        ..
+                    }) if status == event::Status::Ignored => Some(Message::ModalSubmitted),
                     _ => None,
                 }));
             }
@@ -1064,7 +1110,17 @@ impl App {
         match pending {
             Pending::New => {
                 self.schedule.clear();
-                self.notices.retain(|notice| *notice != Notice::Recovered);
+                self.saved_at = None;
+                self.notices
+                    .retain(|notice| !matches!(notice, Notice::Recovered | Notice::Taken(_)));
+                self.flash(match &self.live {
+                    Some(live) => format!(
+                        "{} · {}",
+                        t().status.new_schedule,
+                        fill(t().status.live_kept, &[("title", &live.deck().title)])
+                    ),
+                    None => t().status.new_schedule.to_owned(),
+                });
                 Task::none()
             }
             Pending::Open => match self.control {
@@ -1088,12 +1144,23 @@ impl App {
         let revision = self.schedule.revision();
 
         work::background(move || {
-            target.check()?;
-            schedule_file::save(&target.path, &items)
+            if target.is_taken() {
+                let name = target.path.file_name().unwrap_or_default();
+                return Ok(Err(SaveFailure::Taken(
+                    name.to_string_lossy().into_owned().into_boxed_str(),
+                )));
+            }
+
+            Ok(schedule_file::save(&target.path, &items)
                 .map(|()| target.path)
-                .map_err(work::describe)
+                .map_err(|error| SaveFailure::Failed(work::describe(error))))
         })
-        .map(move |result| Message::ScheduleSaved(revision, result))
+        .map(move |result| {
+            Message::ScheduleSaved(
+                revision,
+                result.unwrap_or_else(|error| Err(SaveFailure::Failed(error))),
+            )
+        })
     }
 
     fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
@@ -1246,6 +1313,14 @@ impl App {
             .retain(|notice| *notice != Notice::Disconnected);
     }
 
+    fn schedule_name(&self) -> &str {
+        self.schedule
+            .path()
+            .and_then(Path::file_stem)
+            .and_then(OsStr::to_str)
+            .unwrap_or(t().toolbar.untitled)
+    }
+
     fn is_live(&self, entry: &Entry) -> bool {
         self.live.is_some() && self.live_entry == Some(entry.key())
     }
@@ -1394,7 +1469,7 @@ mod tests {
 
     use iced::{Point, Size};
 
-    use super::{App, Modal, Notice};
+    use super::{App, Modal, Notice, SaveFailure};
     use crate::display::Display;
     use crate::editor;
     use crate::i18n::{fill, t};
@@ -1481,11 +1556,66 @@ mod tests {
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
         let revision = app.schedule.revision();
 
-        let _ = app.update(Message::ScheduleSaved(revision, Err("broken".into())));
+        let _ = app.update(Message::ScheduleSaved(
+            revision,
+            Err(SaveFailure::Failed("broken".into())),
+        ));
 
         assert!(!app.schedule.is_empty());
         assert!(app.after_save.is_none());
         assert_eq!(app.notices, [Notice::Failure("broken".into())]);
+    }
+
+    #[test]
+    fn taken_file_name_is_explained_with_a_save_as_banner() {
+        let mut app = dirty_app();
+        let revision = app.schedule.revision();
+
+        let _ = app.update(Message::ScheduleSaved(
+            revision,
+            Err(SaveFailure::Taken("sunday.sdw".into())),
+        ));
+
+        assert!(matches!(&app.notices[..], [Notice::Taken(title)] if title.contains("sunday.sdw")));
+        assert!(app.captions.status.starts_with(t().status.not_saved));
+        assert!(app.schedule.is_dirty());
+    }
+
+    #[test]
+    fn enter_saves_from_the_unsaved_prompt() {
+        let mut app = dirty_app();
+        let _ = app.update(Message::ScheduleNewRequested);
+        assert!(app.captions.unsaved_saved.contains(t().unsaved.never_saved));
+
+        let _ = app.update(Message::ModalSubmitted);
+
+        assert!(app.modal.is_none());
+        assert_eq!(app.after_save, Some(Pending::New));
+    }
+
+    #[test]
+    fn new_schedule_says_what_stays_live() {
+        let mut app = live_with_two_songs();
+
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Discard));
+
+        assert!(app.schedule.is_empty());
+        assert!(app.captions.status.starts_with(t().status.new_schedule));
+        assert!(app.captions.status.contains("First"));
+    }
+
+    #[test]
+    fn saving_records_when_it_happened() {
+        let mut app = dirty_app();
+        let revision = app.schedule.revision();
+
+        let _ = app.update(Message::ScheduleSaved(
+            revision,
+            Ok(PathBuf::from("sunday.sdw")),
+        ));
+
+        assert!(app.saved_at.is_some());
     }
 
     #[test]
@@ -1516,7 +1646,11 @@ mod tests {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
-        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(&app.styles, true, None))));
+        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
+            &app.styles,
+            true,
+            None,
+        ))));
 
         let _ = app.update(Message::WindowCloseRequested(control));
 

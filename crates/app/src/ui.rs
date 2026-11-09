@@ -17,6 +17,11 @@ pub const SAVE_KEY: &str = if cfg!(target_os = "macos") {
 } else {
     "Ctrl S"
 };
+pub const OPEN_KEY: &str = if cfg!(target_os = "macos") {
+    "Cmd O"
+} else {
+    "Ctrl O"
+};
 
 pub fn number(value: usize) -> &'static str {
     static NUMBERS: RwLock<Vec<&'static str>> = RwLock::new(Vec::new());

@@ -180,14 +180,31 @@
     "added": "{title} ({bible}) ditambahkan",
     "added_detail": "{slides}, paling banyak {count} karakter per slide",
     "unreadable": "Referensi tidak bisa dibaca",
-    "not_found": "Ayat tidak ditemukan di {bible}"
+    "not_found": "Ayat tidak ditemukan di {bible}",
+    "new_schedule": "Susunan acara baru",
+    "live_kept": "Live tetap menampilkan {title} sampai Anda menggantinya",
+    "opened": "{file} dibuka",
+    "rebuilt": "item dibangun ulang dengan tema sekarang",
+    "live_unchanged": "Live tidak berubah",
+    "not_saved": "Tidak disimpan",
+    "name_taken": "nama file itu sudah dipakai",
+    "unsaved_changes": "{name} punya perubahan yang belum disimpan"
   },
   "unsaved": {
-    "title": "Susunan acara belum disimpan",
-    "on_new": "Perubahan akan hilang bila Anda membuat susunan acara baru.",
-    "on_open": "Perubahan akan hilang bila Anda membuka file lain.",
-    "on_quit": "Perubahan akan hilang bila aplikasi ditutup.",
-    "discard": "Jangan simpan"
+    "title": "Simpan perubahan pada “{name}”?",
+    "on_new": "Anda akan memulai susunan acara baru. Perubahan yang belum disimpan pada susunan ini akan hilang. Yang tampil di proyektor tetap tampil sampai Anda menggantinya.",
+    "on_open": "Anda akan membuka susunan acara lain. Perubahan yang belum disimpan pada susunan ini akan hilang. Yang tampil di proyektor tetap tampil sampai Anda menggantinya.",
+    "on_quit": "SolideoWorship akan ditutup. Perubahan yang belum disimpan pada “{name}” akan hilang.",
+    "discard": "Jangan simpan",
+    "quit_title": "Simpan perubahan sebelum menutup?",
+    "never_saved": "Belum pernah disimpan",
+    "saved_now": "Terakhir disimpan barusan",
+    "saved_minutes_one": "Terakhir disimpan {count} menit lalu",
+    "saved_minutes_other": "Terakhir disimpan {count} menit lalu",
+    "saved_hours_one": "Terakhir disimpan {count} jam lalu",
+    "saved_hours_other": "Terakhir disimpan {count} jam lalu",
+    "saved_days_one": "Terakhir disimpan {count} hari lalu",
+    "saved_days_other": "Terakhir disimpan {count} hari lalu"
   },
   "files": {
     "schedule_filter": "Susunan acara SolideoWorship",
@@ -196,7 +213,8 @@
     "save_schedule": "Simpan susunan acara",
     "pick_bible": "Pilih file Alkitab Zefania XML",
     "bible_filter": "Alkitab Zefania XML",
-    "already_exists": "File \"{name}\" sudah ada. Pilih file itu langsung di dialog bila ingin menimpanya, atau gunakan nama lain."
+    "taken_title": "“{name}” sudah ada.",
+    "taken_body": "Dialog simpan tidak bisa meminta konfirmasi untuk menimpa. Pilih file itu langsung di dialog untuk menggantinya, atau pakai nama lain."
   },
   "library": {
     "songs": "Lagu",

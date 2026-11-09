@@ -180,14 +180,31 @@
     "added": "Added {title} ({bible})",
     "added_detail": "{slides}, up to {count} characters each",
     "unreadable": "Reference could not be read",
-    "not_found": "Verse not found in {bible}"
+    "not_found": "Verse not found in {bible}",
+    "new_schedule": "New schedule",
+    "live_kept": "Live keeps showing {title} until you change it",
+    "opened": "Opened {file}",
+    "rebuilt": "items rebuilt with the current theme",
+    "live_unchanged": "Live unchanged",
+    "not_saved": "Not saved",
+    "name_taken": "that file name is already taken",
+    "unsaved_changes": "{name} has unsaved changes"
   },
   "unsaved": {
-    "title": "The schedule has not been saved",
-    "on_new": "Your changes will be lost if you create a new schedule.",
-    "on_open": "Your changes will be lost if you open another file.",
-    "on_quit": "Your changes will be lost if the app closes.",
-    "discard": "Don't save"
+    "title": "Save changes to “{name}”?",
+    "on_new": "You're starting a new schedule. Unsaved changes to this one will be lost. What is on the projector keeps showing until you change it.",
+    "on_open": "You're opening another schedule. Unsaved changes to this one will be lost. What is on the projector keeps showing until you change it.",
+    "on_quit": "SolideoWorship is closing. Unsaved changes to “{name}” will be lost.",
+    "discard": "Don't save",
+    "quit_title": "Save changes before closing?",
+    "never_saved": "Never saved",
+    "saved_now": "Last saved just now",
+    "saved_minutes_one": "Last saved {count} minute ago",
+    "saved_minutes_other": "Last saved {count} minutes ago",
+    "saved_hours_one": "Last saved {count} hour ago",
+    "saved_hours_other": "Last saved {count} hours ago",
+    "saved_days_one": "Last saved {count} day ago",
+    "saved_days_other": "Last saved {count} days ago"
   },
   "files": {
     "schedule_filter": "SolideoWorship schedule",
@@ -196,7 +213,8 @@
     "save_schedule": "Save schedule",
     "pick_bible": "Choose a Zefania XML Bible file",
     "bible_filter": "Zefania XML Bible",
-    "already_exists": "The file \"{name}\" already exists. Choose that file directly in the dialog to overwrite it, or use another name."
+    "taken_title": "“{name}” already exists.",
+    "taken_body": "The save dialog can't confirm overwriting. Choose that file directly in the dialog to replace it, or use another name."
   },
   "library": {
     "songs": "Songs",

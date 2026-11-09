@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use iced::{Task, window};
 use rfd::AsyncFileDialog;
 
-use crate::i18n::{fill, t};
+use crate::i18n::t;
 
 const EXTENSION: &str = "sdw";
 
@@ -34,6 +34,12 @@ fn pick(
             .pick_file()
     })
     .then(|dialog| Task::perform(dialog, |file| file.map(PathBuf::from)))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveFailure {
+    Taken(Box<str>),
+    Failed(Box<str>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,14 +74,8 @@ impl SaveTarget {
         }
     }
 
-    pub fn check(&self) -> Result<(), Box<str>> {
-        if self.extension_added && self.path.exists() {
-            let name = self.path.file_name().unwrap_or_default().to_string_lossy();
-
-            return Err(fill(t().files.already_exists, &[("name", &name)]).into_boxed_str());
-        }
-
-        Ok(())
+    pub fn is_taken(&self) -> bool {
+        self.extension_added && self.path.exists()
     }
 }
 
@@ -158,9 +158,9 @@ mod tests {
         let explicit = SaveTarget::chosen(dir.join("sunday.sdw"));
         let fresh = SaveTarget::chosen(dir.join("new"));
 
-        assert!(completed.check().is_err());
-        assert!(explicit.check().is_ok());
-        assert!(fresh.check().is_ok());
+        assert!(completed.is_taken());
+        assert!(!explicit.is_taken());
+        assert!(!fresh.is_taken());
 
         let _ = fs::remove_dir_all(&dir);
     }

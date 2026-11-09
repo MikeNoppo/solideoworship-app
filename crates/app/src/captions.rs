@@ -1,8 +1,11 @@
 use sdw_core::{ContentKind, OutputState};
 
-use crate::App;
+use std::path::Path;
+use std::time::SystemTime;
+
 use crate::i18n::{Label, count, fill, t};
-use crate::message::LibraryTab;
+use crate::message::{LibraryTab, Menu, Pending};
+use crate::{App, Modal};
 
 #[derive(Default)]
 pub struct Captions {
@@ -23,6 +26,10 @@ pub struct Captions {
     pub disconnected_frame: Box<str>,
     pub results: Box<str>,
     pub no_match: Box<str>,
+    pub unsaved_title: Box<str>,
+    pub unsaved_body: Box<str>,
+    pub unsaved_file: Box<str>,
+    pub unsaved_saved: Box<str>,
 }
 
 impl Captions {
@@ -136,6 +143,24 @@ impl Captions {
             t().welcome.songs_done_other,
         );
 
+        if let Some(Modal::Unsaved(pending)) = &app.modal {
+            let name = [("name", &app.schedule_name() as &dyn std::fmt::Display)];
+            let unsaved = &t().unsaved;
+
+            let (title, body) = match pending {
+                Pending::New => (fill(unsaved.title, &name), unsaved.on_new.to_owned()),
+                Pending::Open => (fill(unsaved.title, &name), unsaved.on_open.to_owned()),
+                Pending::Quit => (unsaved.quit_title.to_owned(), fill(unsaved.on_quit, &name)),
+            };
+            self.unsaved_title = title.into_boxed_str();
+            self.unsaved_body = body.into_boxed_str();
+            self.unsaved_file = match app.schedule.path().and_then(Path::file_name) {
+                Some(file) => file.to_string_lossy().into(),
+                None => app.schedule_name().into(),
+            };
+            self.unsaved_saved = last_saved(app.saved_at);
+        }
+
         let bibles = app.bible.bibles();
         self.bible_done = match bibles {
             [bible] => fill(t().welcome.bible_done, &[("name", &bible.abbreviation)]),
@@ -166,6 +191,10 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
 
     if let Some(flash) = &app.flash {
         return flash.to_string();
+    }
+
+    if app.menu == Some(Menu::Schedule) && app.schedule.is_dirty() {
+        return fill(status.unsaved_changes, &[("name", &app.schedule_name())]);
     }
 
     if app.displays.is_empty() {
@@ -243,5 +272,37 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
             status.ready,
             fill(status.selected, &[("screen", &screen_title)])
         )
+    }
+}
+
+fn last_saved(saved_at: Option<SystemTime>) -> Box<str> {
+    let unsaved = &t().unsaved;
+    let Some(saved_at) = saved_at else {
+        return unsaved.never_saved.into();
+    };
+
+    let minutes = SystemTime::now()
+        .duration_since(saved_at)
+        .unwrap_or_default()
+        .as_secs()
+        / 60;
+
+    match minutes {
+        0 => unsaved.saved_now.into(),
+        1..60 => count(
+            minutes as usize,
+            unsaved.saved_minutes_one,
+            unsaved.saved_minutes_other,
+        ),
+        60..1440 => count(
+            (minutes / 60) as usize,
+            unsaved.saved_hours_one,
+            unsaved.saved_hours_other,
+        ),
+        _ => count(
+            (minutes / 1440) as usize,
+            unsaved.saved_days_one,
+            unsaved.saved_days_other,
+        ),
     }
 }

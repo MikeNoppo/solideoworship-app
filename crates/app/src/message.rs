@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
@@ -6,7 +7,7 @@ use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
 use sdw_library::{BibleId, BibleSummary, ImportReport, SongId, SongSummary};
 
 use crate::display::Display;
-use crate::files::SaveTarget;
+use crate::files::{SaveFailure, SaveTarget};
 use crate::theme_dialog;
 use crate::work::Outcome;
 use crate::{bible_manager, bible_tab, editor};
@@ -43,6 +44,7 @@ pub enum Notice {
     Library,
     Screens,
     Disconnected,
+    Taken(Box<str>),
     Failure(Box<str>),
 }
 
@@ -120,6 +122,7 @@ pub enum Message {
     ToastDismissed,
     ToastExpired(u64),
     FlashExpired(u64),
+    ModalSubmitted,
     ToastAccepted,
     ModalDismissed,
     Editor(editor::Message),
@@ -130,11 +133,11 @@ pub enum Message {
     ScheduleNewRequested,
     ScheduleOpenRequested,
     ScheduleFilePicked(Option<PathBuf>),
-    ScheduleOpened(Outcome<(PathBuf, Vec<ScheduleItem>)>),
+    ScheduleOpened(Outcome<(PathBuf, Vec<ScheduleItem>, Option<SystemTime>)>),
     ScheduleSaveRequested,
     ScheduleSaveAsRequested,
     ScheduleSavePathChosen(Option<SaveTarget>),
-    ScheduleSaved(u64, Outcome<PathBuf>),
+    ScheduleSaved(u64, Result<PathBuf, SaveFailure>),
     Unsaved(UnsavedChoice),
     Bible(bible_tab::Message),
     BiblesLoaded(Outcome<Vec<BibleSummary>>),
@@ -147,15 +150,14 @@ pub enum Message {
 impl Message {
     pub fn refreshes_captions(&self) -> bool {
         match self {
-            Self::MenuToggled(..)
-            | Self::MenuDismissed
-            | Self::WindowCloseRequested(..)
+            Self::WindowCloseRequested(..)
             | Self::WindowResized(..)
             | Self::RowHovered(..)
             | Self::DragOver(..)
             | Self::ToastDismissed
             | Self::ToastExpired(..)
             | Self::ModalDismissed
+            | Self::ModalSubmitted
             | Self::Editor(..)
             | Self::Theme(..)
             | Self::SaveShortcut
@@ -165,6 +167,8 @@ impl Message {
             | Self::ControlOpened
             | Self::LibraryOpened(..)
             | Self::FlashExpired(..)
+            | Self::MenuToggled(..)
+            | Self::MenuDismissed
             | Self::RecoveryLoaded(..)
             | Self::DisplaysRequested
             | Self::DisplaysLoaded(..)

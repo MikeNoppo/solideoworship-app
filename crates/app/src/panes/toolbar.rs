@@ -1,6 +1,3 @@
-use std::ffi::OsStr;
-use std::path::Path;
-
 use iced::widget::{Column, button, column, container, row, space};
 use iced::{Center, Element, Fill, Padding};
 
@@ -13,12 +10,7 @@ use crate::ui::{self, action, hint, icon_button, label};
 use crate::{App, icon, logo};
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    let name = app
-        .schedule
-        .path()
-        .and_then(Path::file_stem)
-        .and_then(OsStr::to_str)
-        .unwrap_or(t().toolbar.untitled);
+    let name = app.schedule_name();
 
     let switcher = popover(
         button(
@@ -245,6 +237,7 @@ fn screens_menu(app: &App) -> Element<'_, Message> {
             menu_item(
                 icon::REFRESH_CW,
                 t().toolbar.reload,
+                None,
                 Message::DisplaysRequested
             ),
         ]
@@ -314,23 +307,32 @@ fn schedule_menu() -> Element<'static, Message> {
             menu_item(
                 icon::FILE_PLUS,
                 t().toolbar.new,
+                None,
                 Message::ScheduleNewRequested
             ),
             menu_item(
                 icon::FOLDER_OPEN,
                 t().toolbar.open,
+                Some(ui::OPEN_KEY),
                 Message::ScheduleOpenRequested
             ),
-            menu_item(icon::SAVE, t().common.save, Message::ScheduleSaveRequested),
+            container(ui::hrule(style::BORDER)).padding([4, 0]),
             menu_item(
                 icon::SAVE,
+                t().common.save,
+                None,
+                Message::ScheduleSaveRequested
+            ),
+            menu_item(
+                icon::SAVE_ALL,
                 t().toolbar.save_as,
+                None,
                 Message::ScheduleSaveAsRequested
             ),
         ]
         .spacing(2),
     )
-    .width(220)
+    .width(240)
     .padding(6)
     .style(style::menu)
     .into()
@@ -339,6 +341,7 @@ fn schedule_menu() -> Element<'static, Message> {
 fn menu_item(
     glyph: &'static str,
     caption: &'static str,
+    key: Option<&'static str>,
     on_press: Message,
 ) -> Element<'static, Message> {
     button(
@@ -346,6 +349,7 @@ fn menu_item(
             icon::view(glyph, 14.0, style::TEXT_2),
             label(caption, 13.0, style::INTER, style::TEXT_2).width(Fill),
         ]
+        .push(key.map(|key| ui::kbd(key, 20.0, 11.0, true)))
         .spacing(10)
         .align_y(Center),
     )

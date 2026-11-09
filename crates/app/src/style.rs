@@ -330,20 +330,6 @@ pub fn backdrop(_theme: &Theme) -> container::Style {
     }
 }
 
-pub fn dialog(theme: &Theme) -> container::Style {
-    let palette = theme.extended_palette();
-
-    container::Style {
-        background: Some(palette.background.base.color.into()),
-        border: Border {
-            radius: 8.0.into(),
-            width: 1.0,
-            color: palette.background.strong.color,
-        },
-        ..container::Style::default()
-    }
-}
-
 pub fn logo_row(radius: f32) -> impl Fn(&Theme) -> container::Style {
     move |theme| container::Style {
         background: Some(theme.extended_palette().background.base.text.into()),

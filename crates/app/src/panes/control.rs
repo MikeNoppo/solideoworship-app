@@ -87,7 +87,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let dialog = match &app.modal {
         Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
         Some(Modal::Theme(dialog)) => dialog.view(app.control_width).map(Message::Theme),
-        Some(Modal::Unsaved(pending)) => unsaved::view(*pending),
+        Some(Modal::Unsaved(_)) => unsaved::view(app),
         Some(Modal::Bibles(manager)) => manager.view().map(Message::BibleManager),
         None => return base.into(),
     };
@@ -152,6 +152,23 @@ fn notices(app: &App) -> Vec<Element<'_, Message>> {
                     &app.captions.disconnected_title,
                     Some(t().notice.disconnected_body),
                     Some(reload()),
+                    dismiss,
+                ),
+                Notice::Taken(title) => ui::banner(
+                    icon::CIRCLE_ALERT,
+                    title,
+                    Some(t().files.taken_body),
+                    Some(
+                        action(
+                            Tone::Secondary,
+                            Some(icon::SAVE_ALL),
+                            t().toolbar.save_as,
+                            None,
+                            Some(Message::ScheduleSaveAsRequested),
+                        )
+                        .height(28)
+                        .into(),
+                    ),
                     dismiss,
                 ),
                 Notice::Failure(message) => {
