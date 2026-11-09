@@ -1,4 +1,4 @@
-use iced::widget::{Column, Row, column, row};
+use iced::widget::{Column, Row, column, container, row};
 use iced::{Bottom, Center, Element, Fill};
 use sdw_core::Presentation;
 
@@ -106,4 +106,49 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
     let grid = ui::scroll(rows);
 
     column![header, grid].spacing(16).height(Fill).into()
+}
+
+pub fn empty<'a>() -> Element<'a, Message> {
+    let header = row![
+        column![
+            ui::eyebrow(t().slides.preview),
+            row![
+                label(
+                    t().slides.nothing_selected,
+                    18.0,
+                    style::SEMIBOLD,
+                    style::TEXT
+                ),
+                label(t().slides.pick_item, 12.0, style::INTER, style::TEXT_3),
+            ]
+            .spacing(10)
+            .align_y(Bottom),
+        ]
+        .spacing(4)
+        .width(Fill),
+        action(
+            Tone::Primary,
+            Some(icon::PLAY),
+            t().toolbar.go_live,
+            Some("↵"),
+            None,
+        ),
+    ]
+    .align_y(Center);
+
+    column![
+        header,
+        container(ui::empty(
+            icon::LAYOUT_GRID,
+            false,
+            t().slides.nothing_to_preview,
+            Some(t().slides.nothing_to_preview_body),
+        ))
+        .padding(24)
+        .center(Fill)
+        .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0)),
+    ]
+    .spacing(16)
+    .height(Fill)
+    .into()
 }

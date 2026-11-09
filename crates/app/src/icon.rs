@@ -25,6 +25,7 @@ pub const FOLDER_OPEN: &str = "\u{e247}";
 pub const HISTORY: &str = "\u{e1f5}";
 pub const INFO: &str = "\u{e0f9}";
 pub const LAPTOP: &str = "\u{e1cd}";
+pub const LAYOUT_GRID: &str = "\u{e0ff}";
 pub const LIBRARY: &str = "\u{e100}";
 pub const LIST_PLUS: &str = "\u{e23f}";
 pub const LOADER_CIRCLE: &str = "\u{e10a}";

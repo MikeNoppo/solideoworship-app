@@ -26,13 +26,26 @@ struct Step<'a> {
     button: (&'static str, &'static str, Option<Message>),
 }
 
+pub fn is_complete(app: &App) -> bool {
+    let [songs, bibles, output] = progress(app);
+
+    songs && bibles && output
+}
+
+fn progress(app: &App) -> [bool; 3] {
+    let library = app.library_unavailable.is_none();
+
+    [
+        library && app.song_count.is_some_and(|count| count > 0),
+        library && !app.bible.bibles().is_empty(),
+        app.output.is_some(),
+    ]
+}
+
 pub fn view(app: &App) -> Element<'_, Message> {
     let welcome = &t().welcome;
     let library = app.library_unavailable.is_none();
-
-    let songs = library && app.song_count.is_some_and(|count| count > 0);
-    let bibles = library && !app.bible.bibles().is_empty();
-    let output = app.output.is_some();
+    let [songs, bibles, output] = progress(app);
     let current = [songs, bibles, output].iter().position(|done| !done);
     let state = |index: usize, done: bool| match (done, current == Some(index)) {
         (true, _) => State::Done,

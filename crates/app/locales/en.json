@@ -138,7 +138,11 @@
     "black_body": "Projector is fully black",
     "black_hint": "press B to show slide {position} again",
     "clear_body": "Text hidden, theme background stays",
-    "clear_hint": "press C to show it again"
+    "clear_hint": "press C to show it again",
+    "nothing_selected": "Nothing selected",
+    "pick_item": "Pick an item in the schedule",
+    "nothing_to_preview": "Nothing to preview",
+    "nothing_to_preview_body": "Select an item from the schedule, or add one from the library below."
   },
   "status": {
     "ready": "Ready",

@@ -9,14 +9,21 @@ use crate::ui::{self, action, label};
 use crate::{App, Modal, Toast, icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
+    let shows_preview = app.schedule.preview().is_some() || welcome::is_complete(app);
+    let preview_padding = Padding {
+        top: 16.0,
+        right: preview::PADDING,
+        bottom: 20.0,
+        left: preview::PADDING,
+    };
+
     let top: Element<'_, Message> = match app.schedule.preview() {
         Some(presentation) => container(preview::view(app, presentation))
-            .padding(Padding {
-                top: 16.0,
-                right: preview::PADDING,
-                bottom: 20.0,
-                left: preview::PADDING,
-            })
+            .padding(preview_padding)
+            .height(FillPortion(11))
+            .into(),
+        None if shows_preview => container(preview::empty())
+            .padding(preview_padding)
             .height(FillPortion(11))
             .into(),
         None => container(welcome::view(app))
@@ -29,11 +36,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .into(),
     };
 
-    let library_height = if app.schedule.preview().is_some() {
-        FillPortion(9)
-    } else {
-        Fill
-    };
+    let library_height = if shows_preview { FillPortion(9) } else { Fill };
 
     let middle = column![
         top,

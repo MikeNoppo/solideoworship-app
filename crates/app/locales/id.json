@@ -138,7 +138,11 @@
     "black_body": "Proyektor hitam sepenuhnya",
     "black_hint": "tekan B untuk menampilkan slide {position} lagi",
     "clear_body": "Teks disembunyikan, latar tema tetap tampil",
-    "clear_hint": "tekan C untuk menampilkannya lagi"
+    "clear_hint": "tekan C untuk menampilkannya lagi",
+    "nothing_selected": "Belum ada yang dipilih",
+    "pick_item": "Pilih item di susunan acara",
+    "nothing_to_preview": "Belum ada yang bisa di-preview",
+    "nothing_to_preview_body": "Pilih item dari susunan acara, atau tambahkan dari library di bawah."
   },
   "status": {
     "ready": "Siap",
