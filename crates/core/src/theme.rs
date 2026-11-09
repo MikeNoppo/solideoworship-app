@@ -99,9 +99,9 @@ pub struct SlideTheme {
 impl SlideTheme {
     pub fn song() -> Self {
         Self {
-            background: Rgb::from_rgb8(13, 18, 33),
+            background: Rgb::from_rgb8(20, 20, 22),
             body: Rgb::from_rgb8(255, 255, 255),
-            footer: Rgb::from_rgb8(184, 194, 217),
+            footer: Rgb::from_rgb8(161, 161, 170),
             body_size: 92.0,
             footer_size: 36.0,
             line_height: 1.25,
