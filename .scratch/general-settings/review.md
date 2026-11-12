@@ -41,3 +41,7 @@ On `fix/settings-review`, with integration `c7bcfaf` already included and `CARGO
 - `git diff feat/general-settings...HEAD --check`: passed.
 
 Ticket [07](issues/07-review-fixes.md) is resolved for code and automated checks. Ticket [05](issues/05-app-integration.md) stays awaiting final root GUI QA and closure. This worktree did not perform Windows/macOS hardware validation, merge into integration, push, publish issues or open a PR.
+
+## Final root closure
+
+The worker handoff above is superseded by final integration and QA. Both review findings are resolved in integration `6044ccd`; root repeated all automated checks successfully and rebuilt the binary. Native Linux smoke confirmed the warning above the canvas at normal/minimum sizes. Tickets 05 and 07 are resolved. See [runtime-qa.md](runtime-qa.md) for observations and platform limits; Windows/macOS hardware validation remains unperformed.
