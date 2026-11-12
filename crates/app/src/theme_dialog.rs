@@ -11,7 +11,7 @@ use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
     BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
 };
-use sdw_core::{ScheduleItem, Settings, Song, Styles};
+use sdw_core::{ScheduleItem, Settings, Song};
 
 use crate::display::Display;
 
@@ -193,7 +193,6 @@ pub struct ThemeDialog {
     preview_settings: Settings,
     overflow: bool,
     guides: bool,
-    legacy: bool,
     displays: Vec<Display>,
     refreshing: bool,
     applied: bool,
@@ -257,25 +256,12 @@ pub enum Message {
 #[derive(Debug, PartialEq)]
 pub enum Action {
     None,
-    Save(Box<Styles>, bool),
     SaveSettings(Box<Settings>, bool),
     RefreshDisplays,
     Close,
 }
 
 impl ThemeDialog {
-    pub fn new(styles: &Styles, shadows: bool, current: Option<&ScheduleItem>) -> Self {
-        let mut settings = Settings {
-            styles: styles.clone(),
-            ..Settings::default()
-        };
-        settings.general.shadows = shadows;
-        let mut dialog = Self::settings(&settings, current, &[]);
-        dialog.legacy = true;
-        dialog.category = Category::for_kind(dialog.kind);
-        dialog
-    }
-
     pub fn settings(
         settings: &Settings,
         current: Option<&ScheduleItem>,
@@ -298,7 +284,6 @@ impl ThemeDialog {
             preview_settings: settings.clone().clamped(),
             overflow: false,
             guides: true,
-            legacy: false,
             displays: Vec::new(),
             refreshing: false,
             applied: false,
@@ -323,10 +308,6 @@ impl ThemeDialog {
         dialog.set_displays(displays);
         dialog.applied = false;
         dialog
-    }
-
-    pub fn kind(&self) -> ContentKind {
-        self.kind
     }
 
     pub fn update(&mut self, message: Message) -> Action {
@@ -513,11 +494,7 @@ impl ThemeDialog {
                 self.busy = true;
                 self.error = None;
                 let settings = self.draft.clone().clamped();
-                return if self.legacy {
-                    Action::Save(Box::new(settings.styles), settings.general.shadows)
-                } else {
-                    Action::SaveSettings(Box::new(settings), matches!(message, Message::Save))
-                };
+                return Action::SaveSettings(Box::new(settings), matches!(message, Message::Save));
             }
             Message::Cancel => return Action::Close,
         }
@@ -564,11 +541,7 @@ impl ThemeDialog {
         self.busy = false;
         self.error = Some(
             fill(
-                if self.legacy {
-                    t().theme.save_failed
-                } else {
-                    t().settings.save_failed
-                },
+                t().settings.save_failed,
                 &[("error", &error.trim_end_matches('.'))],
             )
             .into_boxed_str(),
@@ -635,16 +608,7 @@ impl ThemeDialog {
                 ContentKind::Scripture => chars.to_string().into_boxed_str(),
             },
             sample: fill(t().theme.sample_from, &[("title", &self.deck.title)]).into_boxed_str(),
-            note: if !self.legacy {
-                t().settings.saved_detail.into()
-            } else {
-                match self.kind {
-                    ContentKind::Song => t().theme.song_note.into(),
-                    ContentKind::Scripture => {
-                        fill(t().theme.bible_note, &[("count", &chars)]).into_boxed_str()
-                    }
-                }
-            },
+            note: t().settings.saved_detail.into(),
         };
     }
 }
@@ -692,7 +656,9 @@ mod tests {
     use super::{Action, Category, ColorSlot, FontSlot, MarginSide, Message, ThemeDialog};
 
     fn dialog() -> ThemeDialog {
-        ThemeDialog::new(&Styles::default(), true, None)
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::CategorySelected(Category::Song));
+        dialog
     }
 
     #[test]
@@ -864,7 +830,7 @@ mod tests {
     #[test]
     fn selected_item_becomes_sample_and_picks_tab() {
         let item = ScheduleItem::Song(Song::new("Selected", "one", None));
-        let dialog = ThemeDialog::new(&Styles::default(), true, Some(&item));
+        let dialog = ThemeDialog::settings(&sdw_core::Settings::default(), Some(&item), &[]);
 
         assert_eq!(dialog.kind, ContentKind::Song);
         assert_eq!(&*dialog.deck.title, "Selected");
@@ -951,15 +917,15 @@ mod tests {
     }
 
     #[test]
-    fn save_sends_clamped_styles_once() {
+    fn save_sends_clamped_settings_once() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::MaxLines(500));
 
-        let Action::Save(styles, _) = dialog.update(Message::Save) else {
+        let Action::SaveSettings(settings, true) = dialog.update(Message::Save) else {
             panic!("expected a save action");
         };
 
-        assert_eq!(styles.song.max_lines, *MAX_LINES.end());
+        assert_eq!(settings.styles.song.max_lines, *MAX_LINES.end());
         assert_eq!(dialog.update(Message::Save), Action::None);
     }
 
@@ -972,18 +938,21 @@ mod tests {
 
         assert!(dialog.error.as_deref().unwrap().contains("broken"));
         assert!(!dialog.error.as_deref().unwrap().contains("broken.."));
-        assert!(matches!(dialog.update(Message::Save), Action::Save(..)));
+        assert!(matches!(
+            dialog.update(Message::Save),
+            Action::SaveSettings(..)
+        ));
     }
 
     #[test]
-    fn shadows_choice_is_saved_with_the_theme() {
+    fn shadows_choice_is_saved_with_settings() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::Shadows(false));
 
-        assert!(matches!(
-            dialog.update(Message::Save),
-            Action::Save(_, false)
-        ));
+        let Action::SaveSettings(settings, true) = dialog.update(Message::Save) else {
+            panic!("expected a settings save action");
+        };
+        assert!(!settings.general.shadows);
     }
 
     #[test]

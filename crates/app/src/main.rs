@@ -702,12 +702,6 @@ impl App {
                     }
                     theme_dialog::Action::RefreshDisplays => work::background(display::all)
                         .map(move |result| Message::SettingsDisplaysLoaded(ticket, result)),
-                    theme_dialog::Action::Save(styles, shadows) => {
-                        let mut settings = self.settings.clone();
-                        settings.styles = *styles;
-                        settings.general.shadows = shadows;
-                        self.save_settings(ticket, Box::new(settings), true)
-                    }
                 }
             }
             Message::SettingsSaved(ticket, close_after_save, result) => {
@@ -1597,7 +1591,6 @@ mod tests {
     use crate::editor;
     use crate::i18n::{fill, t};
     use crate::message::{Message, Pending, UnsavedChoice};
-    use crate::theme_dialog::ThemeDialog;
 
     fn dirty_app() -> App {
         let mut app = App::default();
@@ -1769,11 +1762,7 @@ mod tests {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
-        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
-            &app.settings.styles,
-            true,
-            None,
-        ))));
+        let _ = app.update(Message::ThemeRequested);
 
         let _ = app.update(Message::WindowCloseRequested(control));
 

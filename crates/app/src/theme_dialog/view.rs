@@ -228,11 +228,7 @@ impl ThemeDialog {
             action(
                 Tone::Primary,
                 Some(icon::CHECK),
-                if self.legacy {
-                    t().theme.save
-                } else {
-                    t().settings.ok
-                },
+                t().settings.ok,
                 Some(ui::SAVE_KEY),
                 Some(Message::Save),
             )
@@ -270,7 +266,7 @@ impl ThemeDialog {
                 None,
                 t().settings.apply,
                 None,
-                (!self.busy && !self.legacy).then_some(Message::Apply)
+                (!self.busy).then_some(Message::Apply)
             ),
             save,
         ]
