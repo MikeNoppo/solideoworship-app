@@ -392,12 +392,15 @@ impl ThemeDialog {
                 return Action::None;
             }
             Message::MonitorSelected(id) => {
-                self.draft.output.monitor = id.and_then(|id| {
-                    self.displays
-                        .iter()
-                        .find(|display| display.id == id)
-                        .map(Display::preference)
-                });
+                match id {
+                    Some(id) => {
+                        if let Some(display) = self.displays.iter().find(|display| display.id == id)
+                        {
+                            self.draft.output.monitor = Some(display.preference());
+                        }
+                    }
+                    None => self.draft.output.monitor = None,
+                }
                 return Action::None;
             }
             Message::OpenAtStartup(value) => {
@@ -716,6 +719,23 @@ mod tests {
             panic!("expected an ok action");
         };
         assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn stale_monitor_selection_keeps_the_remembered_monitor() {
+        let mut settings = sdw_core::Settings::default();
+        settings.output.monitor = Some(sdw_core::settings::MonitorPreference {
+            backend_name: "HDMI-1".into(),
+            friendly_name: "Projector".into(),
+            width: 1920,
+            height: 1080,
+        });
+        let mut dialog = ThemeDialog::settings(&settings, None, &[]);
+        let _ = dialog.update(Message::MonitorSelected(Some(99)));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected remembered monitor preferences");
+        };
+        assert_eq!(saved.output.monitor, settings.output.monitor);
     }
 
     #[test]
