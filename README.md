@@ -63,19 +63,6 @@ You are my hope in the storm
 
 Bible texts are not bundled because of publisher copyright. Open the **Bible** tab, click **Manage Bibles**, and import a UTF-8 Zefania XML file you have the rights to. Book names are Indonesian for now, and references across chapters (`Yoh 3:16-4:2`) are not supported yet.
 
-### Keyboard shortcuts
-
-| Key | Action |
-| --- | --- |
-| `→` / `Space` / `Page Down` | Next live slide |
-| `←` / `Page Up` | Previous live slide |
-| `Enter` | Send the preview to live |
-| `B` / `C` | Toggle black screen / clear text |
-| `F5` / `Esc` | Open / close the output window |
-| `Ctrl+S` / `Ctrl+O` | Save / open a schedule (`Cmd` on macOS) |
-
-`Enter` in the song search adds the top result to the schedule, and in the verse box adds the passage. Operator shortcuts are disabled while a dialog is open.
-
 ### Language and data
 
 The language is chosen at startup, with no switcher in the app. The first match wins: the `SDW_LANG` variable (e.g. `SDW_LANG=id`), a `language` file in the data folder, the language picked in the Windows installer, the system language, then English.
