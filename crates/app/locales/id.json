@@ -391,5 +391,12 @@
     "reversed_range": "Rentang ayat terbalik: {start} lebih besar dari {end}.",
     "cross_chapter": "Rentang lintas pasal belum didukung. Tambahkan tiap pasal sebagai item terpisah.",
     "trailing": "Bagian \"{rest}\" tidak dimengerti. Gunakan format seperti Yoh 3:16-18."
+  },
+  "settings": {
+    "apply": "Terapkan",
+    "ok": "OK",
+    "invalid_color": "Isi warna hex enam digit lengkap di Lagu dan Alkitab.",
+    "invalid_values": "Periksa nilai pengaturan sebelum menyimpan.",
+    "empty_area": "Margin aman dan padding harus menyisakan ruang untuk konten."
   }
 }

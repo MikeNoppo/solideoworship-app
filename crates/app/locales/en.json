@@ -391,5 +391,12 @@
     "reversed_range": "Reversed verse range: {start} is greater than {end}.",
     "cross_chapter": "Ranges across chapters are not supported yet. Add each chapter as a separate item.",
     "trailing": "Could not understand \"{rest}\". Use a format like Yoh 3:16-18."
+  },
+  "settings": {
+    "apply": "Apply",
+    "ok": "OK",
+    "invalid_color": "Enter a complete six-digit hex color in Song and Scripture.",
+    "invalid_values": "Check the settings values before saving.",
+    "empty_area": "Safe margins and padding must leave room for content."
   }
 }

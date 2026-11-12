@@ -3,11 +3,14 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_core::bible::{Book, Passage, Reference, Verse};
+use sdw_core::settings::SettingsError;
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
     BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
 };
-use sdw_core::{ScheduleItem, Song, Styles};
+use sdw_core::{ScheduleItem, Settings, Song, Styles};
+
+use crate::display::Display;
 
 use crate::i18n::{Label, fill, t};
 use crate::icon;
@@ -84,10 +87,10 @@ struct Captions {
 }
 
 pub struct ThemeDialog {
-    draft: Styles,
-    shadows: bool,
+    draft: Settings,
+    legacy: bool,
     kind: ContentKind,
-    hex: [String; 3],
+    hex: [[String; 3]; 2],
     song: ScheduleItem,
     scripture: ScheduleItem,
     deck: SlideDeck,
@@ -113,18 +116,35 @@ pub enum Message {
     SlideSelected(usize),
     Reset,
     Save,
+    Apply,
     Cancel,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
     None,
-    Save(Styles, bool),
+    Save(Box<Styles>, bool),
+    SaveSettings(Box<Settings>, bool),
     Close,
 }
 
 impl ThemeDialog {
     pub fn new(styles: &Styles, shadows: bool, current: Option<&ScheduleItem>) -> Self {
+        let mut settings = Settings {
+            styles: styles.clone(),
+            ..Settings::default()
+        };
+        settings.general.shadows = shadows;
+        let mut dialog = Self::settings(&settings, current, &[]);
+        dialog.legacy = true;
+        dialog
+    }
+
+    pub fn settings(
+        settings: &Settings,
+        current: Option<&ScheduleItem>,
+        _displays: &[Display],
+    ) -> Self {
         let (song, scripture) = match current {
             Some(item @ ScheduleItem::Song(_)) => (item.clone(), sample_passage()),
             Some(item @ ScheduleItem::Passage(_)) => (sample_song(), item.clone()),
@@ -135,11 +155,11 @@ impl ThemeDialog {
             ContentKind::Song => &song,
             ContentKind::Scripture => &scripture,
         }
-        .compile(styles);
+        .compile(&settings.styles);
 
         let mut dialog = Self {
-            draft: styles.clone(),
-            shadows,
+            draft: settings.clone(),
+            legacy: false,
             kind,
             hex: Default::default(),
             song,
@@ -150,8 +170,7 @@ impl ThemeDialog {
             error: None,
             captions: Captions::default(),
         };
-        dialog.sync_hex();
-        dialog.describe();
+        dialog.saved(settings);
         dialog
     }
 
@@ -160,21 +179,24 @@ impl ThemeDialog {
     }
 
     pub fn update(&mut self, message: Message) -> Action {
+        if self.busy {
+            return Action::None;
+        }
+
         match message {
             Message::KindSelected(kind) => {
                 self.kind = kind;
                 self.selected = 0;
-                self.sync_hex();
             }
             Message::HexChanged(slot, value) => {
                 if let Some(rgb) = Rgb::from_hex(&value) {
                     *slot.get_mut(self.theme_mut()) = rgb;
                 }
-                self.hex[slot.index()] = value;
+                self.hex[kind_index(self.kind)][slot.index()] = value;
             }
             Message::ColorPicked(slot, rgb) => {
                 *slot.get_mut(self.theme_mut()) = rgb;
-                self.hex[slot.index()] = rgb.to_hex();
+                self.hex[kind_index(self.kind)][slot.index()] = rgb.to_hex();
             }
             Message::BodySize(size) => self.theme_mut().body_size = size,
             Message::FooterSize(size) => self.theme_mut().footer_size = size,
@@ -182,13 +204,15 @@ impl ThemeDialog {
             Message::Margin(margin) => self.theme_mut().margin = margin,
             Message::Align(align) => self.theme_mut().align = align,
             Message::MaxLines(lines) => {
-                self.draft.song.max_lines = lines.clamp(*MAX_LINES.start(), *MAX_LINES.end());
+                self.draft.styles.song.max_lines =
+                    lines.clamp(*MAX_LINES.start(), *MAX_LINES.end());
             }
             Message::MaxChars(chars) => {
-                self.draft.scripture.max_chars = chars.clamp(*MAX_CHARS.start(), *MAX_CHARS.end());
+                self.draft.styles.scripture.max_chars =
+                    chars.clamp(*MAX_CHARS.start(), *MAX_CHARS.end());
             }
             Message::Shadows(shadows) => {
-                self.shadows = shadows;
+                self.draft.general.shadows = shadows;
                 return Action::None;
             }
             Message::SlideSelected(index) => {
@@ -201,27 +225,57 @@ impl ThemeDialog {
                 let defaults = Styles::default();
 
                 match self.kind {
-                    ContentKind::Song => self.draft.song = defaults.song,
-                    ContentKind::Scripture => self.draft.scripture = defaults.scripture,
+                    ContentKind::Song => self.draft.styles.song = defaults.song,
+                    ContentKind::Scripture => self.draft.styles.scripture = defaults.scripture,
                 }
-                self.sync_hex();
+                self.sync_hex(self.kind);
             }
-            Message::Save => {
-                if self.busy {
+            Message::Save | Message::Apply => {
+                if self
+                    .hex
+                    .iter()
+                    .flatten()
+                    .any(|value| Rgb::from_hex(value).is_none())
+                {
+                    self.error = Some(t().settings.invalid_color.into());
+                    return Action::None;
+                }
+                if let Err(error) = self.draft.validate() {
+                    self.error = Some(
+                        match error {
+                            SettingsError::InvalidValues => t().settings.invalid_values,
+                            SettingsError::EmptyContentArea => t().settings.empty_area,
+                        }
+                        .into(),
+                    );
                     return Action::None;
                 }
 
                 self.busy = true;
                 self.error = None;
-                return Action::Save(self.draft.clone().clamped(), self.shadows);
+                let settings = self.draft.clone().clamped();
+                return if self.legacy {
+                    Action::Save(Box::new(settings.styles), settings.general.shadows)
+                } else {
+                    Action::SaveSettings(Box::new(settings), matches!(message, Message::Save))
+                };
             }
-            Message::Cancel if self.busy => return Action::None,
             Message::Cancel => return Action::Close,
         }
 
         self.recompile();
         self.describe();
         Action::None
+    }
+
+    pub fn saved(&mut self, settings: &Settings) {
+        self.draft = settings.clone();
+        self.busy = false;
+        self.error = None;
+        self.sync_hex(ContentKind::Song);
+        self.sync_hex(ContentKind::Scripture);
+        self.recompile();
+        self.describe();
     }
 
     pub fn fail(&mut self, error: &str) {
@@ -329,7 +383,7 @@ impl ThemeDialog {
     }
 
     fn form(&self) -> Element<'_, Message> {
-        let theme = self.draft.theme(self.kind);
+        let theme = self.draft.styles.theme(self.kind);
 
         let colors = ColorSlot::ALL
             .into_iter()
@@ -416,7 +470,7 @@ impl ThemeDialog {
 
         let (limit_title, less, more, range) = match self.kind {
             ContentKind::Song => {
-                let lines = self.draft.song.max_lines;
+                let lines = self.draft.styles.song.max_lines;
 
                 (
                     t().theme.lines_per_slide,
@@ -426,7 +480,7 @@ impl ThemeDialog {
                 )
             }
             ContentKind::Scripture => {
-                let chars = self.draft.scripture.max_chars;
+                let chars = self.draft.styles.scripture.max_chars;
 
                 (
                     t().theme.chars_per_slide,
@@ -478,7 +532,9 @@ impl ThemeDialog {
             ]
             .spacing(3)
             .width(Fill),
-            toggler(self.shadows).on_toggle(Message::Shadows).size(18),
+            toggler(self.draft.general.shadows)
+                .on_toggle(Message::Shadows)
+                .size(18),
         ]
         .spacing(12)
         .align_y(Center);
@@ -510,7 +566,7 @@ impl ThemeDialog {
 
     fn hex_field(&self, slot: ColorSlot, current: Rgb) -> Element<'_, Message> {
         stack![
-            text_input("#rrggbb", &self.hex[slot.index()])
+            text_input("#rrggbb", &self.hex[kind_index(self.kind)][slot.index()])
                 .on_input(move |value| Message::HexChanged(slot, value))
                 .on_submit(Message::Save)
                 .font(style::MONO)
@@ -538,7 +594,7 @@ impl ThemeDialog {
     }
 
     fn preview(&self, sheet_width: f32) -> Element<'_, Message> {
-        let theme = self.draft.theme(self.kind);
+        let theme = self.draft.styles.theme(self.kind);
         let inner = sheet_width - FORM_WIDTH - 1.0 - PADDING * 2.0;
         let stage_height = (inner * 9.0 / 16.0).floor();
         let card_width =
@@ -576,7 +632,7 @@ impl ThemeDialog {
                     label(&self.captions.sample, 12.0, style::INTER, style::TEXT_3),
                 ]
                 .align_y(Center),
-                container(slide::stage(
+                container(slide::stage_with_guides(
                     self.deck.slides.get(self.selected),
                     theme,
                     Visibility::FULL,
@@ -623,7 +679,11 @@ impl ThemeDialog {
             action(
                 Tone::Primary,
                 Some(icon::CHECK),
-                t().theme.save,
+                if self.legacy {
+                    t().theme.save
+                } else {
+                    t().settings.ok
+                },
                 Some(ui::SAVE_KEY),
                 Some(Message::Save),
             )
@@ -651,6 +711,13 @@ impl ThemeDialog {
                 None,
                 (!self.busy).then_some(Message::Cancel),
             ),
+            action(
+                Tone::Ghost,
+                None,
+                t().settings.apply,
+                None,
+                (!self.busy && !self.legacy).then_some(Message::Apply)
+            ),
             save,
         ]
         .spacing(8)
@@ -660,15 +727,15 @@ impl ThemeDialog {
 
     fn theme_mut(&mut self) -> &mut SlideTheme {
         match self.kind {
-            ContentKind::Song => &mut self.draft.song.theme,
-            ContentKind::Scripture => &mut self.draft.scripture.theme,
+            ContentKind::Song => &mut self.draft.styles.song.theme,
+            ContentKind::Scripture => &mut self.draft.styles.scripture.theme,
         }
     }
 
-    fn sync_hex(&mut self) {
-        let theme = self.draft.theme(self.kind);
+    fn sync_hex(&mut self, kind: ContentKind) {
+        let theme = self.draft.styles.theme(kind);
 
-        self.hex = ColorSlot::ALL.map(|slot| slot.get(theme).to_hex());
+        self.hex[kind_index(kind)] = ColorSlot::ALL.map(|slot| slot.get(theme).to_hex());
     }
 
     fn recompile(&mut self) {
@@ -677,16 +744,16 @@ impl ThemeDialog {
             ContentKind::Scripture => &self.scripture,
         };
 
-        self.deck = sample.compile(&self.draft.clone().clamped());
+        self.deck = sample.compile(&self.draft.clone().clamped().styles);
         self.selected = self.selected.min(self.deck.len().saturating_sub(1));
     }
 
     fn describe(&mut self) {
-        let theme = self.draft.theme(self.kind);
+        let theme = self.draft.styles.theme(self.kind);
         let pixels = |value: f32| {
             fill(t().theme.pixels, &[("value", &format!("{value:.0}"))]).into_boxed_str()
         };
-        let chars = self.draft.scripture.max_chars;
+        let chars = self.draft.styles.scripture.max_chars;
 
         self.captions = Captions {
             body_size: pixels(theme.body_size),
@@ -694,7 +761,13 @@ impl ThemeDialog {
             line_height: format!("{:.2}", theme.line_height).into_boxed_str(),
             margin: pixels(theme.margin),
             limit: match self.kind {
-                ContentKind::Song => self.draft.song.max_lines.to_string().into_boxed_str(),
+                ContentKind::Song => self
+                    .draft
+                    .styles
+                    .song
+                    .max_lines
+                    .to_string()
+                    .into_boxed_str(),
                 ContentKind::Scripture => chars.to_string().into_boxed_str(),
             },
             sample: fill(t().theme.sample_from, &[("title", &self.deck.title)]).into_boxed_str(),
@@ -705,6 +778,13 @@ impl ThemeDialog {
                 }
             },
         };
+    }
+}
+
+fn kind_index(kind: ContentKind) -> usize {
+    match kind {
+        ContentKind::Song => 0,
+        ContentKind::Scripture => 1,
     }
 }
 
@@ -773,6 +853,39 @@ mod tests {
     }
 
     #[test]
+    fn apply_saves_the_draft_and_reopens_editing_after_success() {
+        let settings = sdw_core::Settings::default();
+        let mut dialog = ThemeDialog::settings(&settings, None, &[]);
+        let _ = dialog.update(Message::BodySize(110.0));
+
+        let Action::SaveSettings(saved, false) = dialog.update(Message::Apply) else {
+            panic!("expected an apply action");
+        };
+        assert_eq!(saved.styles.song.theme.body_size, 110.0);
+        assert_eq!(dialog.update(Message::Cancel), Action::None);
+        let _ = dialog.update(Message::BodySize(150.0));
+        dialog.saved(&saved);
+
+        let Action::SaveSettings(saved, true) = dialog.update(Message::Save) else {
+            panic!("expected an ok action");
+        };
+        assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn invalid_hex_blocks_saving_until_corrected() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#12".into()));
+
+        assert_eq!(dialog.update(Message::Save), Action::None);
+        let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#ff0000".into()));
+        assert!(matches!(
+            dialog.update(Message::Save),
+            Action::SaveSettings(..)
+        ));
+    }
+
+    #[test]
     fn without_selected_item_starts_on_song_tab() {
         assert_eq!(dialog().kind, ContentKind::Song);
     }
@@ -808,12 +921,12 @@ mod tests {
     #[test]
     fn invalid_hex_does_not_change_color() {
         let mut dialog = dialog();
-        let original = dialog.draft.song.theme.background;
+        let original = dialog.draft.styles.song.theme.background;
 
         let _ = dialog.update(Message::HexChanged(ColorSlot::Background, "#12".into()));
 
-        assert_eq!(dialog.draft.song.theme.background, original);
-        assert_eq!(dialog.hex[0], "#12");
+        assert_eq!(dialog.draft.styles.song.theme.background, original);
+        assert_eq!(dialog.hex[0][0], "#12");
     }
 
     #[test]
@@ -822,7 +935,10 @@ mod tests {
 
         let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#ff0000".into()));
 
-        assert_eq!(dialog.draft.song.theme.body, Rgb::from_rgb8(255, 0, 0));
+        assert_eq!(
+            dialog.draft.styles.song.theme.body,
+            Rgb::from_rgb8(255, 0, 0)
+        );
     }
 
     #[test]
@@ -834,7 +950,7 @@ mod tests {
             Rgb::from_rgb8(0, 0, 0),
         ));
 
-        assert_eq!(dialog.hex[2], "#000000");
+        assert_eq!(dialog.hex[0][2], "#000000");
     }
 
     #[test]
@@ -843,8 +959,8 @@ mod tests {
 
         let _ = dialog.update(Message::Align(TextAlign::Left));
 
-        assert_eq!(dialog.draft.song.theme.align, TextAlign::Left);
-        assert_eq!(dialog.draft.scripture.theme.align, TextAlign::Center);
+        assert_eq!(dialog.draft.styles.song.theme.align, TextAlign::Left);
+        assert_eq!(dialog.draft.styles.scripture.theme.align, TextAlign::Center);
     }
 
     #[test]
@@ -856,9 +972,9 @@ mod tests {
 
         let _ = dialog.update(Message::Reset);
 
-        assert_eq!(dialog.draft.song.theme.body_size, 50.0);
+        assert_eq!(dialog.draft.styles.song.theme.body_size, 50.0);
         assert_eq!(
-            dialog.draft.scripture.theme.body_size,
+            dialog.draft.styles.scripture.theme.body_size,
             Styles::default().scripture.theme.body_size
         );
     }
@@ -905,9 +1021,9 @@ mod tests {
         let _ = dialog.update(Message::MaxLines(0));
         let _ = dialog.update(Message::MaxChars(5000));
 
-        assert_eq!(dialog.draft.song.max_lines, *MAX_LINES.start());
+        assert_eq!(dialog.draft.styles.song.max_lines, *MAX_LINES.start());
         assert_eq!(
-            dialog.draft.scripture.max_chars,
+            dialog.draft.styles.scripture.max_chars,
             *sdw_core::theme::MAX_CHARS.end()
         );
     }

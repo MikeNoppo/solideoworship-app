@@ -661,11 +661,12 @@ impl App {
                         self.modal = None;
                         Task::none()
                     }
+                    theme_dialog::Action::SaveSettings(..) => Task::none(),
                     theme_dialog::Action::Save(styles, shadows) => self.store.run(
                         move |library| {
                             library.save_styles(&styles)?;
                             library.save_shadows(shadows)?;
-                            Ok((styles, shadows))
+                            Ok((*styles, shadows))
                         },
                         move |result| Message::StylesSaved(ticket, result),
                     ),
