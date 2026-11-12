@@ -172,8 +172,14 @@ mod tests {
         let moved = screen(10, "HDMI-1", "Projector");
         let fallback = screen(20, "HDMI-2", "Projector");
 
-        assert_eq!(matching(&remembered, &[moved.clone()]), Some(10));
-        assert_eq!(matching(&remembered, &[fallback.clone()]), Some(20));
+        assert_eq!(
+            matching(&remembered, std::slice::from_ref(&moved)),
+            Some(10)
+        );
+        assert_eq!(
+            matching(&remembered, std::slice::from_ref(&fallback)),
+            Some(20)
+        );
         assert_eq!(matching(&remembered, &[moved.clone(), moved]), None);
         assert_eq!(matching(&remembered, &[fallback.clone(), fallback]), None);
         assert_eq!(matching(&remembered, &[]), None);
