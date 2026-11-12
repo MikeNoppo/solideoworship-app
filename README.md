@@ -12,7 +12,7 @@ A lightweight, open-source worship presentation app for song lyrics and Bible ve
 
 Apps like EasyWorship use a lot of RAM and feel slow on the low-end laptops church media teams actually use. SolideoWorship keeps a familiar EasyWorship-style workflow and treats **performance and memory use as the top priority**.
 
-> **Status: early development.** All MVP features (songs and Bible) work, but the app has not yet been used in a real service or tested by hand on Windows and macOS. No release has been published yet.
+> **Status: beta.** Songs and Bible features are available, but the app has not yet been used in a real service or tested by hand on Windows and macOS. Please report problems in [Issues](https://github.com/MikeNoppo/solideoworship-app/issues).
 
 ## Features
 
