@@ -1908,6 +1908,9 @@ mod tests {
     fn screen(id: u32, name: &str) -> Display {
         Display {
             id,
+            backend_name: name.into(),
+            physical_width: 1920,
+            physical_height: 1080,
             name: name.into(),
             title: name.into(),
             resolution: "1920×1080".into(),
