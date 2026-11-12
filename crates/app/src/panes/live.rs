@@ -15,9 +15,14 @@ const PADDING: f32 = 16.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let width = columns(app.control_width).live;
-    let frame_height = ((width - PADDING * 2.0) * 9.0 / 16.0).round();
     let is_open = app.output.is_some();
     let live = app.live.as_ref();
+    let layout = if live.is_some() {
+        app.live_theme.layout
+    } else {
+        app.styles.song.theme.layout
+    };
+    let frame_height = ((width - PADDING * 2.0) / layout.ratio()).round();
 
     let (badge, badge_fill, badge_color) = match (is_open, live.is_some()) {
         (true, true) => (t().slides.live, style::LIVE_SOFT, style::LIVE),
