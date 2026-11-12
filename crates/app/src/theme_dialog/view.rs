@@ -165,6 +165,11 @@ impl ThemeDialog {
                     ),
                 ]
                 .spacing(4),
+                self.overflow.then(|| ui::note(
+                    icon::CIRCLE_ALERT,
+                    t().settings.overflow,
+                    style::LIVE
+                )),
                 container(if self.guides {
                     slide::stage_with_guides(
                         self.deck.slides.get(self.selected),
@@ -189,11 +194,6 @@ impl ThemeDialog {
                     self.guides,
                     Message::Guides
                 ),
-                self.overflow.then(|| ui::note(
-                    icon::CIRCLE_ALERT,
-                    t().settings.overflow,
-                    style::LIVE
-                )),
                 cards,
                 label(t().settings.preview_note, 12.0, style::INTER, style::TEXT_3),
                 container(ui::note(icon::INFO, &self.captions.note, style::TEXT_2))
