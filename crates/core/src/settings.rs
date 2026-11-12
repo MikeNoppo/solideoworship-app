@@ -15,6 +15,7 @@ impl Settings {
     pub fn clamped(mut self) -> Self {
         self.styles = self.styles.clamped();
         self.output.layout = self.output.layout.clamped();
+        self.output.monitor = self.output.monitor.filter(MonitorPreference::is_valid);
 
         if [&self.styles.song.theme, &self.styles.scripture.theme]
             .into_iter()
@@ -45,7 +46,12 @@ impl Settings {
         });
         let margins = self.output.layout.margins;
 
-        if !valid_themes
+        if self
+            .output
+            .monitor
+            .as_ref()
+            .is_some_and(|monitor| !monitor.is_valid())
+            || !valid_themes
             || !MAX_LINES.contains(&self.styles.song.max_lines)
             || !MAX_CHARS.contains(&self.styles.scripture.max_chars)
             || ![margins.left, margins.right, margins.top, margins.bottom]
@@ -75,7 +81,7 @@ pub enum SettingsError {
 impl fmt::Display for SettingsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidValues => f.write_str("Settings contain an invalid numeric value."),
+            Self::InvalidValues => f.write_str("Settings contain an invalid value."),
             Self::EmptyContentArea => {
                 f.write_str("The safe margins and padding leave no content area.")
             }
@@ -114,6 +120,12 @@ pub struct MonitorPreference {
     pub friendly_name: Box<str>,
     pub width: u32,
     pub height: u32,
+}
+
+impl MonitorPreference {
+    pub fn is_valid(&self) -> bool {
+        self.width > 0 && self.height > 0 && !self.backend_name.trim().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

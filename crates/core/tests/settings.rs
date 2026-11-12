@@ -121,3 +121,23 @@ fn loaded_settings_clamp_values_and_share_the_canonical_layout() {
     assert_eq!(recovered.output.layout.margins, ScreenMargins::default());
     assert_eq!(recovered.validate(), Ok(()));
 }
+
+#[test]
+fn validation_rejects_unusable_monitor_descriptors() {
+    use sdw_core::settings::MonitorPreference;
+
+    let mut settings = Settings::default();
+    settings.output.monitor = Some(MonitorPreference {
+        backend_name: "HDMI-1".into(),
+        friendly_name: "Projector".into(),
+        width: 0,
+        height: 1080,
+    });
+    assert!(settings.validate().is_err());
+
+    let monitor = settings.output.monitor.as_mut().unwrap();
+    monitor.width = 1920;
+    monitor.backend_name = " ".into();
+    assert!(settings.validate().is_err());
+    assert_eq!(settings.clamped().output.monitor, None);
+}
