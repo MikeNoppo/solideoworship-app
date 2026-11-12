@@ -38,7 +38,11 @@ pub fn matching(preference: &MonitorPreference, displays: &[Display]) -> Option<
     let exact: Vec<_> = displays
         .iter()
         .filter(same_resolution)
-        .filter(|display| display.backend_name == preference.backend_name)
+        .filter(|display| {
+            !preference.backend_name.is_empty()
+                && display.backend_name == preference.backend_name
+                && (preference.friendly_name.is_empty() || display.name == preference.friendly_name)
+        })
         .collect();
     if !exact.is_empty() {
         return unique(exact);
@@ -147,6 +151,19 @@ mod tests {
             is_primary: false,
             is_builtin: false,
         }
+    }
+
+    #[test]
+    fn reused_connector_does_not_select_a_different_monitor() {
+        let remembered = screen(1, "HDMI-1", "Projector").preference();
+        let replacement = screen(2, "HDMI-1", "Operator screen");
+        assert_eq!(matching(&remembered, &[replacement]), None);
+
+        let mut remembered = remembered;
+        remembered.backend_name = "".into();
+        let projector = screen(3, "HDMI-2", "Projector");
+        let other = screen(4, "", "Operator screen");
+        assert_eq!(matching(&remembered, &[other, projector]), Some(3));
     }
 
     #[test]
