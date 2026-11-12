@@ -20,7 +20,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let layout = if live.is_some() {
         app.live_theme.layout
     } else {
-        app.styles.song.theme.layout
+        app.settings.styles.song.theme.layout
     };
     let frame_height = ((width - PADDING * 2.0) / layout.ratio()).round();
 

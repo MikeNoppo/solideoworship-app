@@ -34,7 +34,7 @@ use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
-use sdw_core::{ContentKind, OutputState, Presentation, ScheduleItem, Song, Styles};
+use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
 use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::bible_manager::BibleManager;
@@ -144,6 +144,8 @@ struct App {
     splash_ready: bool,
     control: Option<window::Id>,
     control_width: f32,
+    control_ready: bool,
+    startup_output_done: bool,
     output: Option<window::Id>,
     output_display: Option<u32>,
     reopen_output: bool,
@@ -180,7 +182,7 @@ struct App {
     saved_at: Option<SystemTime>,
     bible: BibleTab,
     schedule: Schedule,
-    styles: Styles,
+    settings: Settings,
     live: Option<Presentation>,
     live_entry: Option<u64>,
     live_theme: SlideTheme,
@@ -203,7 +205,7 @@ impl App {
             ..Self::default()
         };
         let library_opened = app.store.run(
-            |library| Ok((library.styles()?, library.shadows()?)),
+            |library| library.settings().map(Box::new),
             Message::LibraryOpened,
         );
         let recovery_path = app.recovery.path().to_path_buf();
@@ -265,19 +267,25 @@ impl App {
                 self.splash_elapsed = true;
                 self.leave_splash()
             }
-            Message::ControlOpened => match self.splash.take() {
-                Some(id) => window::close(id),
-                None => Task::none(),
-            },
+            Message::ControlOpened => {
+                self.control_ready = true;
+                let close_splash = match self.splash.take() {
+                    Some(id) => window::close(id),
+                    None => Task::none(),
+                };
+                Task::batch([close_splash, self.startup_output()])
+            }
 
             Message::LibraryOpened(result) => {
                 self.library_ready = true;
 
                 let search = match result {
-                    Ok((styles, shadows)) => {
-                        self.styles = styles;
-                        style::set_shadows(shadows);
-                        self.schedule.recompile(&self.styles);
+                    Ok(settings) => {
+                        self.settings = *settings;
+                        style::set_shadows(self.settings.general.shadows);
+                        self.schedule.recompile(&self.settings.styles);
+                        self.bible.set_style(&self.settings.styles.scripture);
+                        self.resolve_monitor();
                         Task::batch([self.search_songs(), self.count_songs(), self.load_bibles()])
                     }
                     Err(error) => {
@@ -287,13 +295,13 @@ impl App {
                     }
                 };
 
-                Task::batch([search, self.leave_splash()])
+                Task::batch([search, self.leave_splash(), self.startup_output()])
             }
 
             Message::RecoveryLoaded(result) => {
                 match result {
                     Ok(Some(items)) if self.schedule.is_empty() => {
-                        self.schedule.restore(items, &self.styles);
+                        self.schedule.restore(items, &self.settings.styles);
                         self.schedule.select(0);
                         self.notify(Notice::Recovered);
                     }
@@ -315,7 +323,7 @@ impl App {
                 self.notices.retain(|notice| *notice != Notice::Screens);
                 let task = self.apply_displays(displays);
 
-                Task::batch([task, self.leave_splash()])
+                Task::batch([task, self.leave_splash(), self.startup_output()])
             }
             Message::DisplaysLoaded(Err(error)) => {
                 self.displays_loaded = true;
@@ -438,7 +446,7 @@ impl App {
                         let _ = live.go_to(preview.index());
                     }
 
-                    self.live_theme = self.styles.theme(preview.deck().kind).clone();
+                    self.live_theme = self.settings.styles.theme(preview.deck().kind).clone();
                     self.live_sections = preview
                         .slides()
                         .iter()
@@ -527,8 +535,11 @@ impl App {
             Message::SongLoaded(id, result) => {
                 match result {
                     Ok(song) => {
-                        self.schedule
-                            .push(ScheduleItem::Song(song), Some(id), &self.styles);
+                        self.schedule.push(
+                            ScheduleItem::Song(song),
+                            Some(id),
+                            &self.settings.styles,
+                        );
                     }
                     Err(error) => self.library_error = Some(error),
                 }
@@ -587,7 +598,7 @@ impl App {
                         id,
                         text: fill(t().library.saved, &[("title", &song.title())]).into_boxed_str(),
                     });
-                    self.schedule.replace_song(id, &song, &self.styles);
+                    self.schedule.replace_song(id, &song, &self.settings.styles);
                     Task::batch([self.search_songs(), self.count_songs()])
                 }
                 Err(error) => self.editor_failed(ticket, error),
@@ -633,6 +644,7 @@ impl App {
             },
             Message::ModalDismissed => match &self.modal {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Dismiss)),
+                Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Cancel)),
                 Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Cancel)),
                 Some(Modal::Bibles(_)) => {
                     self.update(Message::BibleManager(bible_manager::Message::Close))
@@ -641,10 +653,10 @@ impl App {
             },
             Message::ThemeRequested => {
                 if self.modal.is_none() {
-                    self.open_modal(Modal::Theme(Box::new(ThemeDialog::new(
-                        &self.styles,
-                        style::shadows(),
+                    self.open_modal(Modal::Theme(Box::new(ThemeDialog::settings(
+                        &self.settings,
                         self.schedule.selected_item(),
+                        &self.displays,
                     ))));
                 }
                 Task::none()
@@ -661,40 +673,59 @@ impl App {
                         self.modal = None;
                         Task::none()
                     }
-                    theme_dialog::Action::SaveSettings(..)
-                    | theme_dialog::Action::RefreshDisplays => Task::none(),
-                    theme_dialog::Action::Save(styles, shadows) => self.store.run(
-                        move |library| {
-                            library.save_styles(&styles)?;
-                            library.save_shadows(shadows)?;
-                            Ok((*styles, shadows))
-                        },
-                        move |result| Message::StylesSaved(ticket, result),
-                    ),
+                    theme_dialog::Action::SaveSettings(settings, close_after_save) => {
+                        self.save_settings(ticket, settings, close_after_save)
+                    }
+                    theme_dialog::Action::RefreshDisplays => work::background(display::all)
+                        .map(move |result| Message::SettingsDisplaysLoaded(ticket, result)),
+                    theme_dialog::Action::Save(styles, shadows) => {
+                        let mut settings = self.settings.clone();
+                        settings.styles = *styles;
+                        settings.general.shadows = shadows;
+                        self.save_settings(ticket, Box::new(settings), true)
+                    }
                 }
             }
-            Message::StylesSaved(ticket, result) => {
+            Message::SettingsSaved(ticket, close_after_save, result) => {
                 match result {
-                    Ok((styles, shadows)) => {
-                        let saved = match self.modal_for(ticket) {
-                            Some(Modal::Theme(dialog)) => match dialog.kind() {
-                                ContentKind::Song => t().theme.song_saved,
-                                ContentKind::Scripture => t().theme.bible_saved,
-                            },
-                            _ => t().theme.song_saved,
-                        };
-
-                        self.close_modal(ticket);
-                        self.styles = styles;
-                        style::set_shadows(shadows);
-                        self.schedule.recompile(&self.styles);
-                        self.show_toast(Toast::Done(t().theme.saved.into()));
-                        self.flash(format!("{saved} · {}", t().theme.saved_detail));
+                    Ok(settings) => {
+                        let task = self.apply_settings(*settings);
+                        let settings = &self.settings;
+                        if ticket == self.modal_ticket {
+                            if let Some(Modal::Theme(dialog)) = &mut self.modal {
+                                dialog.saved(settings);
+                            }
+                            if close_after_save {
+                                self.close_modal(ticket);
+                            }
+                        }
+                        self.show_toast(Toast::Done(t().settings.saved.into()));
+                        self.flash(format!(
+                            "{} · {}",
+                            t().settings.saved,
+                            t().settings.saved_detail
+                        ));
+                        return task;
                     }
                     Err(error) => match self.modal_for(ticket) {
                         Some(Modal::Theme(dialog)) => dialog.fail(&error),
                         _ => self.library_error = Some(error),
                     },
+                }
+                Task::none()
+            }
+            Message::SettingsDisplaysLoaded(ticket, result) => {
+                if let Some(Modal::Theme(dialog)) = self.modal_for(ticket) {
+                    match &result {
+                        Ok(displays) => dialog.set_displays(displays),
+                        Err(error) => dialog.refresh_failed(error),
+                    }
+                }
+                self.update(Message::DisplaysLoaded(result))
+            }
+            Message::MonitorSaved(result) => {
+                if let Err(error) = result {
+                    self.library_error = Some(error);
                 }
                 Task::none()
             }
@@ -756,7 +787,7 @@ impl App {
                                 &path.file_name().unwrap_or_default().to_string_lossy(),
                             )],
                         );
-                        self.schedule.load(path, items, &self.styles);
+                        self.schedule.load(path, items, &self.settings.styles);
                         self.saved_at = modified;
                         self.notices.retain(|notice| {
                             !matches!(notice, Notice::Recovered | Notice::Taken(_))
@@ -857,11 +888,11 @@ impl App {
                 }
             },
             Message::PassageFound(bible, reference, result) => {
-                let action = self.bible.found(
+                let action = self.bible.found_with_style(
                     bible,
                     &reference,
                     result,
-                    usize::from(self.styles.scripture.max_chars),
+                    &self.settings.styles.scripture,
                 );
                 self.bible_action(action)
             }
@@ -930,7 +961,11 @@ impl App {
         if self.output == Some(window) {
             return render::output::view(
                 self.live.as_ref().map(Presentation::current),
-                &self.live_theme,
+                if self.live.is_some() {
+                    &self.live_theme
+                } else {
+                    &self.settings.styles.song.theme
+                },
                 self.output_state,
             );
         }
@@ -1165,11 +1200,48 @@ impl App {
         })
     }
 
+    fn save_settings(
+        &self,
+        ticket: u64,
+        settings: Box<Settings>,
+        close_after_save: bool,
+    ) -> Task<Message> {
+        self.store.run(
+            move |library| {
+                library.save_settings(&settings)?;
+                Ok(settings)
+            },
+            move |result| Message::SettingsSaved(ticket, close_after_save, result),
+        )
+    }
+
+    fn apply_settings(&mut self, settings: Settings) -> Task<Message> {
+        if self.settings.styles != settings.styles {
+            self.schedule.recompile(&settings.styles);
+            self.bible.set_style(&settings.styles.scripture);
+        }
+        style::set_shadows(settings.general.shadows);
+        let monitor_changed = self.settings.output.monitor != settings.output.monitor;
+        self.settings = settings;
+        if monitor_changed {
+            self.resolve_monitor();
+            if self.settings.output.monitor.is_none() {
+                self.selected = None;
+                self.reconnected();
+            }
+            if self.output.is_some() {
+                self.reopen_output = self.selected.is_some();
+                return self.close_output();
+            }
+        }
+        Task::none()
+    }
+
     fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
-        self.open_modal(Modal::Editor(Box::new(Editor::new(
+        self.open_modal(Modal::Editor(Box::new(Editor::with_style(
             origin,
             song,
-            self.styles.song.max_lines,
+            &self.settings.styles.song,
         ))));
 
         operation::focus(editor::TITLE_INPUT)
@@ -1251,7 +1323,7 @@ impl App {
             }
             bible_tab::Action::Add(passage) => {
                 self.schedule
-                    .push(ScheduleItem::Passage(passage), None, &self.styles);
+                    .push(ScheduleItem::Passage(passage), None, &self.settings.styles);
                 Task::none()
             }
         }
@@ -1277,28 +1349,19 @@ impl App {
             self.disconnected = lost.clone();
         }
 
-        let returned = self.disconnected.as_ref().and_then(|name| {
-            displays
-                .iter()
-                .find(|display| {
-                    display.name == *name && !self.displays.iter().any(|old| old.id == display.id)
-                })
-                .map(|display| display.id)
-        });
         let kept = self
             .selected
             .and_then(|id| same_screen(&self.displays, &displays, id));
+        self.displays = displays;
 
-        if let Some(id) = returned {
-            self.selected = Some(id);
-            self.reconnected();
+        if self.settings.output.monitor.is_some() {
+            self.selected = kept;
+            self.resolve_monitor();
         } else if self.disconnected.is_some() {
             self.selected = None;
         } else {
-            self.selected = kept.or_else(|| displays.first().map(|display| display.id));
+            self.selected = kept.or_else(|| self.displays.first().map(|display| display.id));
         }
-
-        self.displays = displays;
 
         if lost.is_some() {
             self.reopen_output = false;
@@ -1306,6 +1369,36 @@ impl App {
             return self.close_output();
         }
 
+        Task::none()
+    }
+
+    fn resolve_monitor(&mut self) {
+        let Some(preference) = &self.settings.output.monitor else {
+            return;
+        };
+        self.selected = display::matching(preference, &self.displays);
+        if self.selected.is_some() {
+            self.reconnected();
+        } else {
+            self.disconnected = Some(preference.friendly_name.clone());
+        }
+    }
+
+    fn startup_output(&mut self) -> Task<Message> {
+        if self.startup_output_done
+            || !self.control_ready
+            || !self.library_ready
+            || !self.displays_loaded
+        {
+            return Task::none();
+        }
+        self.startup_output_done = true;
+        if self.settings.general.open_output_on_startup
+            && self.settings.output.monitor.is_some()
+            && self.selected.is_some()
+        {
+            return self.open_output();
+        }
         Task::none()
     }
 
@@ -1483,7 +1576,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("A", "one", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
         app
     }
@@ -1649,7 +1742,7 @@ mod tests {
         let control = window::Id::unique();
         app.control = Some(control);
         app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
-            &app.styles,
+            &app.settings.styles,
             true,
             None,
         ))));
@@ -1777,13 +1870,17 @@ mod tests {
         let old_ticket = app.modal_ticket;
         let _ = app.update(Message::Theme(crate::theme_dialog::Message::Cancel));
         let _ = app.update(Message::ThemeRequested);
-        let mut styles = app.styles.clone();
-        styles.song.max_lines = 7;
+        let mut settings = app.settings.clone();
+        settings.styles.song.max_lines = 7;
 
-        let _ = app.update(Message::StylesSaved(old_ticket, Ok((styles, true))));
+        let _ = app.update(Message::SettingsSaved(
+            old_ticket,
+            true,
+            Ok(Box::new(settings)),
+        ));
 
         assert!(matches!(app.modal, Some(Modal::Theme(_))));
-        assert_eq!(app.styles.song.max_lines, 7);
+        assert_eq!(app.settings.styles.song.max_lines, 7);
     }
 
     #[test]
@@ -1929,6 +2026,7 @@ mod tests {
             screen(1, "HDMI-1"),
             screen(2, "eDP-1"),
         ])));
+        app.settings.output.monitor = Some(screen(1, "HDMI-1").preference());
         app.output = Some(window::Id::unique());
         app.output_display = Some(1);
         app
@@ -1940,7 +2038,7 @@ mod tests {
             app.schedule.push(
                 ScheduleItem::Song(Song::new(title, "one\n\ntwo", None)),
                 None,
-                &app.styles,
+                &app.settings.styles,
             );
         }
         app.schedule.select(0);
@@ -2022,6 +2120,79 @@ mod tests {
     }
 
     #[test]
+    fn settings_apply_recompiles_preview_and_keeps_live_snapshot() {
+        let mut app = live_with_two_songs();
+        app.schedule
+            .mark_saved(PathBuf::from("service.sdw"), app.schedule.revision());
+        let _ = app.update(Message::LiveSlideSelected(1));
+        let live = app.live.as_ref().unwrap().share();
+        let live_theme = app.live_theme.clone();
+        let source = app.schedule.items();
+        let _ = app.update(Message::ThemeRequested);
+        let ticket = app.modal_ticket;
+        let mut settings = app.settings.clone();
+        settings.styles.song.license = "CCLI 123".into();
+        settings.output.layout.format = sdw_core::settings::CanvasFormat::Standard;
+        let settings = settings.clamped();
+
+        let _ = app.update(Message::SettingsSaved(
+            ticket,
+            false,
+            Ok(Box::new(settings)),
+        ));
+
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
+        assert_eq!(
+            app.schedule.preview().unwrap().current().footer.as_deref(),
+            Some("CCLI 123")
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &live,
+            &app.live.as_ref().unwrap().share()
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+        assert_eq!(app.live_theme, live_theme);
+        assert_eq!(app.schedule.items(), source);
+        assert!(!app.schedule.is_dirty());
+
+        let _ = app.update(Message::ModalDismissed);
+        assert!(app.modal.is_none());
+        assert_eq!(&*app.settings.styles.song.license, "CCLI 123");
+    }
+
+    #[test]
+    fn startup_uses_remembered_monitor_after_both_load_orders() {
+        for preferences_first in [false, true] {
+            let mut app = App::default();
+            let remembered = screen(7, "Projector");
+            let mut settings = sdw_core::Settings::default();
+            settings.output.monitor = Some(remembered.preference());
+            settings.general.open_output_on_startup = true;
+            let preferences = Message::LibraryOpened(Ok(Box::new(settings)));
+            let displays = Message::DisplaysLoaded(Ok(vec![screen(2, "Operator"), remembered]));
+            let (first, second) = if preferences_first {
+                (preferences, displays)
+            } else {
+                (displays, preferences)
+            };
+
+            let _ = app.update(first);
+            let _ = app.update(second);
+            assert_eq!(app.selected, Some(7));
+            assert!(app.output.is_none());
+
+            let _ = app.update(Message::ControlOpened);
+            assert_eq!(app.output_display, Some(7));
+            assert!(app.live.is_none());
+            let output = app.output.unwrap();
+            let _ = app.update(Message::OutputDismissed);
+            let _ = app.update(Message::WindowClosed(output));
+            let _ = app.update(Message::ControlOpened);
+            assert!(app.output.is_none());
+        }
+    }
+
+    #[test]
     fn saved_song_shows_a_toast_that_adds_it() {
         let (id, song) = library_song();
         let mut app = App::default();
@@ -2083,7 +2254,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("B", "two", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
 
         let _ = app.update(Message::DragStarted(1));
@@ -2101,7 +2272,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("B", "two", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
         app.hovered_row = Some(1);
         let _ = app.update(Message::DragStarted(0));
@@ -2122,7 +2293,7 @@ mod tests {
     #[test]
     fn live_item_stays_live_after_a_recompile() {
         let mut app = live_with_two_songs();
-        let styles = app.styles.clone();
+        let styles = app.settings.styles.clone();
 
         app.schedule.recompile(&styles);
 
@@ -2136,7 +2307,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("B", "two", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
 
         let _ = app.update(Message::DragStarted(0));

@@ -1,7 +1,7 @@
 # 05: Integrate startup, live snapshots, persistence and monitor preferences
 
 Blocked by: 06
-Status: ready-for-agent
+Status: claimed — feat/settings-app, base 25d86c0
 
 Wire settings into boot, modal actions, Library worker, monitor toolbar, live snapshots, schedule advance and output lifecycle. Remember descriptors robustly, missing/ambiguous displays stay unavailable, Apply moves an open output without changing live material or Black/Clear. Startup must wait for control/preferences/displays and never silently use a different screen. Modal tickets protect newer dialogs. Full styles reach editor and Bible count consumers. Remove superseded compatibility UI paths as appropriate while preserving legacy storage readers. Update README user guidance. Test App event state transitions and all spec acceptance paths; run complete formatting, tests, clippy, MSRV and available runtime QA. Resolve this ticket only after code review fixes too.
 
