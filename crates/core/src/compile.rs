@@ -1,11 +1,33 @@
 use crate::bible::{Passage, Verse};
 use crate::slide::{ContentKind, Slide, SlideDeck};
 use crate::song::Song;
+use crate::theme::SongStyle;
 
 pub fn song(song: &Song, max_lines: usize) -> SlideDeck {
+    song_with_footer(song, max_lines, song.copyright())
+}
+
+pub fn song_with_style(song: &Song, style: &SongStyle) -> SlideDeck {
+    let footer = style.show_copyright.then(|| {
+        [song.copyright(), Some(style.license.trim())]
+            .into_iter()
+            .flatten()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    });
+
+    song_with_footer(
+        song,
+        usize::from(style.max_lines),
+        footer.as_deref().filter(|text| !text.is_empty()),
+    )
+}
+
+fn song_with_footer(song: &Song, max_lines: usize, footer: Option<&str>) -> SlideDeck {
     let max_lines = max_lines.max(1);
     let mut slides = SongSlides {
-        footer: song.copyright(),
+        footer,
         label: None,
         part: 0,
         lines: Vec::with_capacity(max_lines),

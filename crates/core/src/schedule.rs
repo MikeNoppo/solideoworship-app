@@ -20,7 +20,7 @@ impl ScheduleItem {
 
     pub fn compile(&self, styles: &Styles) -> SlideDeck {
         match self {
-            Self::Song(song) => compile::song(song, usize::from(styles.song.max_lines)),
+            Self::Song(song) => compile::song_with_style(song, &styles.song),
             Self::Passage(passage) => {
                 compile::scripture(passage, usize::from(styles.scripture.max_chars))
             }
@@ -69,6 +69,28 @@ mod tests {
 
         styles.song.max_lines = 2;
         assert_eq!(item.compile(&styles).len(), 2);
+    }
+
+    #[test]
+    fn song_footer_options_keep_source_and_operator_labels() {
+        let song = Song::new("Test", "[Verse 1]\none\n\ntwo", Some("© Example"));
+        let item = ScheduleItem::Song(song.clone());
+        let mut styles = Styles::default();
+        styles.song.license = "  CCLI 123  ".into();
+
+        let deck = item.compile(&styles);
+        assert!(
+            deck.slides
+                .iter()
+                .all(|slide| { slide.footer.as_deref() == Some("© Example · CCLI 123") })
+        );
+
+        styles.song.show_copyright = false;
+        let deck = item.compile(&styles);
+        assert!(deck.slides.iter().all(|slide| slide.footer.is_none()));
+        assert_eq!(deck.slides[0].label.as_deref(), Some("Verse 1"));
+        assert_eq!(deck.slides[1].label.as_deref(), Some("Verse 1 (2)"));
+        assert_eq!(item, ScheduleItem::Song(song));
     }
 
     #[test]
