@@ -397,6 +397,12 @@
     "ok": "OK",
     "invalid_color": "Isi warna hex enam digit lengkap di Lagu dan Alkitab.",
     "invalid_values": "Periksa nilai pengaturan sebelum menyimpan.",
-    "empty_area": "Margin aman dan padding harus menyisakan ruang untuk konten."
+    "empty_area": "Margin aman dan padding harus menyisakan ruang untuk konten.",
+    "title": "Pengaturan",
+    "subtitle": "Preferensi untuk komputer ini",
+    "saved": "Pengaturan disimpan",
+    "saved_detail": "Live tetap memakai tampilan lama sampai Tayangkan berikutnya",
+    "refresh_failed": "Layar tidak bisa disegarkan: {error}.",
+    "save_failed": "Pengaturan tidak bisa disimpan: {error}. Perubahan Anda tetap ada; coba lagi."
   }
 }

@@ -89,6 +89,10 @@ struct Captions {
 pub struct ThemeDialog {
     draft: Settings,
     legacy: bool,
+    displays: Vec<Display>,
+    refreshing: bool,
+    applied: bool,
+    refresh_error: Option<Box<str>>,
     kind: ContentKind,
     hex: [[String; 3]; 2],
     song: ScheduleItem,
@@ -103,6 +107,7 @@ pub struct ThemeDialog {
 #[derive(Debug, Clone)]
 pub enum Message {
     KindSelected(ContentKind),
+    RefreshDisplays,
     HexChanged(ColorSlot, String),
     ColorPicked(ColorSlot, Rgb),
     BodySize(f32),
@@ -125,6 +130,7 @@ pub enum Action {
     None,
     Save(Box<Styles>, bool),
     SaveSettings(Box<Settings>, bool),
+    RefreshDisplays,
     Close,
 }
 
@@ -143,7 +149,7 @@ impl ThemeDialog {
     pub fn settings(
         settings: &Settings,
         current: Option<&ScheduleItem>,
-        _displays: &[Display],
+        displays: &[Display],
     ) -> Self {
         let (song, scripture) = match current {
             Some(item @ ScheduleItem::Song(_)) => (item.clone(), sample_passage()),
@@ -160,6 +166,10 @@ impl ThemeDialog {
         let mut dialog = Self {
             draft: settings.clone(),
             legacy: false,
+            displays: Vec::new(),
+            refreshing: false,
+            applied: false,
+            refresh_error: None,
             kind,
             hex: Default::default(),
             song,
@@ -171,6 +181,8 @@ impl ThemeDialog {
             captions: Captions::default(),
         };
         dialog.saved(settings);
+        dialog.set_displays(displays);
+        dialog.applied = false;
         dialog
     }
 
@@ -184,6 +196,14 @@ impl ThemeDialog {
         }
 
         match message {
+            Message::RefreshDisplays => {
+                if self.refreshing {
+                    return Action::None;
+                }
+                self.refreshing = true;
+                self.error = None;
+                return Action::RefreshDisplays;
+            }
             Message::KindSelected(kind) => {
                 self.kind = kind;
                 self.selected = 0;
@@ -269,6 +289,7 @@ impl ThemeDialog {
     }
 
     pub fn saved(&mut self, settings: &Settings) {
+        self.applied = true;
         self.draft = settings.clone();
         self.busy = false;
         self.error = None;
@@ -278,11 +299,36 @@ impl ThemeDialog {
         self.describe();
     }
 
+    pub fn set_displays(&mut self, displays: &[Display]) {
+        self.displays = displays.to_vec();
+        self.refreshing = false;
+        self.refresh_error = None;
+    }
+
+    pub fn refresh_failed(&mut self, error: &str) {
+        self.refreshing = false;
+        self.refresh_error = Some(
+            fill(
+                t().settings.refresh_failed,
+                &[("error", &error.trim_end_matches('.'))],
+            )
+            .into_boxed_str(),
+        );
+    }
+
     pub fn fail(&mut self, error: &str) {
+        if self.refreshing && !self.busy {
+            self.refresh_failed(error);
+            return;
+        }
         self.busy = false;
         self.error = Some(
             fill(
-                t().theme.save_failed,
+                if self.legacy {
+                    t().theme.save_failed
+                } else {
+                    t().settings.save_failed
+                },
                 &[("error", &error.trim_end_matches('.'))],
             )
             .into_boxed_str(),
@@ -350,8 +396,26 @@ impl ThemeDialog {
             container(
                 row![
                     column![
-                        label(t().theme.title, 16.0, style::SEMIBOLD, style::TEXT),
-                        label(t().theme.subtitle, 12.0, style::INTER, style::TEXT_3),
+                        label(
+                            if self.legacy {
+                                t().theme.title
+                            } else {
+                                t().settings.title
+                            },
+                            16.0,
+                            style::SEMIBOLD,
+                            style::TEXT
+                        ),
+                        label(
+                            if self.legacy {
+                                t().theme.subtitle
+                            } else {
+                                t().settings.subtitle
+                            },
+                            12.0,
+                            style::INTER,
+                            style::TEXT_3
+                        ),
                     ]
                     .spacing(3),
                     container(tabs).height(34).padding(3).style(style::boxed(
@@ -697,11 +761,16 @@ impl ThemeDialog {
                 None,
                 (!self.busy).then_some(Message::Reset),
             ),
-            container(self.error.as_deref().map(|error| ui::note(
-                icon::CIRCLE_ALERT,
-                error,
-                style::LIVE
-            )))
+            container(
+                self.error
+                    .as_deref()
+                    .map(|error| ui::note(icon::CIRCLE_ALERT, error, style::LIVE))
+                    .or_else(|| self.applied.then(|| ui::note(
+                        icon::CIRCLE_CHECK,
+                        t().settings.saved,
+                        style::TEXT_2
+                    )))
+            )
             .padding([0, 12])
             .width(Fill),
             action(
@@ -771,10 +840,14 @@ impl ThemeDialog {
                 ContentKind::Scripture => chars.to_string().into_boxed_str(),
             },
             sample: fill(t().theme.sample_from, &[("title", &self.deck.title)]).into_boxed_str(),
-            note: match self.kind {
-                ContentKind::Song => t().theme.song_note.into(),
-                ContentKind::Scripture => {
-                    fill(t().theme.bible_note, &[("count", &chars)]).into_boxed_str()
+            note: if !self.legacy {
+                t().settings.saved_detail.into()
+            } else {
+                match self.kind {
+                    ContentKind::Song => t().theme.song_note.into(),
+                    ContentKind::Scripture => {
+                        fill(t().theme.bible_note, &[("count", &chars)]).into_boxed_str()
+                    }
                 }
             },
         };
@@ -868,6 +941,27 @@ mod tests {
 
         let Action::SaveSettings(saved, true) = dialog.update(Message::Save) else {
             panic!("expected an ok action");
+        };
+        assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn refreshing_displays_preserves_the_unsaved_draft() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::BodySize(110.0));
+        assert_eq!(
+            dialog.update(Message::RefreshDisplays),
+            Action::RefreshDisplays
+        );
+        assert_eq!(dialog.update(Message::RefreshDisplays), Action::None);
+        dialog.set_displays(&[]);
+        assert_eq!(
+            dialog.update(Message::RefreshDisplays),
+            Action::RefreshDisplays
+        );
+        dialog.fail("unavailable");
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected settings after refreshing monitors");
         };
         assert_eq!(saved.styles.song.theme.body_size, 110.0);
     }

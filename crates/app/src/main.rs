@@ -661,7 +661,8 @@ impl App {
                         self.modal = None;
                         Task::none()
                     }
-                    theme_dialog::Action::SaveSettings(..) => Task::none(),
+                    theme_dialog::Action::SaveSettings(..)
+                    | theme_dialog::Action::RefreshDisplays => Task::none(),
                     theme_dialog::Action::Save(styles, shadows) => self.store.run(
                         move |library| {
                             library.save_styles(&styles)?;

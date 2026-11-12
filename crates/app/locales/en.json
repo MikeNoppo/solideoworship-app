@@ -397,6 +397,12 @@
     "ok": "OK",
     "invalid_color": "Enter a complete six-digit hex color in Song and Scripture.",
     "invalid_values": "Check the settings values before saving.",
-    "empty_area": "Safe margins and padding must leave room for content."
+    "empty_area": "Safe margins and padding must leave room for content.",
+    "title": "Settings",
+    "subtitle": "Preferences for this computer",
+    "saved": "Settings saved",
+    "saved_detail": "Live keeps its current appearance until the next Go Live",
+    "refresh_failed": "Monitors could not be refreshed: {error}.",
+    "save_failed": "Settings could not be saved: {error}. Your changes are kept; try again."
   }
 }
