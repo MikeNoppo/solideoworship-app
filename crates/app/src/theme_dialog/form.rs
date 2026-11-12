@@ -391,6 +391,79 @@ impl ThemeDialog {
             .into()
     }
 
+    fn content_form(&self) -> Element<'_, Message> {
+        match self.kind {
+            ContentKind::Song => column![
+                ui::eyebrow(t().settings.content),
+                self.toggle(
+                    t().settings.show_heading,
+                    Some(t().settings.heading_hint),
+                    self.draft.styles.song.theme.show_label,
+                    Message::ShowHeading
+                ),
+                self.toggle(
+                    t().settings.copyright,
+                    Some(t().settings.copyright_hint),
+                    self.draft.styles.song.show_copyright,
+                    Message::ShowCopyright
+                ),
+                column![
+                    label(t().settings.license, 13.0, style::INTER, style::TEXT_2),
+                    text_input(
+                        t().settings.license_placeholder,
+                        &self.draft.styles.song.license
+                    )
+                    .on_input_maybe(
+                        (!self.busy && self.draft.styles.song.show_copyright)
+                            .then_some(Message::LicenseChanged)
+                    )
+                    .on_submit(Message::Save)
+                    .size(13)
+                    .padding([8, 10])
+                    .style(style::field),
+                    label(t().settings.license_hint, 11.0, style::INTER, style::TEXT_3),
+                ]
+                .spacing(6),
+            ]
+            .spacing(16)
+            .into(),
+            ContentKind::Scripture => column![
+                ui::eyebrow(t().settings.content),
+                self.toggle(
+                    t().settings.verse_numbers,
+                    None,
+                    self.draft.styles.scripture.show_verse_numbers,
+                    Message::VerseNumbers
+                ),
+                self.toggle(
+                    t().settings.reference,
+                    None,
+                    self.draft.styles.scripture.show_reference,
+                    Message::Reference
+                ),
+                self.toggle(
+                    t().settings.translation,
+                    None,
+                    self.draft.styles.scripture.show_translation,
+                    Message::Translation
+                ),
+                ui::hrule(style::BORDER),
+                self.toggle(
+                    t().settings.one_verse,
+                    Some(if self.draft.styles.scripture.one_verse_per_slide {
+                        t().settings.one_verse_hint
+                    } else {
+                        t().settings.grouping_hint
+                    }),
+                    self.draft.styles.scripture.one_verse_per_slide,
+                    Message::OneVerse
+                ),
+            ]
+            .spacing(16)
+            .into(),
+        }
+    }
+
     fn style_form(&self) -> Element<'_, Message> {
         let theme = self.draft.styles.theme(self.kind);
 
@@ -509,7 +582,9 @@ impl ThemeDialog {
                     icon::MINUS,
                     style::TEXT_2,
                     28.0,
-                    less.filter(|_| !self.busy)
+                    less.filter(|_| !self.busy
+                        && (self.kind == ContentKind::Song
+                            || !self.draft.styles.scripture.one_verse_per_slide))
                 ),
                 container(label(
                     &self.captions.limit,
@@ -518,7 +593,14 @@ impl ThemeDialog {
                     style::TEXT
                 ))
                 .center_x(Fill),
-                ui::icon_button(icon::PLUS, style::TEXT_2, 28.0, more.filter(|_| !self.busy)),
+                ui::icon_button(
+                    icon::PLUS,
+                    style::TEXT_2,
+                    28.0,
+                    more.filter(|_| !self.busy
+                        && (self.kind == ContentKind::Song
+                            || !self.draft.styles.scripture.one_verse_per_slide))
+                ),
             ]
             .align_y(Center),
         )
@@ -543,6 +625,7 @@ impl ThemeDialog {
 
         container(ui::scroll(
             column![
+                self.content_form(),
                 column![
                     ui::eyebrow(t().theme.colors),
                     colors,

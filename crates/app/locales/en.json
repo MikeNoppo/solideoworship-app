@@ -328,7 +328,7 @@
     "font_size": "Font size",
     "footer_size": "Footer size",
     "line_height": "Line spacing",
-    "margin": "Margin",
+    "margin": "Text padding",
     "alignment": "ALIGNMENT",
     "left": "Left",
     "center": "Center",
@@ -442,6 +442,20 @@
     "font_missing": "This font is unavailable. The preview and output use Inter.",
     "font_empty": "No matching font families.",
     "font_limit": "Showing up to 6 families. Type to narrow the results.",
-    "font_weight": "Font weight"
+    "font_weight": "Font weight",
+    "content": "CONTENT",
+    "show_heading": "Show the section heading",
+    "heading_hint": "Projects the section label above the lyrics.",
+    "copyright": "Show copyright and license",
+    "copyright_hint": "Repeats the song footer on every slide.",
+    "license": "Global license text",
+    "license_placeholder": "e.g. CCLI License 1234567",
+    "license_hint": "Appended to the copyright when the footer is visible.",
+    "verse_numbers": "Show verse numbers",
+    "reference": "Show the slide reference",
+    "translation": "Show the translation",
+    "one_verse": "One complete verse per slide",
+    "one_verse_hint": "The character limit is ignored in this mode. Verses are never split.",
+    "grouping_hint": "Otherwise, complete verses are grouped by the character limit."
   }
 }

@@ -328,7 +328,7 @@
     "font_size": "Ukuran huruf",
     "footer_size": "Ukuran footer",
     "line_height": "Jarak baris",
-    "margin": "Margin",
+    "margin": "Padding teks",
     "alignment": "PERATAAN",
     "left": "Kiri",
     "center": "Tengah",
@@ -442,6 +442,20 @@
     "font_missing": "Font ini tidak tersedia. Preview dan output memakai Inter.",
     "font_empty": "Tidak ada keluarga font yang cocok.",
     "font_limit": "Paling banyak 6 keluarga ditampilkan. Ketik untuk mempersempit hasil.",
-    "font_weight": "Ketebalan font"
+    "font_weight": "Ketebalan font",
+    "content": "KONTEN",
+    "show_heading": "Tampilkan judul bagian",
+    "heading_hint": "Menayangkan label bagian di atas lirik.",
+    "copyright": "Tampilkan copyright dan lisensi",
+    "copyright_hint": "Mengulang footer lagu di setiap slide.",
+    "license": "Teks lisensi global",
+    "license_placeholder": "mis. Lisensi CCLI 1234567",
+    "license_hint": "Ditambahkan ke copyright saat footer ditampilkan.",
+    "verse_numbers": "Tampilkan nomor ayat",
+    "reference": "Tampilkan referensi slide",
+    "translation": "Tampilkan terjemahan",
+    "one_verse": "Satu ayat lengkap per slide",
+    "one_verse_hint": "Batas karakter diabaikan pada mode ini. Ayat tidak pernah dipotong.",
+    "grouping_hint": "Selain itu, ayat lengkap dikelompokkan menurut batas karakter."
   }
 }

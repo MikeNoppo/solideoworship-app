@@ -220,6 +220,13 @@ pub enum Message {
     KindSelected(ContentKind),
     CategorySelected(Category),
     FontPicker(FontSlot),
+    ShowHeading(bool),
+    ShowCopyright(bool),
+    LicenseChanged(String),
+    VerseNumbers(bool),
+    Reference(bool),
+    Translation(bool),
+    OneVerse(bool),
     FontSearch(FontSlot, String),
     FontSelected(FontSlot, &'static str),
     FontWeight(FontSlot, FontWeight),
@@ -350,6 +357,15 @@ impl ThemeDialog {
                 self.error = None;
                 return Action::RefreshDisplays;
             }
+            Message::ShowHeading(value) => self.draft.styles.song.theme.show_label = value,
+            Message::ShowCopyright(value) => self.draft.styles.song.show_copyright = value,
+            Message::LicenseChanged(value) => {
+                self.draft.styles.song.license = value.into_boxed_str()
+            }
+            Message::VerseNumbers(value) => self.draft.styles.scripture.show_verse_numbers = value,
+            Message::Reference(value) => self.draft.styles.scripture.show_reference = value,
+            Message::Translation(value) => self.draft.styles.scripture.show_translation = value,
+            Message::OneVerse(value) => self.draft.styles.scripture.one_verse_per_slide = value,
             Message::FontPicker(slot) => {
                 self.font_picker = if self.font_picker == Some(slot) {
                     None
@@ -700,6 +716,32 @@ mod tests {
             panic!("expected an ok action");
         };
         assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn song_and_scripture_options_save_without_changing_the_original_settings() {
+        let original = sdw_core::Settings::default();
+        let mut dialog = ThemeDialog::settings(&original, None, &[]);
+        let _ = dialog.update(Message::CategorySelected(Category::Song));
+        let _ = dialog.update(Message::ShowHeading(true));
+        let _ = dialog.update(Message::ShowCopyright(false));
+        let _ = dialog.update(Message::LicenseChanged("CCLI 12345".into()));
+        let _ = dialog.update(Message::CategorySelected(Category::Scripture));
+        let _ = dialog.update(Message::VerseNumbers(false));
+        let _ = dialog.update(Message::Reference(false));
+        let _ = dialog.update(Message::Translation(false));
+        let _ = dialog.update(Message::OneVerse(true));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected content preferences");
+        };
+        assert!(saved.styles.song.theme.show_label);
+        assert!(!saved.styles.song.show_copyright);
+        assert_eq!(&*saved.styles.song.license, "CCLI 12345");
+        assert!(!saved.styles.scripture.show_verse_numbers);
+        assert!(!saved.styles.scripture.show_reference);
+        assert!(!saved.styles.scripture.show_translation);
+        assert!(saved.styles.scripture.one_verse_per_slide);
+        assert_eq!(original, sdw_core::Settings::default());
     }
 
     #[test]
