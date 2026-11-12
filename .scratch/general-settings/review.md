@@ -24,4 +24,20 @@ Scope creep: none found. The footer/license coupling follows the explicit issue-
 
 ## Resolutions
 
-Pending in ticket [07](issues/07-review-fixes.md).
+- P2 resolved in `1631e8b`: `SettingsDisplaysLoaded` now rejects the entire completion unless its ticket belongs to the active Settings dialog. Canceled or older refresh success/error cannot overwrite runtime displays, clear the selected monitor, close the output, or change a newer draft. Successful persisted `SettingsSaved` application remains global. The canceled-refresh regression failed against the old handler before the guard was added; the updated App event tests cover cancellation and out-of-order completion after a newer refresh, explicit monitor selection and output move, preserving the live deck/theme and Black state.
+- P3 resolved in `e0b2d58`: `SettingsError` uses `i18n::Localize`; Category, CanvasFormat, FontWeight, MarginSide and FontSlot use `i18n::Label`. The dialog reuses those mappings with its existing captions.
+- Integration cleanup resolved in `c8c3a15`: removed `Editor::new`, `BibleTab::found`, `ThemeDialog::new`/`kind`, `Action::Save` and the legacy flag, migrated tests to complete Settings/style interfaces, and deleted obsolete theme/toolbar locale keys in English and Indonesian. Save failure copy now exclusively uses the existing Settings wording. Public core compiler entrypoints and Library styles/shadows compatibility are unchanged. No lint suppressions were added.
+- Font search portability resolved in `c4724d2`: the search test checks case-insensitive filtering and the requested bound without assuming bundled Inter sorts before every installed matching family.
+- Root GUI QA finding addressed in `5b86350`: the existing overflow warning is now directly below the preview header/tabs and above the canvas, so a tall 4:3 preview cannot place it below the fold. Root's reproduction screenshots are `/tmp/sdw-settings-overflow.png` and `/tmp/sdw-settings-overflow-warning.png`. Final visual smoke confirmation remains with root.
+
+## Validation
+
+On `fix/settings-review`, with integration `c7bcfaf` already included and `CARGO_TARGET_DIR=/home/mikel/.cache/sdw-settings-target-05`:
+
+- `cargo fmt --check`: passed.
+- `cargo test --workspace --profile ci`: passed, 336 tests (190 app, 76 core, 6 core integration, 64 library), plus doc tests; zero failures, ignored tests or filtered tests.
+- `cargo clippy --all-targets --profile ci -- -D warnings`: passed without integration dead-code warnings or suppressions.
+- `cargo +1.92 check --workspace --all-targets --profile ci`: passed.
+- `git diff feat/general-settings...HEAD --check`: passed.
+
+Ticket [07](issues/07-review-fixes.md) is resolved for code and automated checks. Ticket [05](issues/05-app-integration.md) stays awaiting final root GUI QA and closure. This worktree did not perform Windows/macOS hardware validation, merge into integration, push, publish issues or open a PR.
