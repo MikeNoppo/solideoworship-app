@@ -702,12 +702,6 @@ impl App {
                     }
                     theme_dialog::Action::RefreshDisplays => work::background(display::all)
                         .map(move |result| Message::SettingsDisplaysLoaded(ticket, result)),
-                    theme_dialog::Action::Save(styles, shadows) => {
-                        let mut settings = self.settings.clone();
-                        settings.styles = *styles;
-                        settings.general.shadows = shadows;
-                        self.save_settings(ticket, Box::new(settings), true)
-                    }
                 }
             }
             Message::SettingsSaved(ticket, close_after_save, result) => {
@@ -739,11 +733,12 @@ impl App {
                 Task::none()
             }
             Message::SettingsDisplaysLoaded(ticket, result) => {
-                if let Some(Modal::Theme(dialog)) = self.modal_for(ticket) {
-                    match &result {
-                        Ok(displays) => dialog.set_displays(displays),
-                        Err(error) => dialog.refresh_failed(error),
-                    }
+                let Some(Modal::Theme(dialog)) = self.modal_for(ticket) else {
+                    return Task::none();
+                };
+                match &result {
+                    Ok(displays) => dialog.set_displays(displays),
+                    Err(error) => dialog.refresh_failed(error),
                 }
                 self.update(Message::DisplaysLoaded(result))
             }
@@ -1596,7 +1591,6 @@ mod tests {
     use crate::editor;
     use crate::i18n::{fill, t};
     use crate::message::{Message, Pending, UnsavedChoice};
-    use crate::theme_dialog::ThemeDialog;
 
     fn dirty_app() -> App {
         let mut app = App::default();
@@ -1768,11 +1762,7 @@ mod tests {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
-        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
-            &app.settings.styles,
-            true,
-            None,
-        ))));
+        let _ = app.update(Message::ThemeRequested);
 
         let _ = app.update(Message::WindowCloseRequested(control));
 
@@ -2199,6 +2189,101 @@ mod tests {
             panic!("failed save permits retry");
         };
         assert_eq!(saved.styles.song.max_lines, 7);
+    }
+
+    #[test]
+    fn cancelled_settings_refresh_keeps_runtime_displays_and_output() {
+        for result in [Ok(vec![screen(2, "eDP-1")]), Err("unavailable".into())] {
+            let mut app = app_on_air();
+            let displays = app.displays.clone();
+            let output = app.output;
+            let selected = app.selected;
+            let _ = app.update(Message::ThemeRequested);
+            let ticket = app.modal_ticket;
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::RefreshDisplays,
+            ));
+            let _ = app.update(Message::ModalDismissed);
+
+            let _ = app.update(Message::SettingsDisplaysLoaded(ticket, result));
+
+            assert_eq!(app.displays, displays);
+            assert_eq!(app.selected, selected);
+            assert_eq!(app.output, output);
+            assert_eq!(app.output_display, Some(1));
+            assert!(app.disconnected.is_none());
+            assert!(app.screens_error.is_none());
+            assert!(app.modal.is_none());
+        }
+    }
+
+    #[test]
+    fn stale_settings_refresh_preserves_newer_monitors_output_and_draft() {
+        for result in [
+            Ok(vec![screen(1, "HDMI-1"), screen(2, "eDP-1")]),
+            Err("unavailable".into()),
+        ] {
+            let mut app = live_with_two_songs();
+            let _ = app.update(Message::OutputStateChanged(OutputState::Black));
+            let live = app.live.as_ref().unwrap().share();
+            let theme = app.live_theme.clone();
+            let _ = app.update(Message::ThemeRequested);
+            let old_ticket = app.modal_ticket;
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::RefreshDisplays,
+            ));
+            let _ = app.update(Message::ModalDismissed);
+            let _ = app.update(Message::ThemeRequested);
+            let ticket = app.modal_ticket;
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::RefreshDisplays,
+            ));
+            let displays = vec![
+                screen(1, "HDMI-1"),
+                screen(2, "eDP-1"),
+                screen(3, "Projector"),
+            ];
+            let _ = app.update(Message::SettingsDisplaysLoaded(
+                ticket,
+                Ok(displays.clone()),
+            ));
+            let old_output = app.output.unwrap();
+            let _ = app.update(Message::DisplaySelected(3));
+            let _ = app.update(Message::WindowClosed(old_output));
+            let output = app.output;
+            let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::MonitorSelected(Some(3)),
+            ));
+
+            let _ = app.update(Message::SettingsDisplaysLoaded(old_ticket, result));
+
+            assert_eq!(app.displays, displays);
+            assert_eq!(app.selected, Some(3));
+            assert_eq!(app.output, output);
+            assert_eq!(app.output_display, Some(3));
+            assert_eq!(app.output_state, OutputState::Black);
+            assert_eq!(app.live_theme, theme);
+            assert!(std::sync::Arc::ptr_eq(
+                &live,
+                &app.live.as_ref().unwrap().share()
+            ));
+            assert!(app.disconnected.is_none());
+            assert!(app.screens_error.is_none());
+            let Some(Modal::Theme(dialog)) = &mut app.modal else {
+                panic!("stale refresh keeps the newer settings dialog open");
+            };
+            let crate::theme_dialog::Action::SaveSettings(saved, _) =
+                dialog.update(crate::theme_dialog::Message::Apply)
+            else {
+                panic!("newer settings draft remains editable");
+            };
+            assert_eq!(saved.styles.song.max_lines, 7);
+            assert_eq!(
+                saved.output.monitor,
+                Some(screen(3, "Projector").preference())
+            );
+        }
     }
 
     #[test]

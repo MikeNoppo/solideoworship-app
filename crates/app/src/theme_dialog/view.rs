@@ -59,11 +59,11 @@ impl ThemeDialog {
             Category::ALL
                 .into_iter()
                 .fold(Column::new().spacing(4), |list, category| {
-                    let (caption, glyph) = match category {
-                        Category::General => (t().settings.general, icon::LAPTOP),
-                        Category::Output => (t().settings.output, icon::MONITOR),
-                        Category::Song => (t().settings.song, icon::MUSIC),
-                        Category::Scripture => (t().settings.scripture, icon::BOOK_OPEN),
+                    let glyph = match category {
+                        Category::General => icon::LAPTOP,
+                        Category::Output => icon::MONITOR,
+                        Category::Song => icon::MUSIC,
+                        Category::Scripture => icon::BOOK_OPEN,
                     };
                     let selected = self.category == category;
                     list.push(
@@ -71,7 +71,7 @@ impl ThemeDialog {
                             row![
                                 icon::view(glyph, 14.0, style::TEXT_2),
                                 label(
-                                    caption,
+                                    category.label(),
                                     13.0,
                                     if selected {
                                         style::SEMIBOLD
@@ -165,6 +165,11 @@ impl ThemeDialog {
                     ),
                 ]
                 .spacing(4),
+                self.overflow.then(|| ui::note(
+                    icon::CIRCLE_ALERT,
+                    t().settings.overflow,
+                    style::LIVE
+                )),
                 container(if self.guides {
                     slide::stage_with_guides(
                         self.deck.slides.get(self.selected),
@@ -189,11 +194,6 @@ impl ThemeDialog {
                     self.guides,
                     Message::Guides
                 ),
-                self.overflow.then(|| ui::note(
-                    icon::CIRCLE_ALERT,
-                    t().settings.overflow,
-                    style::LIVE
-                )),
                 cards,
                 label(t().settings.preview_note, 12.0, style::INTER, style::TEXT_3),
                 container(ui::note(icon::INFO, &self.captions.note, style::TEXT_2))
@@ -228,11 +228,7 @@ impl ThemeDialog {
             action(
                 Tone::Primary,
                 Some(icon::CHECK),
-                if self.legacy {
-                    t().theme.save
-                } else {
-                    t().settings.ok
-                },
+                t().settings.ok,
                 Some(ui::SAVE_KEY),
                 Some(Message::Save),
             )
@@ -270,7 +266,7 @@ impl ThemeDialog {
                 None,
                 t().settings.apply,
                 None,
-                (!self.busy && !self.legacy).then_some(Message::Apply)
+                (!self.busy).then_some(Message::Apply)
             ),
             save,
         ]

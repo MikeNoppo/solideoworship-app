@@ -130,14 +130,14 @@ impl ThemeDialog {
                 style::TEXT_3,
             ));
         }
-        let formats = [
-            (CanvasFormat::Wide, t().settings.wide),
-            (CanvasFormat::Standard, t().settings.standard),
-        ]
-        .into_iter()
-        .fold(row![].spacing(6), |list, (format, caption)| {
-            list.push(
-                button(container(label(caption, 13.0, style::MEDIUM, style::TEXT)).center(Fill))
+        let formats = [CanvasFormat::Wide, CanvasFormat::Standard]
+            .into_iter()
+            .fold(row![].spacing(6), |list, format| {
+                list.push(
+                    button(
+                        container(label(format.label(), 13.0, style::MEDIUM, style::TEXT))
+                            .center(Fill),
+                    )
                     .width(Fill)
                     .height(34)
                     .padding(0)
@@ -150,8 +150,8 @@ impl ThemeDialog {
                         },
                         8.0,
                     )),
-            )
-        });
+                )
+            });
         column![
             column![
                 ui::eyebrow(t().settings.monitor),
@@ -246,19 +246,13 @@ impl ThemeDialog {
     }
 
     fn margin_field(&self, side: MarginSide) -> Element<'_, Message> {
-        let caption = match side {
-            MarginSide::Left => t().settings.left,
-            MarginSide::Right => t().settings.right,
-            MarginSide::Top => t().settings.top,
-            MarginSide::Bottom => t().settings.bottom,
-        };
         let value = &self.margins[side.index()];
         let invalid = value
             .parse::<f32>()
             .ok()
             .is_none_or(|value| !value.is_finite() || value < 0.0);
         column![
-            label(caption, 12.0, style::INTER, style::TEXT_2),
+            label(side.label(), 12.0, style::INTER, style::TEXT_2),
             text_input("0", value)
                 .on_input_maybe(
                     (!self.busy).then_some(move |value| Message::SafeMargin(side, value))
@@ -281,10 +275,7 @@ impl ThemeDialog {
         let font = slot.get(self.draft.styles.theme(self.kind));
         let expanded = self.font_picker == Some(slot);
         let mut field = column![
-            ui::eyebrow(match slot {
-                FontSlot::Body => t().settings.body_font,
-                FontSlot::Footer => t().settings.footer_font,
-            }),
+            ui::eyebrow(slot.label()),
             button(
                 row![
                     label(&font.family, 13.0, style::MEDIUM, style::TEXT).width(Fill),
@@ -352,27 +343,30 @@ impl ThemeDialog {
             );
         }
         let weights = [
-            (FontWeight::Normal, t().settings.normal),
-            (FontWeight::Medium, t().settings.medium),
-            (FontWeight::Semibold, t().settings.semibold),
-            (FontWeight::Bold, t().settings.bold),
+            FontWeight::Normal,
+            FontWeight::Medium,
+            FontWeight::Semibold,
+            FontWeight::Bold,
         ]
         .into_iter()
-        .fold(row![].spacing(2), |list, (weight, caption)| {
+        .fold(row![].spacing(2), |list, weight| {
             list.push(
-                button(container(label(caption, 11.0, style::MEDIUM, style::TEXT_2)).center(Fill))
-                    .width(Fill)
-                    .height(30)
-                    .padding(0)
-                    .on_press_maybe((!self.busy).then_some(Message::FontWeight(slot, weight)))
-                    .style(style::pressable(
-                        if font.weight == weight {
-                            Tone::Selected
-                        } else {
-                            Tone::Row
-                        },
-                        6.0,
-                    )),
+                button(
+                    container(label(weight.label(), 11.0, style::MEDIUM, style::TEXT_2))
+                        .center(Fill),
+                )
+                .width(Fill)
+                .height(30)
+                .padding(0)
+                .on_press_maybe((!self.busy).then_some(Message::FontWeight(slot, weight)))
+                .style(style::pressable(
+                    if font.weight == weight {
+                        Tone::Selected
+                    } else {
+                        Tone::Row
+                    },
+                    6.0,
+                )),
             )
         });
         field

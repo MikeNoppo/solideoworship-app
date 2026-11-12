@@ -8,7 +8,7 @@ use iced::widget::{Column, Row, button, column, container, row, text_editor, tex
 use iced::{Center, Element, Fill, Padding, Pixels, Theme};
 use sdw_core::slide::SlideDeck;
 use sdw_core::theme::{SlideTheme, SongStyle};
-use sdw_core::{Song, Styles, compile};
+use sdw_core::{Song, compile};
 use sdw_library::SongId;
 
 use crate::i18n::{count, fill, t};
@@ -89,17 +89,6 @@ pub enum Action {
 }
 
 impl Editor {
-    pub fn new(origin: Option<SongId>, song: &Song, max_lines: u16) -> Self {
-        Self::with_style(
-            origin,
-            song,
-            &SongStyle {
-                max_lines,
-                ..Styles::default().song
-            },
-        )
-    }
-
     pub fn with_style(origin: Option<SongId>, song: &Song, style: &SongStyle) -> Self {
         let mut editor = Self {
             origin,
@@ -671,7 +660,11 @@ mod tests {
     use super::{Action, Editor, Message};
 
     fn editor(lyrics: &str) -> Editor {
-        Editor::new(None, &Song::new("Test", lyrics, None), 4)
+        Editor::with_style(
+            None,
+            &Song::new("Test", lyrics, None),
+            &sdw_core::Styles::default().song,
+        )
     }
 
     fn paste(editor: &mut Editor, text: &str) {
@@ -805,7 +798,7 @@ mod tests {
         let mut library = sdw_library::Library::open_in_memory().unwrap();
         let song = Song::new("Test", "one", None);
         let id = library.insert_song(&song).unwrap();
-        let mut editor = Editor::new(Some(id), &song, 4);
+        let mut editor = Editor::with_style(Some(id), &song, &sdw_core::Styles::default().song);
 
         assert_eq!(editor.update(Message::DeleteConfirmed), Action::None);
         let _ = editor.update(Message::Delete);
@@ -846,7 +839,7 @@ mod tests {
         let mut library = sdw_library::Library::open_in_memory().unwrap();
         let song = Song::new("Test", "one", None);
         let id = library.insert_song(&song).unwrap();
-        let mut editor = Editor::new(Some(id), &song, 4);
+        let mut editor = Editor::with_style(Some(id), &song, &sdw_core::Styles::default().song);
         let _ = editor.update(Message::Delete);
 
         assert_eq!(editor.update(Message::Dismiss), Action::None);

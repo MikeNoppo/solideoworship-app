@@ -1,6 +1,5 @@
 use iced::widget::{Column, Space, button, column, container, row, stack, text_input};
 use iced::{Center, Element, Fill, FillPortion, Padding, Pixels, Shrink};
-use sdw_core::Styles;
 use sdw_core::bible::{Passage, Reference, ReferenceError};
 use sdw_core::compile;
 use sdw_core::theme::ScriptureStyle;
@@ -143,24 +142,6 @@ impl BibleTab {
                 }
             },
         }
-    }
-
-    pub fn found(
-        &mut self,
-        bible: BibleId,
-        reference: &Reference,
-        result: Outcome<Option<Passage>>,
-        max_chars: usize,
-    ) -> Action {
-        self.found_with_style(
-            bible,
-            reference,
-            result,
-            &ScriptureStyle {
-                max_chars: u16::try_from(max_chars).unwrap_or(u16::MAX),
-                ..Styles::default().scripture
-            },
-        )
     }
 
     pub fn found_with_style(
@@ -605,8 +586,6 @@ mod tests {
 
     use super::{Action, BibleTab, Message};
 
-    const MAX_CHARS: usize = 220;
-
     const ZEFANIA: &str = r#"<XMLBIBLE><BIBLEBOOK bnumber="43"><CHAPTER cnumber="3">
         <VERS vnumber="16">one</VERS><VERS vnumber="17">two</VERS>
         </CHAPTER></BIBLEBOOK></XMLBIBLE>"#;
@@ -683,7 +662,12 @@ mod tests {
         let (bible, old) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
         let _ = tab.update(Message::InputChanged("Yoh 3:17".into()));
 
-        let _ = tab.found(bible, &old, Ok(Some(passage(&old))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &old,
+            Ok(Some(passage(&old))),
+            &sdw_core::Styles::default().scripture,
+        );
 
         assert!(tab.found.is_none());
     }
@@ -692,7 +676,12 @@ mod tests {
     fn enter_adds_found_passage() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
 
         assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
     }
@@ -704,7 +693,12 @@ mod tests {
 
         assert_eq!(tab.update(Message::Submitted), Action::None);
 
-        let action = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let action = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
         assert!(matches!(action, Action::Add(_)));
     }
 
@@ -713,7 +707,12 @@ mod tests {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 9:99".into())));
 
-        let _ = tab.found(bible, &reference, Ok(None), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(None),
+            &sdw_core::Styles::default().scripture,
+        );
 
         assert!(matches!(tab.missing, Some(super::Missing::NotFound(_))));
         assert_eq!(tab.update(Message::Submitted), Action::None);
@@ -755,7 +754,12 @@ mod tests {
             .collect();
         let passage = Passage::new(reference.clone(), "TB", verses).unwrap();
 
-        let _ = tab.found(bible, &reference, Ok(Some(passage)), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage)),
+            &sdw_core::Styles::default().scripture,
+        );
 
         let found = tab.found.as_ref().unwrap();
         assert!(found.long_note.as_deref().unwrap().contains("176"));
@@ -771,7 +775,12 @@ mod tests {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
 
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
 
         assert!(tab.found.as_ref().unwrap().long_note.is_none());
     }
@@ -780,13 +789,23 @@ mod tests {
     fn added_passage_is_not_added_twice() {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
 
         assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
         assert_eq!(tab.update(Message::Submitted), Action::None);
 
         let _ = tab.update(Message::InputChanged("Yoh 3:16 ".into()));
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
         assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
     }
 
@@ -796,11 +815,21 @@ mod tests {
         let mut tab = BibleTab::default();
         let _ = tab.set_bibles(list.clone());
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
         let _ = tab.update(Message::Submitted);
 
         let (bible, reference) = lookup(tab.set_bibles(list[1..].to_vec()));
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
 
         assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
     }
@@ -810,7 +839,12 @@ mod tests {
         let mut tab = tab_with(&["TB"]);
         let (bible, reference) = lookup(tab.update(Message::InputChanged("Yoh 3:16".into())));
 
-        let _ = tab.found(bible, &reference, Ok(Some(passage(&reference))), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(Some(passage(&reference))),
+            &sdw_core::Styles::default().scripture,
+        );
 
         let found = tab.found.as_ref().unwrap();
         assert_eq!(found.slides, 1);
@@ -873,7 +907,12 @@ mod tests {
             Some(crate::i18n::t().status.looking_up)
         );
 
-        let _ = tab.found(bible, &reference, Ok(None), MAX_CHARS);
+        let _ = tab.found_with_style(
+            bible,
+            &reference,
+            Ok(None),
+            &sdw_core::Styles::default().scripture,
+        );
         assert!(tab.status().unwrap().contains("TB"));
 
         let _ = tab.update(Message::InputChanged("Xyz 1".into()));

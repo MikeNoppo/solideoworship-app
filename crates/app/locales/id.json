@@ -43,7 +43,6 @@
     "new": "Susunan acara baru",
     "open": "Buka…",
     "save_as": "Simpan sebagai…",
-    "theme": "Tema",
     "go_live": "Tayangkan",
     "open_output": "Buka output",
     "close_output": "Tutup output",
@@ -349,14 +348,6 @@
     "shadows": "Bayangan di bawah dialog dan menu",
     "shadows_hint": "Matikan kalau aplikasi terasa lambat di komputer ini.",
     "sample_from": "Contoh dari {title}",
-    "song_note": "Live tetap memakai tema lamanya sampai Tayangkan berikutnya. Item susunan acara dibangun ulang saat disimpan.",
-    "bible_note": "Perikop panjang dibagi per {count} karakter. Live tetap memakai tema lamanya sampai Tayangkan berikutnya.",
-    "save": "Simpan tema",
-    "save_failed": "Tema tidak bisa disimpan: {error}. Perubahan Anda tetap ada, coba Simpan lagi.",
-    "saved": "Tema disimpan. Live tetap memakai tampilan lama sampai Tayangkan berikutnya.",
-    "song_saved": "Tema lagu disimpan",
-    "bible_saved": "Tema Alkitab disimpan",
-    "saved_detail": "item susunan acara dibangun ulang dengan tema baru",
     "text_heading": "TEKS"
   },
   "errors": {

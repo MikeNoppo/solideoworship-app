@@ -103,7 +103,20 @@ mod tests {
         assert!(!missing(&spec));
         assert_eq!(resolve(&spec).family, iced::font::Family::Name("Inter"));
         assert_eq!(resolve(&spec).weight, Weight::Bold);
-        assert_eq!(search("iNtEr", 1), vec!["Inter"]);
+    }
+
+    #[test]
+    fn font_search_is_case_insensitive_and_bounded() {
+        let matches = search("iNtEr", families().len());
+
+        assert!(matches.contains(&"Inter"));
+        assert!(
+            matches
+                .iter()
+                .all(|family| family.to_lowercase().contains("inter"))
+        );
+        assert_eq!(search("iNtEr", 1).len(), 1);
+        assert_eq!(search("iNtEr", 1), search("inter", 1));
     }
 
     #[test]

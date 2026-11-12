@@ -43,7 +43,6 @@
     "new": "New schedule",
     "open": "Open…",
     "save_as": "Save as…",
-    "theme": "Theme",
     "go_live": "Go live",
     "open_output": "Open output",
     "close_output": "Close output",
@@ -349,14 +348,6 @@
     "shadows": "Shadows under dialogs and menus",
     "shadows_hint": "Turn off if the app feels slow on this computer.",
     "sample_from": "Sample from {title}",
-    "song_note": "Live keeps its current theme until the next Go live. Schedule items are rebuilt on save.",
-    "bible_note": "Long passages are split at {count} characters. Live keeps its current theme until the next Go live.",
-    "save": "Save theme",
-    "save_failed": "Could not save the theme: {error}. Your changes are kept, try Save again.",
-    "saved": "Theme saved. Live keeps the current look until the next Go live.",
-    "song_saved": "Song theme saved",
-    "bible_saved": "Bible theme saved",
-    "saved_detail": "schedule items rebuilt with the new theme",
     "text_heading": "TEXT"
   },
   "errors": {
