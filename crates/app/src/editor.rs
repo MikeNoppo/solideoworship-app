@@ -7,8 +7,8 @@ use iced::widget::text_editor::{Action as EditorAction, Edit, Motion};
 use iced::widget::{Column, Row, button, column, container, row, text_editor, text_input};
 use iced::{Center, Element, Fill, Padding, Pixels, Theme};
 use sdw_core::slide::SlideDeck;
-use sdw_core::theme::SlideTheme;
-use sdw_core::{Song, compile};
+use sdw_core::theme::{SlideTheme, SongStyle};
+use sdw_core::{Song, Styles, compile};
 use sdw_library::SongId;
 
 use crate::i18n::{count, fill, t};
@@ -52,7 +52,7 @@ pub struct Editor {
     title: String,
     copyright: String,
     lyrics: text_editor::Content,
-    max_lines: usize,
+    style: SongStyle,
     deck: SlideDeck,
     selected: usize,
     confirm_delete: bool,
@@ -90,16 +90,25 @@ pub enum Action {
 
 impl Editor {
     pub fn new(origin: Option<SongId>, song: &Song, max_lines: u16) -> Self {
-        let max_lines = usize::from(max_lines);
+        Self::with_style(
+            origin,
+            song,
+            &SongStyle {
+                max_lines,
+                ..Styles::default().song
+            },
+        )
+    }
 
+    pub fn with_style(origin: Option<SongId>, song: &Song, style: &SongStyle) -> Self {
         let mut editor = Self {
             origin,
             original: song.clone(),
             title: song.title().to_owned(),
             copyright: song.copyright().unwrap_or_default().to_owned(),
             lyrics: text_editor::Content::with_text(song.lyrics()),
-            max_lines,
-            deck: compile::song(song, max_lines),
+            style: style.clone(),
+            deck: compile::song_with_style(song, style),
             selected: 0,
             confirm_delete: false,
             busy: false,
@@ -108,7 +117,7 @@ impl Editor {
             summary: Box::default(),
             ready: Box::default(),
             lines_hint: count(
-                max_lines,
+                usize::from(style.max_lines),
                 t().editor.hint_lines_one,
                 t().editor.hint_lines_other,
             ),
@@ -515,7 +524,7 @@ impl Editor {
     }
 
     fn recompile(&mut self) {
-        self.deck = compile::song(&self.song(), self.max_lines);
+        self.deck = compile::song_with_style(&self.song(), &self.style);
         self.selected = self.selected.min(self.deck.len().saturating_sub(1));
         self.describe();
     }
@@ -695,6 +704,37 @@ mod tests {
         let _ = editor.update(Message::CopyrightChanged("© Test".into()));
 
         assert_eq!(editor.deck.slides[0].footer.as_deref(), Some("© Test"));
+    }
+
+    #[test]
+    fn editing_keeps_song_footer_preferences_in_preview_and_source() {
+        let mut style = sdw_core::Styles::default().song;
+        style.show_copyright = false;
+        style.license = "CCLI 123".into();
+        let mut editor = Editor::with_style(
+            None,
+            &Song::new("Test", "[Verse 1]\none", Some("© Example")),
+            &style,
+        );
+
+        let _ = editor.update(Message::CopyrightChanged("© Updated".into()));
+        let _ = editor.update(Message::LyricsEdited(EditorAction::Move(
+            iced::widget::text_editor::Motion::DocumentEnd,
+        )));
+        paste(&mut editor, "\n\ntwo");
+
+        assert!(
+            editor
+                .deck
+                .slides
+                .iter()
+                .all(|slide| slide.footer.is_none())
+        );
+        assert_eq!(editor.deck.slides[0].label.as_deref(), Some("Verse 1"));
+        let Action::Save { song, .. } = editor.update(Message::Save) else {
+            panic!("expected a save action");
+        };
+        assert_eq!(song.copyright(), Some("© Updated"));
     }
 
     #[test]

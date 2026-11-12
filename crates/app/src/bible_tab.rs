@@ -1,7 +1,9 @@
 use iced::widget::{Column, Space, button, column, container, row, stack, text_input};
 use iced::{Center, Element, Fill, FillPortion, Padding, Pixels, Shrink};
+use sdw_core::Styles;
 use sdw_core::bible::{Passage, Reference, ReferenceError};
 use sdw_core::compile;
+use sdw_core::theme::ScriptureStyle;
 use sdw_library::{BibleId, BibleSummary};
 
 use crate::i18n::{Localize, count, fill, grouped, t};
@@ -45,6 +47,7 @@ struct Found {
     long_note: Option<Box<str>>,
     slides: usize,
     max_chars: usize,
+    one_verse_per_slide: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -149,28 +152,34 @@ impl BibleTab {
         result: Outcome<Option<Passage>>,
         max_chars: usize,
     ) -> Action {
+        self.found_with_style(
+            bible,
+            reference,
+            result,
+            &ScriptureStyle {
+                max_chars: u16::try_from(max_chars).unwrap_or(u16::MAX),
+                ..Styles::default().scripture
+            },
+        )
+    }
+
+    pub fn found_with_style(
+        &mut self,
+        bible: BibleId,
+        reference: &Reference,
+        result: Outcome<Option<Passage>>,
+        style: &ScriptureStyle,
+    ) -> Action {
         if self.selected != Some(bible) || self.reference.as_ref() != Ok(reference) {
             return Action::None;
         }
 
-        let translation = self.selected().map_or("", |bible| &*bible.title);
-
         match result {
             Ok(Some(passage)) => {
                 let total = passage.verses().len();
-                let slides = compile::scripture_len(&passage, max_chars);
-                let size = if total > PREVIEW_LIMIT {
-                    fill(t().bible.split, &[("count", &max_chars)])
-                } else {
-                    count(slides, t().bible.becomes_one, t().bible.becomes_other).into_string()
-                };
 
                 self.found = Some(Found {
-                    meta: format!(
-                        "{translation} · {} · {size}",
-                        count(total, t().common.verses_one, t().common.verses_other)
-                    )
-                    .into_boxed_str(),
+                    meta: Box::default(),
                     long_note: (total > PREVIEW_LIMIT).then(|| {
                         fill(
                             t().bible.long_note,
@@ -178,10 +187,12 @@ impl BibleTab {
                         )
                         .into_boxed_str()
                     }),
-                    slides,
-                    max_chars,
+                    slides: 0,
+                    max_chars: 0,
+                    one_verse_per_slide: false,
                     passage,
                 });
+                self.set_style(style);
                 self.missing = None;
             }
             Ok(None) => {
@@ -202,6 +213,28 @@ impl BibleTab {
         }
 
         Action::None
+    }
+
+    pub fn set_style(&mut self, style: &ScriptureStyle) {
+        let Some(mut found) = self.found.take() else {
+            return;
+        };
+        let translation = self.selected().map_or("", |bible| &*bible.title);
+        let total = found.passage.verses().len();
+        found.slides = compile::scripture_len_with_style(&found.passage, style);
+        found.max_chars = usize::from(style.max_chars);
+        found.one_verse_per_slide = style.one_verse_per_slide;
+        let size = if total > PREVIEW_LIMIT && !style.one_verse_per_slide {
+            fill(t().bible.split, &[("count", &found.max_chars)])
+        } else {
+            count(found.slides, t().bible.becomes_one, t().bible.becomes_other).into_string()
+        };
+        found.meta = format!(
+            "{translation} · {} · {size}",
+            count(total, t().common.verses_one, t().common.verses_other)
+        )
+        .into_boxed_str();
+        self.found = Some(found);
     }
 
     pub fn status(&self) -> Option<String> {
@@ -225,16 +258,20 @@ impl BibleTab {
                     status.added,
                     &[("title", &self.parsed), ("bible", &abbreviation)]
                 ),
-                fill(
-                    status.added_detail,
-                    &[
-                        (
-                            "slides",
-                            &count(found.slides, t().slides.count_one, t().slides.count_other),
-                        ),
-                        ("count", &found.max_chars),
-                    ],
-                ),
+                if found.one_verse_per_slide {
+                    count(found.slides, t().slides.count_one, t().slides.count_other).into_string()
+                } else {
+                    fill(
+                        status.added_detail,
+                        &[
+                            (
+                                "slides",
+                                &count(found.slides, t().slides.count_one, t().slides.count_other),
+                            ),
+                            ("count", &found.max_chars),
+                        ],
+                    )
+                },
             )),
             (Some(found), _) if found.long_note.is_some() => Some(format!(
                 "{} · {}",
@@ -782,6 +819,41 @@ mod tests {
             crate::i18n::t().bible.becomes_one,
             crate::i18n::t().bible.becomes_other
         )));
+    }
+
+    #[test]
+    fn scripture_preferences_refresh_counts_without_changing_the_passage() {
+        let mut tab = tab_with(&["TB"]);
+        let (bible, reference) = lookup(tab.update(Message::InputChanged("Mzm 119".into())));
+        let passage = Passage::new(
+            reference.clone(),
+            "TB",
+            (1..=176)
+                .map(|number| Verse {
+                    number,
+                    text: "verse".into(),
+                })
+                .collect(),
+        )
+        .unwrap();
+        let mut style = sdw_core::Styles::default().scripture;
+        style.one_verse_per_slide = true;
+
+        let _ = tab.found_with_style(bible, &reference, Ok(Some(passage.clone())), &style);
+
+        let found = tab.found.as_ref().unwrap();
+        assert_eq!(found.slides, 176);
+        assert!(found.meta.ends_with("becomes 176 slides"));
+        assert_eq!(tab.update(Message::Submitted), Action::Add(passage.clone()));
+        assert!(tab.status().unwrap().ends_with("176 slides"));
+
+        style.one_verse_per_slide = false;
+        style.max_chars = 1000;
+        tab.set_style(&style);
+
+        assert_eq!(tab.found.as_ref().unwrap().slides, 1);
+        assert_eq!(tab.found.as_ref().unwrap().passage, passage);
+        assert_eq!(tab.update(Message::Submitted), Action::None);
     }
 
     #[test]
