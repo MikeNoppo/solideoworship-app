@@ -1,25 +1,52 @@
 use std::io;
 
 use rusqlite::OptionalExtension;
-use sdw_core::Styles;
+use sdw_core::settings::{
+    CanvasFormat, FontSpec, FontWeight, GeneralSettings, MonitorPreference, OutputLayout,
+    OutputSettings, ScreenMargins,
+};
 use sdw_core::theme::{Rgb, ScriptureStyle, SlideTheme, SongStyle, TextAlign};
+use sdw_core::{Settings, Styles};
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Library};
 
+const SETTINGS_KEY: &str = "settings";
 const STYLES_KEY: &str = "styles";
 const SHADOWS_KEY: &str = "shadows";
 
 impl Library {
+    pub fn settings(&self) -> Result<Settings, Error> {
+        let stored = self.stored_setting(SETTINGS_KEY)?;
+
+        let defaults = Settings {
+            styles: self.styles()?,
+            general: GeneralSettings {
+                shadows: self.shadows()?,
+                ..GeneralSettings::default()
+            },
+            ..Settings::default()
+        };
+        let settings = match stored.and_then(|json| serde_json::from_str::<SettingsDto>(&json).ok())
+        {
+            Some(dto) => dto.into_settings(defaults),
+            None => defaults,
+        };
+
+        Ok(settings.clamped())
+    }
+
+    pub fn save_settings(&mut self, settings: &Settings) -> Result<(), Error> {
+        settings
+            .validate()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let json = serde_json::to_string(&SettingsDto::from(settings)).map_err(io::Error::from)?;
+
+        self.store_setting(SETTINGS_KEY, &json)
+    }
+
     pub fn styles(&self) -> Result<Styles, Error> {
-        let stored: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = ?1",
-                [STYLES_KEY],
-                |row| row.get(0),
-            )
-            .optional()?;
+        let stored = self.stored_setting(STYLES_KEY)?;
 
         let styles = stored
             .and_then(|json| serde_json::from_str::<StylesDto>(&json).ok())
@@ -36,20 +63,22 @@ impl Library {
     }
 
     pub fn shadows(&self) -> Result<bool, Error> {
-        let stored: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = ?1",
-                [SHADOWS_KEY],
-                |row| row.get(0),
-            )
-            .optional()?;
+        let stored = self.stored_setting(SHADOWS_KEY)?;
 
         Ok(stored.as_deref() != Some("off"))
     }
 
     pub fn save_shadows(&mut self, shadows: bool) -> Result<(), Error> {
         self.store_setting(SHADOWS_KEY, if shadows { "on" } else { "off" })
+    }
+
+    fn stored_setting(&self, key: &str) -> Result<Option<String>, Error> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()?)
     }
 
     fn store_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
@@ -65,6 +94,197 @@ impl Library {
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
+struct SettingsDto {
+    styles: Option<StylesDto>,
+    general: GeneralDto,
+    output: OutputDto,
+}
+
+impl From<&Settings> for SettingsDto {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            styles: Some(StylesDto::from(&settings.styles)),
+            general: GeneralDto {
+                open_output_on_startup: Some(settings.general.open_output_on_startup),
+                advance_after_go_live: Some(settings.general.advance_after_go_live),
+                shadows: Some(settings.general.shadows),
+            },
+            output: OutputDto {
+                monitor: settings.output.monitor.as_ref().map(MonitorDto::from),
+                layout: LayoutDto::from(settings.output.layout),
+            },
+        }
+    }
+}
+
+impl SettingsDto {
+    fn into_settings(self, defaults: Settings) -> Settings {
+        Settings {
+            styles: match self.styles {
+                Some(styles) => styles.into_styles(defaults.styles),
+                None => defaults.styles,
+            },
+            general: GeneralSettings {
+                open_output_on_startup: self
+                    .general
+                    .open_output_on_startup
+                    .unwrap_or(defaults.general.open_output_on_startup),
+                advance_after_go_live: self
+                    .general
+                    .advance_after_go_live
+                    .unwrap_or(defaults.general.advance_after_go_live),
+                shadows: self.general.shadows.unwrap_or(defaults.general.shadows),
+            },
+            output: OutputSettings {
+                monitor: self.output.monitor.and_then(MonitorDto::into_monitor),
+                layout: self.output.layout.into_layout(defaults.output.layout),
+            },
+        }
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct GeneralDto {
+    open_output_on_startup: Option<bool>,
+    advance_after_go_live: Option<bool>,
+    shadows: Option<bool>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct OutputDto {
+    monitor: Option<MonitorDto>,
+    layout: LayoutDto,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct MonitorDto {
+    backend_name: Option<Box<str>>,
+    friendly_name: Option<Box<str>>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+impl From<&MonitorPreference> for MonitorDto {
+    fn from(monitor: &MonitorPreference) -> Self {
+        Self {
+            backend_name: Some(monitor.backend_name.clone()),
+            friendly_name: Some(monitor.friendly_name.clone()),
+            width: Some(monitor.width),
+            height: Some(monitor.height),
+        }
+    }
+}
+
+impl MonitorDto {
+    fn into_monitor(self) -> Option<MonitorPreference> {
+        let monitor = MonitorPreference {
+            backend_name: self.backend_name?,
+            friendly_name: self.friendly_name?,
+            width: self.width?,
+            height: self.height?,
+        };
+        monitor.is_valid().then_some(monitor)
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct LayoutDto {
+    format: Option<String>,
+    margins: MarginsDto,
+}
+
+impl From<OutputLayout> for LayoutDto {
+    fn from(layout: OutputLayout) -> Self {
+        Self {
+            format: Some(
+                match layout.format {
+                    CanvasFormat::Wide => "wide",
+                    CanvasFormat::Standard => "standard",
+                }
+                .into(),
+            ),
+            margins: MarginsDto {
+                left: Some(layout.margins.left),
+                right: Some(layout.margins.right),
+                top: Some(layout.margins.top),
+                bottom: Some(layout.margins.bottom),
+            },
+        }
+    }
+}
+
+impl LayoutDto {
+    fn into_layout(self, defaults: OutputLayout) -> OutputLayout {
+        OutputLayout {
+            format: match self.format.as_deref() {
+                Some("wide") => CanvasFormat::Wide,
+                Some("standard") => CanvasFormat::Standard,
+                _ => defaults.format,
+            },
+            margins: ScreenMargins {
+                left: self.margins.left.unwrap_or(defaults.margins.left),
+                right: self.margins.right.unwrap_or(defaults.margins.right),
+                top: self.margins.top.unwrap_or(defaults.margins.top),
+                bottom: self.margins.bottom.unwrap_or(defaults.margins.bottom),
+            },
+        }
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct MarginsDto {
+    left: Option<f32>,
+    right: Option<f32>,
+    top: Option<f32>,
+    bottom: Option<f32>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct FontDto {
+    family: Option<Box<str>>,
+    weight: Option<String>,
+}
+
+impl From<&FontSpec> for FontDto {
+    fn from(font: &FontSpec) -> Self {
+        Self {
+            family: Some(font.family.clone()),
+            weight: Some(
+                match font.weight {
+                    FontWeight::Normal => "normal",
+                    FontWeight::Medium => "medium",
+                    FontWeight::Semibold => "semibold",
+                    FontWeight::Bold => "bold",
+                }
+                .into(),
+            ),
+        }
+    }
+}
+
+impl FontDto {
+    fn into_font(self, defaults: &FontSpec) -> FontSpec {
+        FontSpec {
+            family: self.family.unwrap_or_else(|| defaults.family.clone()),
+            weight: match self.weight.as_deref() {
+                Some("normal") => FontWeight::Normal,
+                Some("medium") => FontWeight::Medium,
+                Some("semibold") => FontWeight::Semibold,
+                Some("bold") => FontWeight::Bold,
+                _ => defaults.weight,
+            },
+        }
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct StylesDto {
     song: SongStyleDto,
     scripture: ScriptureStyleDto,
@@ -75,6 +295,8 @@ struct StylesDto {
 struct SongStyleDto {
     theme: ThemeDto,
     max_lines: Option<u16>,
+    show_copyright: Option<bool>,
+    license: Option<Box<str>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -82,6 +304,10 @@ struct SongStyleDto {
 struct ScriptureStyleDto {
     theme: ThemeDto,
     max_chars: Option<u16>,
+    show_verse_numbers: Option<bool>,
+    show_reference: Option<bool>,
+    show_translation: Option<bool>,
+    one_verse_per_slide: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -95,6 +321,9 @@ struct ThemeDto {
     line_height: Option<f32>,
     align: Option<String>,
     margin: Option<f32>,
+    body_font: FontDto,
+    footer_font: FontDto,
+    show_label: Option<bool>,
 }
 
 impl From<&Styles> for StylesDto {
@@ -103,10 +332,16 @@ impl From<&Styles> for StylesDto {
             song: SongStyleDto {
                 theme: ThemeDto::from(&styles.song.theme),
                 max_lines: Some(styles.song.max_lines),
+                show_copyright: Some(styles.song.show_copyright),
+                license: Some(styles.song.license.clone()),
             },
             scripture: ScriptureStyleDto {
                 theme: ThemeDto::from(&styles.scripture.theme),
                 max_chars: Some(styles.scripture.max_chars),
+                show_verse_numbers: Some(styles.scripture.show_verse_numbers),
+                show_reference: Some(styles.scripture.show_reference),
+                show_translation: Some(styles.scripture.show_translation),
+                one_verse_per_slide: Some(styles.scripture.one_verse_per_slide),
             },
         }
     }
@@ -114,21 +349,44 @@ impl From<&Styles> for StylesDto {
 
 impl From<StylesDto> for Styles {
     fn from(dto: StylesDto) -> Self {
-        let defaults = Styles::default();
+        dto.into_styles(Self::default())
+    }
+}
 
-        Self {
+impl StylesDto {
+    fn into_styles(self, defaults: Styles) -> Styles {
+        Styles {
             song: SongStyle {
-                theme: dto.song.theme.into_theme(&defaults.song.theme),
-                max_lines: dto.song.max_lines.unwrap_or(defaults.song.max_lines),
-                ..defaults.song
+                theme: self.song.theme.into_theme(&defaults.song.theme),
+                max_lines: self.song.max_lines.unwrap_or(defaults.song.max_lines),
+                show_copyright: self
+                    .song
+                    .show_copyright
+                    .unwrap_or(defaults.song.show_copyright),
+                license: self.song.license.unwrap_or(defaults.song.license),
             },
             scripture: ScriptureStyle {
-                theme: dto.scripture.theme.into_theme(&defaults.scripture.theme),
-                max_chars: dto
+                theme: self.scripture.theme.into_theme(&defaults.scripture.theme),
+                max_chars: self
                     .scripture
                     .max_chars
                     .unwrap_or(defaults.scripture.max_chars),
-                ..defaults.scripture
+                show_verse_numbers: self
+                    .scripture
+                    .show_verse_numbers
+                    .unwrap_or(defaults.scripture.show_verse_numbers),
+                show_reference: self
+                    .scripture
+                    .show_reference
+                    .unwrap_or(defaults.scripture.show_reference),
+                show_translation: self
+                    .scripture
+                    .show_translation
+                    .unwrap_or(defaults.scripture.show_translation),
+                one_verse_per_slide: self
+                    .scripture
+                    .one_verse_per_slide
+                    .unwrap_or(defaults.scripture.one_verse_per_slide),
             },
         }
     }
@@ -145,6 +403,9 @@ impl From<&SlideTheme> for ThemeDto {
             line_height: Some(theme.line_height),
             align: Some(align_name(theme.align).to_owned()),
             margin: Some(theme.margin),
+            body_font: FontDto::from(&theme.body_font),
+            footer_font: FontDto::from(&theme.footer_font),
+            show_label: Some(theme.show_label),
         }
     }
 }
@@ -168,7 +429,10 @@ impl ThemeDto {
                 .and_then(align_from_name)
                 .unwrap_or(defaults.align),
             margin: self.margin.unwrap_or(defaults.margin),
-            ..defaults.clone()
+            body_font: self.body_font.into_font(&defaults.body_font),
+            footer_font: self.footer_font.into_font(&defaults.footer_font),
+            show_label: self.show_label.unwrap_or(defaults.show_label),
+            layout: defaults.layout,
         }
     }
 }
@@ -195,17 +459,17 @@ mod tests {
     use sdw_core::Styles;
     use sdw_core::theme::{MAX_LINES, Rgb, TextAlign};
 
-    use super::STYLES_KEY;
+    use super::{SETTINGS_KEY, STYLES_KEY};
     use crate::Library;
 
     fn store_raw(library: &Library, json: &str) {
-        library
-            .conn
-            .execute(
-                "INSERT INTO settings (key, value) VALUES (?1, ?2)",
-                (STYLES_KEY, json),
-            )
-            .unwrap();
+        store_raw_setting(library, STYLES_KEY, json);
+    }
+
+    fn store_raw_setting(library: &Library, key: &str, json: &str) {
+        library.conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value", (key, json)
+        ).unwrap();
     }
 
     #[test]
@@ -294,5 +558,196 @@ mod tests {
             Styles::default().song.theme.background
         );
         assert_eq!(styles.song.theme.align, TextAlign::Center);
+    }
+
+    #[test]
+    fn complete_settings_round_trip_preserves_every_preference() {
+        use sdw_core::Settings;
+        use sdw_core::settings::{
+            CanvasFormat, FontSpec, FontWeight, MonitorPreference, ScreenMargins,
+        };
+
+        let mut library = Library::open_in_memory().unwrap();
+        let mut settings = Settings::default();
+        settings.general.open_output_on_startup = true;
+        settings.general.advance_after_go_live = true;
+        settings.general.shadows = false;
+        settings.output.monitor = Some(MonitorPreference {
+            backend_name: "HDMI-1".into(),
+            friendly_name: "Projector".into(),
+            width: 1920,
+            height: 1080,
+        });
+        settings.output.layout.format = CanvasFormat::Standard;
+        settings.output.layout.margins = ScreenMargins {
+            left: 10.0,
+            right: 20.0,
+            top: 30.0,
+            bottom: 40.0,
+        };
+        settings.styles.song.max_lines = 6;
+        settings.styles.song.show_copyright = false;
+        settings.styles.song.license = "CCLI 12345".into();
+        settings.styles.song.theme.show_label = true;
+        settings.styles.song.theme.background = Rgb::from_rgb8(10, 20, 30);
+        settings.styles.song.theme.body = Rgb::from_rgb8(40, 50, 60);
+        settings.styles.song.theme.footer = Rgb::from_rgb8(70, 80, 90);
+        settings.styles.song.theme.body_size = 110.0;
+        settings.styles.song.theme.footer_size = 28.0;
+        settings.styles.song.theme.line_height = 1.5;
+        settings.styles.song.theme.align = TextAlign::Right;
+        settings.styles.song.theme.margin = 90.0;
+        settings.styles.song.theme.body_font = FontSpec {
+            family: "Arial".into(),
+            weight: FontWeight::Bold,
+        };
+        settings.styles.song.theme.footer_font = FontSpec {
+            family: "Times New Roman".into(),
+            weight: FontWeight::Medium,
+        };
+        settings.styles.scripture.max_chars = 450;
+        settings.styles.scripture.show_verse_numbers = false;
+        settings.styles.scripture.show_reference = false;
+        settings.styles.scripture.show_translation = false;
+        settings.styles.scripture.one_verse_per_slide = true;
+        settings.styles.scripture.theme.body_font.weight = FontWeight::Semibold;
+        let settings = settings.clamped();
+
+        library.save_settings(&settings).unwrap();
+        library.save_settings(&settings).unwrap();
+
+        assert_eq!(library.settings().unwrap(), settings);
+    }
+
+    #[test]
+    fn absent_or_broken_aggregate_preserves_legacy_preferences() {
+        let mut library = Library::open_in_memory().unwrap();
+        let mut styles = Styles::default();
+        styles.song.max_lines = 8;
+        styles.scripture.theme.body_size = 82.0;
+        library.save_styles(&styles).unwrap();
+        library.save_shadows(false).unwrap();
+
+        for stored in [
+            None,
+            Some("{not json"),
+            Some(r#"{"general":{"shadows":"broken"}}"#),
+        ] {
+            if let Some(json) = stored {
+                store_raw_setting(&library, SETTINGS_KEY, json);
+            }
+            let settings = library.settings().unwrap();
+            assert_eq!(settings.styles, styles);
+            assert!(!settings.general.shadows);
+            assert!(!settings.general.open_output_on_startup);
+        }
+    }
+
+    #[test]
+    fn invalid_save_preserves_the_last_complete_preferences() {
+        use sdw_core::Settings;
+
+        let mut library = Library::open_in_memory().unwrap();
+        let mut saved = Settings::default();
+        saved.general.advance_after_go_live = true;
+        library.save_settings(&saved).unwrap();
+
+        let mut draft = saved.clone();
+        draft.general.shadows = false;
+        draft.output.layout.margins.top = 840.0;
+        assert!(library.save_settings(&draft).is_err());
+        assert_eq!(library.settings().unwrap(), saved);
+
+        draft.output.layout.margins.top = 0.0;
+        draft.styles.song.theme.body_size = f32::NAN;
+        assert!(library.save_settings(&draft).is_err());
+        assert_eq!(library.settings().unwrap(), saved);
+    }
+
+    #[test]
+    fn new_library_uses_complete_defaults() {
+        assert_eq!(
+            Library::open_in_memory().unwrap().settings().unwrap(),
+            sdw_core::Settings::default()
+        );
+    }
+
+    #[test]
+    fn partial_aggregate_uses_legacy_values_for_missing_preferences() {
+        use sdw_core::settings::CanvasFormat;
+
+        let mut library = Library::open_in_memory().unwrap();
+        let mut styles = Styles::default();
+        styles.song.theme.body_size = 112.0;
+        styles.scripture.max_chars = 350;
+        library.save_styles(&styles).unwrap();
+        library.save_shadows(false).unwrap();
+        store_raw_setting(
+            &library,
+            SETTINGS_KEY,
+            r#"{"styles":{"song":{"max_lines":5}},"general":{"open_output_on_startup":true},"output":{"layout":{"format":"standard","margins":{"left":25}}}}"#,
+        );
+
+        let settings = library.settings().unwrap();
+        assert_eq!(settings.styles.song.max_lines, 5);
+        assert_eq!(settings.styles.song.theme.body_size, 112.0);
+        assert_eq!(settings.styles.scripture.max_chars, 350);
+        assert!(settings.general.open_output_on_startup);
+        assert!(!settings.general.advance_after_go_live);
+        assert!(!settings.general.shadows);
+        assert_eq!(settings.output.layout.format, CanvasFormat::Standard);
+        assert_eq!(settings.output.layout.margins.left, 25.0);
+        assert_eq!(settings.output.layout.margins.right, 0.0);
+        assert_eq!(settings.styles.song.theme.layout, settings.output.layout);
+        assert_eq!(
+            settings.styles.scripture.theme.layout,
+            settings.output.layout
+        );
+    }
+
+    #[test]
+    fn invalid_loaded_fields_keep_usable_preferences_and_safe_geometry() {
+        use sdw_core::settings::{CanvasFormat, FontSpec, ScreenMargins};
+
+        let library = Library::open_in_memory().unwrap();
+        store_raw_setting(
+            &library,
+            SETTINGS_KEY,
+            r#"{"styles":{"song":{"theme":{"body_size":-1,"body_font":{"family":" ","weight":"unknown"}}}},"general":{"advance_after_go_live":true},"output":{"monitor":{"backend_name":"HDMI-1"},"layout":{"format":"standard","margins":{"top":1400}}}}"#,
+        );
+
+        let settings = library.settings().unwrap();
+        assert!(settings.general.advance_after_go_live);
+        assert_eq!(settings.styles.song.theme.body_size, 24.0);
+        assert_eq!(settings.styles.song.theme.body_font, FontSpec::default());
+        assert_eq!(settings.output.monitor, None);
+        assert_eq!(settings.output.layout.format, CanvasFormat::Standard);
+        assert_eq!(settings.output.layout.margins, ScreenMargins::default());
+        assert_eq!(settings.validate(), Ok(()));
+    }
+
+    #[test]
+    fn database_write_failure_keeps_previous_settings_and_legacy_values() {
+        use sdw_core::Settings;
+
+        let mut library = Library::open_in_memory().unwrap();
+        let mut legacy = Styles::default();
+        legacy.song.max_lines = 7;
+        library.save_styles(&legacy).unwrap();
+        library.save_shadows(false).unwrap();
+        let saved = Settings::default();
+        library.save_settings(&saved).unwrap();
+        library
+            .conn
+            .pragma_update(None, "query_only", true)
+            .unwrap();
+        let mut draft = saved.clone();
+        draft.general.open_output_on_startup = true;
+        draft.styles.song.max_lines = 12;
+
+        assert!(library.save_settings(&draft).is_err());
+        assert_eq!(library.settings().unwrap(), saved);
+        assert_eq!(library.styles().unwrap(), legacy);
+        assert!(!library.shadows().unwrap());
     }
 }
