@@ -516,6 +516,46 @@ mod tests {
     }
 
     #[test]
+    fn content_preferences_keep_preview_position_and_live_snapshot() {
+        let mut schedule = schedule(&["A"]);
+        schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
+        let _ = schedule.preview_mut().unwrap().go_to(1);
+        let live = schedule.preview().unwrap().clone();
+        let source = schedule.items();
+        let mut styles = Styles::default();
+        styles.song.license = "CCLI 123".into();
+
+        schedule.recompile(&styles);
+
+        let preview = schedule.preview().unwrap();
+        assert_eq!(preview.index(), 1);
+        assert_eq!(preview.current().footer.as_deref(), Some("CCLI 123"));
+        assert!(live.current().footer.is_none());
+        assert_eq!(schedule.items(), source);
+        assert!(!schedule.is_dirty());
+    }
+
+    #[test]
+    fn content_recompile_clamps_preview_to_the_last_remaining_slide() {
+        let mut schedule = Schedule::default();
+        let mut styles = Styles::default();
+        styles.song.max_lines = 1;
+        schedule.push(
+            ScheduleItem::Song(Song::new("A", "one\ntwo\nthree\nfour", None)),
+            None,
+            &styles,
+        );
+        let _ = schedule.preview_mut().unwrap().go_to(3);
+
+        styles.song.max_lines = 2;
+        schedule.recompile(&styles);
+
+        let preview = schedule.preview().unwrap();
+        assert_eq!(preview.index(), 1);
+        assert_eq!(&*preview.current().body, "three\nfour");
+    }
+
+    #[test]
     fn selected_item_is_available_as_theme_sample() {
         let schedule = schedule(&["A", "B"]);
 
