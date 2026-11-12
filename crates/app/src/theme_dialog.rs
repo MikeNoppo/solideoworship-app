@@ -6,7 +6,7 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_core::bible::{Book, Passage, Reference, Verse};
-use sdw_core::settings::{CanvasFormat, FontSpec, FontWeight, ScreenMargins, SettingsError};
+use sdw_core::settings::{CanvasFormat, FontSpec, FontWeight, ScreenMargins};
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
     BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
@@ -15,7 +15,7 @@ use sdw_core::{ScheduleItem, Settings, Song, Styles};
 
 use crate::display::Display;
 
-use crate::i18n::{Label, fill, t};
+use crate::i18n::{Label, Localize, fill, t};
 use crate::icon;
 use crate::panes::{Card, slide_card};
 use crate::render::fonts;
@@ -506,13 +506,7 @@ impl ThemeDialog {
                     return Action::None;
                 }
                 if let Err(error) = self.draft.validate() {
-                    self.error = Some(
-                        match error {
-                            SettingsError::InvalidValues => t().settings.invalid_values,
-                            SettingsError::EmptyContentArea => t().settings.empty_area,
-                        }
-                        .into(),
-                    );
+                    self.error = Some(error.localize().into_boxed_str());
                     return Action::None;
                 }
 

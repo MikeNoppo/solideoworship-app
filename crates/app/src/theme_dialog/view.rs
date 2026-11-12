@@ -59,11 +59,11 @@ impl ThemeDialog {
             Category::ALL
                 .into_iter()
                 .fold(Column::new().spacing(4), |list, category| {
-                    let (caption, glyph) = match category {
-                        Category::General => (t().settings.general, icon::LAPTOP),
-                        Category::Output => (t().settings.output, icon::MONITOR),
-                        Category::Song => (t().settings.song, icon::MUSIC),
-                        Category::Scripture => (t().settings.scripture, icon::BOOK_OPEN),
+                    let glyph = match category {
+                        Category::General => icon::LAPTOP,
+                        Category::Output => icon::MONITOR,
+                        Category::Song => icon::MUSIC,
+                        Category::Scripture => icon::BOOK_OPEN,
                     };
                     let selected = self.category == category;
                     list.push(
@@ -71,7 +71,7 @@ impl ThemeDialog {
                             row![
                                 icon::view(glyph, 14.0, style::TEXT_2),
                                 label(
-                                    caption,
+                                    category.label(),
                                     13.0,
                                     if selected {
                                         style::SEMIBOLD
