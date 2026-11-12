@@ -332,12 +332,25 @@ impl App {
                 self.screens_error = Some(sentence(t().notice.screens_body, &error));
                 self.notify(Notice::Screens);
 
-                self.leave_splash()
+                Task::batch([self.leave_splash(), self.startup_output()])
             }
             Message::DisplaySelected(id) => {
+                let Some(display) = self.displays.iter().find(|display| display.id == id) else {
+                    return Task::none();
+                };
+                let preference = display.preference();
+                self.settings.output.monitor = Some(preference.clone());
                 self.menu = None;
                 self.reconnected();
-                self.select_display(id)
+                let save = self.store.run(
+                    move |library| {
+                        let mut settings = library.settings()?;
+                        settings.output.monitor = Some(preference);
+                        library.save_settings(&settings)
+                    },
+                    Message::MonitorSaved,
+                );
+                Task::batch([self.select_display(id), save])
             }
             Message::MenuToggled(menu) => {
                 self.menu = (self.menu != Some(menu)).then_some(menu);
@@ -376,7 +389,12 @@ impl App {
             Message::WindowCloseRequested(id) if self.control == Some(id) => {
                 self.guard(Pending::Quit)
             }
-            Message::WindowCloseRequested(id) => window::close(id),
+            Message::WindowCloseRequested(id) => {
+                if self.output == Some(id) {
+                    self.reopen_output = false;
+                }
+                window::close(id)
+            }
             Message::WindowClosed(id) => self.window_closed(id),
             Message::WindowResized(id, size) => {
                 if self.control == Some(id) {
@@ -465,6 +483,12 @@ impl App {
                         .selected()
                         .and_then(|index| self.schedule.entries().get(index))
                         .map(Entry::key);
+                    if self.live.is_some()
+                        && self.settings.general.advance_after_go_live
+                        && let Some(index) = self.schedule.selected()
+                    {
+                        self.schedule.select(index + 1);
+                    }
                 }
                 Task::none()
             }
@@ -1356,7 +1380,11 @@ impl App {
 
         if self.settings.output.monitor.is_some() {
             self.selected = kept;
-            self.resolve_monitor();
+            if kept.is_some() {
+                self.reconnected();
+            } else {
+                self.resolve_monitor();
+            }
         } else if self.disconnected.is_some() {
             self.selected = None;
         } else {
@@ -1484,11 +1512,11 @@ impl App {
         if self.output == Some(id) {
             self.output = None;
             self.output_display = None;
-            self.output_state = OutputState::default();
 
-            if std::mem::take(&mut self.reopen_output) {
+            if std::mem::take(&mut self.reopen_output) && self.selected_display().is_some() {
                 return self.open_output();
             }
+            self.output_state = OutputState::default();
         }
 
         Task::none()
@@ -1503,17 +1531,16 @@ fn load_displays() -> Task<Message> {
 }
 
 fn same_screen(old: &[Display], new: &[Display], id: u32) -> Option<u32> {
-    if new.iter().any(|display| display.id == id) {
+    let previous = old.iter().find(|display| display.id == id)?;
+    if new
+        .iter()
+        .any(|display| display.id == id && display.preference() == previous.preference())
+    {
         return Some(id);
     }
 
-    let name = &old.iter().find(|display| display.id == id)?.name;
-
-    new.iter()
-        .find(|display| {
-            display.name == *name && !old.iter().any(|previous| previous.id == display.id)
-        })
-        .map(|display| display.id)
+    display::matching(&previous.preference(), new)
+        .filter(|current| !old.iter().any(|display| display.id == *current))
 }
 
 fn sentence(template: &str, error: &str) -> Box<str> {
@@ -2117,6 +2144,216 @@ mod tests {
 
         assert_eq!(app.selected, Some(2));
         assert!(app.disconnected.is_none());
+    }
+
+    #[test]
+    fn missing_or_ambiguous_remembered_monitor_prevents_startup_output() {
+        for displays in [
+            vec![screen(1, "Operator")],
+            vec![screen(1, "Projector"), screen(2, "Projector")],
+        ] {
+            let mut app = App::default();
+            let mut settings = sdw_core::Settings::default();
+            settings.general.open_output_on_startup = true;
+            settings.output.monitor = Some(screen(9, "Projector").preference());
+            let _ = app.update(Message::LibraryOpened(Ok(Box::new(settings))));
+            let _ = app.update(Message::DisplaysLoaded(Ok(displays)));
+            let _ = app.update(Message::ControlOpened);
+            assert_eq!(app.selected, None);
+            assert!(app.output.is_none());
+
+            let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(3, "Projector")])));
+            assert_eq!(app.selected, Some(3));
+            assert!(app.output.is_none());
+        }
+    }
+
+    #[test]
+    fn settings_cancel_discards_draft_and_waits_while_saving() {
+        let mut app = App::default();
+        let settings = app.settings.clone();
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+        let _ = app.update(Message::ModalDismissed);
+        assert!(app.modal.is_none());
+        assert_eq!(app.settings, settings);
+
+        let _ = app.update(Message::ThemeRequested);
+        let ticket = app.modal_ticket;
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::Apply));
+        let _ = app.update(Message::ModalDismissed);
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
+        assert_eq!(app.settings, settings);
+        let _ = app.update(Message::SettingsSaved(
+            ticket,
+            false,
+            Err("disk full".into()),
+        ));
+        let Some(Modal::Theme(dialog)) = &mut app.modal else {
+            panic!("settings dialog stays open after a failed save");
+        };
+        let crate::theme_dialog::Action::SaveSettings(saved, _) =
+            dialog.update(crate::theme_dialog::Message::Apply)
+        else {
+            panic!("failed save permits retry");
+        };
+        assert_eq!(saved.styles.song.max_lines, 7);
+    }
+
+    #[test]
+    fn stale_settings_refresh_and_save_keep_a_newer_draft() {
+        let mut app = App::default();
+        let _ = app.update(Message::ThemeRequested);
+        let old_ticket = app.modal_ticket;
+        let _ = app.update(Message::Theme(
+            crate::theme_dialog::Message::RefreshDisplays,
+        ));
+        let _ = app.update(Message::ModalDismissed);
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+        let _ = app.update(Message::SettingsDisplaysLoaded(
+            old_ticket,
+            Err("unavailable".into()),
+        ));
+        let _ = app.update(Message::SettingsSaved(
+            old_ticket,
+            true,
+            Ok(Box::new(app.settings.clone())),
+        ));
+        let Some(Modal::Theme(dialog)) = &mut app.modal else {
+            panic!("stale callbacks keep the newer dialog open");
+        };
+        let crate::theme_dialog::Action::SaveSettings(saved, _) =
+            dialog.update(crate::theme_dialog::Message::Apply)
+        else {
+            panic!("newer settings draft remains editable");
+        };
+        assert_eq!(saved.styles.song.max_lines, 7);
+    }
+
+    #[test]
+    fn settings_monitor_moves_wait_for_close_and_keep_live_state() {
+        let mut app = live_with_two_songs();
+        let old_output = app.output.unwrap();
+        let live = app.live.as_ref().unwrap().share();
+        let theme = app.live_theme.clone();
+        let _ = app.update(Message::OutputStateChanged(OutputState::Black));
+        let mut settings = app.settings.clone();
+        settings.output.monitor = Some(screen(2, "eDP-1").preference());
+        let _ = app.update(Message::SettingsSaved(0, false, Ok(Box::new(settings))));
+        assert_eq!(app.output, Some(old_output));
+        assert_eq!(app.output_display, Some(1));
+        let _ = app.update(Message::WindowClosed(old_output));
+        assert_eq!(app.output_display, Some(2));
+        assert_eq!(app.output_state, OutputState::Black);
+        assert_eq!(app.live_theme, theme);
+        assert!(std::sync::Arc::ptr_eq(
+            &live,
+            &app.live.as_ref().unwrap().share()
+        ));
+    }
+
+    #[test]
+    fn a_missing_move_target_cancels_reopening_output() {
+        let mut app = live_with_two_songs();
+        let old_output = app.output.unwrap();
+        let _ = app.update(Message::DisplaySelected(2));
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(1, "HDMI-1")])));
+        let _ = app.update(Message::WindowClosed(old_output));
+        assert!(app.output.is_none());
+        assert_eq!(app.selected, None);
+        assert!(!app.reopen_output);
+    }
+
+    #[test]
+    fn rapid_monitor_changes_and_explicit_close_do_not_open_two_outputs() {
+        let mut app = app_on_air();
+        let old_output = app.output.unwrap();
+        let _ = app.update(Message::DisplaySelected(2));
+        let _ = app.update(Message::DisplaySelected(1));
+        assert_eq!(app.output, Some(old_output));
+        let _ = app.update(Message::WindowClosed(old_output));
+        assert_eq!(app.output_display, Some(1));
+        let output = app.output.unwrap();
+        let _ = app.update(Message::DisplaySelected(2));
+        let _ = app.update(Message::OutputDismissed);
+        let _ = app.update(Message::WindowClosed(output));
+        assert!(app.output.is_none());
+    }
+
+    #[test]
+    fn unchanged_session_keeps_an_explicit_identical_monitor_selection() {
+        let mut app = App::default();
+        let displays = vec![screen(1, "Projector"), screen(2, "Projector")];
+        let _ = app.update(Message::DisplaysLoaded(Ok(displays.clone())));
+        let _ = app.update(Message::DisplaySelected(2));
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(displays)));
+
+        assert_eq!(app.selected, Some(2));
+        assert!(app.disconnected.is_none());
+    }
+
+    #[test]
+    fn a_reused_display_id_cannot_move_live_to_another_monitor() {
+        let mut app = app_on_air();
+        let output = app.output.unwrap();
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![
+            screen(1, "Replacement"),
+            screen(2, "eDP-1"),
+        ])));
+        assert_eq!(app.disconnected.as_deref(), Some("HDMI-1"));
+        let _ = app.update(Message::WindowClosed(output));
+
+        assert_eq!(app.selected, None);
+        assert!(app.output.is_none());
+    }
+
+    #[test]
+    fn advance_after_go_live_copies_the_current_preview_first() {
+        let mut app = live_with_two_songs();
+        app.settings.general.advance_after_go_live = true;
+        let _ = app.update(Message::PreviewSlideSelected(1));
+        let _ = app.update(Message::GoLive);
+
+        assert_eq!(&*app.live.as_ref().unwrap().deck().title, "First");
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+        assert!(app.is_live(&app.schedule.entries()[0]));
+        assert_eq!(app.schedule.selected(), Some(1));
+        let _ = app.update(Message::GoLive);
+        assert_eq!(&*app.live.as_ref().unwrap().deck().title, "Second");
+        assert_eq!(app.schedule.selected(), Some(1));
+    }
+
+    #[test]
+    fn moving_output_preserves_live_and_black_or_clear() {
+        for state in [OutputState::Black, OutputState::Clear] {
+            let mut app = live_with_two_songs();
+            let live = app.live.as_ref().unwrap().share();
+            let theme = app.live_theme.clone();
+            let old_output = app.output.unwrap();
+            let _ = app.update(Message::OutputStateChanged(state));
+
+            let _ = app.update(Message::DisplaySelected(2));
+            assert_eq!(app.output, Some(old_output));
+            assert_eq!(app.output_display, Some(1));
+            assert_eq!(
+                app.settings.output.monitor,
+                Some(screen(2, "eDP-1").preference())
+            );
+            let _ = app.update(Message::WindowClosed(old_output));
+
+            assert_ne!(app.output, Some(old_output));
+            assert_eq!(app.output_display, Some(2));
+            assert_eq!(app.output_state, state);
+            assert_eq!(app.live_theme, theme);
+            assert!(std::sync::Arc::ptr_eq(
+                &live,
+                &app.live.as_ref().unwrap().share()
+            ));
+        }
     }
 
     #[test]
