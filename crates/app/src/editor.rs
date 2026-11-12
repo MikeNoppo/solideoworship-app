@@ -24,7 +24,6 @@ const SHEET_WIDTH: f32 = 1120.0;
 const SHEET_HEIGHT: f32 = 800.0;
 const SLIDES_WIDTH: f32 = 440.0;
 const SLIDES_PADDING: f32 = 24.0;
-const STAGE_HEIGHT: f32 = 220.0;
 const COLUMNS: usize = 3;
 const GAP: f32 = 8.0;
 
@@ -310,6 +309,7 @@ impl Editor {
     }
 
     fn slides<'a>(&'a self, theme: &'a SlideTheme) -> Element<'a, Message> {
+        let stage_height = ((SLIDES_WIDTH - SLIDES_PADDING * 2.0) / theme.layout.ratio()).round();
         let header = row![
             label(t().editor.slides, 13.0, style::SEMIBOLD, style::TEXT).width(Fill),
             label(&self.summary, 12.0, style::INTER, style::TEXT_3),
@@ -328,7 +328,7 @@ impl Editor {
             )
             .padding(20)
             .center_x(Fill)
-            .center_y(STAGE_HEIGHT)
+            .center_y(stage_height)
             .style(style::boxed(None, style::BORDER_STRONG, 8.0))
             .into()
         } else {
@@ -371,7 +371,7 @@ impl Editor {
                     Visibility::FULL,
                 ))
                 .width(Fill)
-                .height(STAGE_HEIGHT)
+                .height(stage_height)
                 .padding(1)
                 .style(style::boxed(
                     Some(style::SLIDE_BG),
