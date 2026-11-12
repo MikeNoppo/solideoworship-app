@@ -20,7 +20,7 @@ Apps like EasyWorship use a lot of RAM and feel slow on the low-end laptops chur
 - Schedule, Preview, and Live side by side, with a Library of songs and Bibles below.
 - Song library with full-text search as you type, and an editor with a live slide preview.
 - Bible lookup from imported Zefania XML (`Yoh 3:16-18`, `1 Kor 13:4-7`, `Mzm 23`), split into slides without cutting a verse.
-- One theme for songs and one for the Bible: colors, font size, spacing, alignment, and lines or characters per slide.
+- Settings for songs and Scripture: fonts, colors, spacing, alignment, slide limits, headings, footers, and verse grouping.
 - Portable `.sdw` schedule files with lyrics and verses embedded, so a schedule prepared at home opens on the church laptop. Unsaved schedules come back after a crash.
 - Show, Black, and Clear output states.
 - English and Indonesian interface.
@@ -63,11 +63,23 @@ You are my hope in the storm
 
 Bible texts are not bundled because of publisher copyright. Open the **Bible** tab, click **Manage Bibles**, and import a UTF-8 Zefania XML file you have the rights to. Book names are Indonesian for now, and references across chapters (`Yoh 3:16-4:2`) are not supported yet.
 
+### Settings and output
+
+Open **Settings** in the toolbar to choose General, Output, Song, or Scripture preferences. **Apply** saves and keeps the dialog open; **OK** saves and closes it. **Cancel**, Escape, or the close button discard edits since the last Apply. Saving keeps the dialog open until the operation finishes; a failed save keeps the draft for retry.
+
+General settings can open output at startup, advance the schedule preview after Go Live, and enable panel shadows. Startup output requires an available, unambiguous preferred monitor and starts with no projected material. With no preferred monitor, select a screen in the toolbar and open output manually. The toolbar screen picker also remembers your choice.
+
+Output settings choose the preferred monitor, 16:9 or 4:3 canvas, and four safe margins. Song and Scripture settings control body/footer fonts and weights, sizes, colors, alignment, padding, and slide limits. Missing system fonts use bundled Inter. Song settings can show section headings and copyright with an optional license line. Scripture can show verse numbers, references, and translation names, or keep each complete verse on its own slide.
+
+The settings preview uses the selected schedule item or sample material. Safe-area guides and a text-fit warning help check the draft. A warning never hides or splits source text, and neither warnings nor guides appear on the projector.
+
+Saved settings update Preview immediately. Current Live content, slide position, style, canvas, and margins stay fixed until the next Go Live. A monitor change moves the open output immediately while keeping its Live content and Black/Clear state. Preferences belong to this computer; they do not change or mark a schedule file as unsaved.
+
 ### Language and data
 
 The language is chosen at startup, with no switcher in the app. The first match wins: the `SDW_LANG` variable (e.g. `SDW_LANG=id`), a `language` file in the data folder, the language picked in the Windows installer, the system language, then English.
 
-Songs, Bibles, and themes live in `library.sqlite3` inside the data folder. Set `SDW_DATA_DIR` to use another folder.
+Songs, Bibles, and settings live in `library.sqlite3` inside the data folder. Set `SDW_DATA_DIR` to use another folder.
 
 | Platform | Data folder |
 | --- | --- |
@@ -90,7 +102,7 @@ cargo build --release -p sdw-app     # optimized binary in target/release/
 
 Bug reports, translations, and pull requests are welcome. Report bugs in [Issues](https://github.com/MikeNoppo/solideoworship-app/issues) with your OS and the steps to reproduce. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [AGENTS.md](AGENTS.md) for the architecture.
 
-Planned after the MVP: background images and video, font selection, Bible book names per language, and importing EasyWorship/OpenLP libraries.
+Planned after the MVP: background images and video, Bible book names per language, and importing EasyWorship/OpenLP libraries.
 
 ## License
 

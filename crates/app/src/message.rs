@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
-use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
+use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
 use sdw_library::{BibleId, BibleSummary, ImportReport, SongId, SongSummary};
 
 use crate::display::Display;
@@ -74,7 +74,7 @@ pub enum Message {
     SplashOpened,
     SplashElapsed,
     ControlOpened,
-    LibraryOpened(Outcome<(Styles, bool)>),
+    LibraryOpened(Outcome<Box<Settings>>),
     RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
 
     DisplaysRequested,
@@ -128,7 +128,9 @@ pub enum Message {
     Editor(editor::Message),
     ThemeRequested,
     Theme(theme_dialog::Message),
-    StylesSaved(u64, Outcome<(Styles, bool)>),
+    SettingsSaved(u64, bool, Outcome<Box<Settings>>),
+    SettingsDisplaysLoaded(u64, Result<Vec<Display>, Box<str>>),
+    MonitorSaved(Outcome<()>),
     SaveShortcut,
     ScheduleNewRequested,
     ScheduleOpenRequested,
@@ -204,7 +206,9 @@ impl Message {
             | Self::SongDeleted(..)
             | Self::ToastAccepted
             | Self::ThemeRequested
-            | Self::StylesSaved(..)
+            | Self::SettingsSaved(..)
+            | Self::SettingsDisplaysLoaded(..)
+            | Self::MonitorSaved(..)
             | Self::ScheduleNewRequested
             | Self::ScheduleOpenRequested
             | Self::ScheduleFilePicked(..)
