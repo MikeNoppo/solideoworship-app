@@ -1,5 +1,7 @@
 use std::ops::RangeInclusive;
 
+use crate::settings::OutputLayout;
+pub use crate::settings::{FontSpec, FontWeight};
 use crate::slide::ContentKind;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -94,6 +96,10 @@ pub struct SlideTheme {
     pub line_height: f32,
     pub align: TextAlign,
     pub margin: f32,
+    pub layout: OutputLayout,
+    pub body_font: FontSpec,
+    pub footer_font: FontSpec,
+    pub show_label: bool,
 }
 
 impl SlideTheme {
@@ -107,6 +113,10 @@ impl SlideTheme {
             line_height: 1.25,
             align: TextAlign::Center,
             margin: 120.0,
+            layout: OutputLayout::default(),
+            body_font: FontSpec::default(),
+            footer_font: FontSpec::default(),
+            show_label: false,
         }
     }
 
@@ -126,6 +136,9 @@ impl SlideTheme {
             footer_size: clamp(self.footer_size, &FOOTER_SIZE),
             line_height: clamp(self.line_height, &LINE_HEIGHT),
             margin: clamp(self.margin, &MARGIN),
+            layout: self.layout.clamped(),
+            body_font: self.body_font.clamped(),
+            footer_font: self.footer_font.clamped(),
             ..self
         }
     }
@@ -141,12 +154,18 @@ impl Default for SlideTheme {
 pub struct SongStyle {
     pub theme: SlideTheme,
     pub max_lines: u16,
+    pub show_copyright: bool,
+    pub license: Box<str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScriptureStyle {
     pub theme: SlideTheme,
     pub max_chars: u16,
+    pub show_verse_numbers: bool,
+    pub show_reference: bool,
+    pub show_translation: bool,
+    pub one_verse_per_slide: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -171,6 +190,7 @@ impl Styles {
                     .song
                     .max_lines
                     .clamp(*MAX_LINES.start(), *MAX_LINES.end()),
+                ..self.song
             },
             scripture: ScriptureStyle {
                 theme: self.scripture.theme.clamped(),
@@ -178,6 +198,7 @@ impl Styles {
                     .scripture
                     .max_chars
                     .clamp(*MAX_CHARS.start(), *MAX_CHARS.end()),
+                ..self.scripture
             },
         }
     }
@@ -189,10 +210,16 @@ impl Default for Styles {
             song: SongStyle {
                 theme: SlideTheme::song(),
                 max_lines: 4,
+                show_copyright: true,
+                license: "".into(),
             },
             scripture: ScriptureStyle {
                 theme: SlideTheme::scripture(),
                 max_chars: 220,
+                show_verse_numbers: true,
+                show_reference: true,
+                show_translation: true,
+                one_verse_per_slide: false,
             },
         }
     }

@@ -120,6 +120,7 @@ impl From<StylesDto> for Styles {
             song: SongStyle {
                 theme: dto.song.theme.into_theme(&defaults.song.theme),
                 max_lines: dto.song.max_lines.unwrap_or(defaults.song.max_lines),
+                ..defaults.song
             },
             scripture: ScriptureStyle {
                 theme: dto.scripture.theme.into_theme(&defaults.scripture.theme),
@@ -127,6 +128,7 @@ impl From<StylesDto> for Styles {
                     .scripture
                     .max_chars
                     .unwrap_or(defaults.scripture.max_chars),
+                ..defaults.scripture
             },
         }
     }
@@ -166,6 +168,7 @@ impl ThemeDto {
                 .and_then(align_from_name)
                 .unwrap_or(defaults.align),
             margin: self.margin.unwrap_or(defaults.margin),
+            ..defaults.clone()
         }
     }
 }
