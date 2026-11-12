@@ -277,6 +277,120 @@ impl ThemeDialog {
         .into()
     }
 
+    fn font_field(&self, slot: FontSlot) -> Element<'_, Message> {
+        let font = slot.get(self.draft.styles.theme(self.kind));
+        let expanded = self.font_picker == Some(slot);
+        let mut field = column![
+            ui::eyebrow(match slot {
+                FontSlot::Body => t().settings.body_font,
+                FontSlot::Footer => t().settings.footer_font,
+            }),
+            button(
+                row![
+                    label(&font.family, 13.0, style::MEDIUM, style::TEXT).width(Fill),
+                    icon::view(icon::CHEVRON_DOWN, 14.0, style::TEXT_3)
+                ]
+                .align_y(Center)
+            )
+            .width(Fill)
+            .padding([8, 10])
+            .on_press_maybe((!self.busy).then_some(Message::FontPicker(slot)))
+            .style(style::pressable(Tone::Row, 8.0)),
+        ]
+        .spacing(8);
+        if expanded {
+            let results = self.font_matches[slot.index()].iter().fold(
+                Column::new().spacing(2),
+                |list, &family| {
+                    list.push(
+                        button(label(family, 12.0, style::INTER, style::TEXT_2))
+                            .width(Fill)
+                            .padding([6, 8])
+                            .on_press_maybe(
+                                (!self.busy).then_some(Message::FontSelected(slot, family)),
+                            )
+                            .style(style::pressable(
+                                if font.family.as_ref() == family {
+                                    Tone::Selected
+                                } else {
+                                    Tone::Row
+                                },
+                                6.0,
+                            )),
+                    )
+                },
+            );
+            field = field.push(
+                container(
+                    column![
+                        text_input(t().settings.font_search, &self.font_queries[slot.index()])
+                            .on_input_maybe(
+                                (!self.busy)
+                                    .then_some(move |query| Message::FontSearch(slot, query))
+                            )
+                            .on_submit(Message::FontPicker(slot))
+                            .size(12)
+                            .padding([8, 10])
+                            .style(style::field),
+                        results,
+                        label(
+                            if self.font_matches[slot.index()].is_empty() {
+                                t().settings.font_empty
+                            } else {
+                                t().settings.font_limit
+                            },
+                            11.0,
+                            style::INTER,
+                            style::TEXT_3
+                        ),
+                    ]
+                    .spacing(8),
+                )
+                .width(Fill)
+                .padding(8)
+                .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0)),
+            );
+        }
+        let weights = [
+            (FontWeight::Normal, t().settings.normal),
+            (FontWeight::Medium, t().settings.medium),
+            (FontWeight::Semibold, t().settings.semibold),
+            (FontWeight::Bold, t().settings.bold),
+        ]
+        .into_iter()
+        .fold(row![].spacing(2), |list, (weight, caption)| {
+            list.push(
+                button(container(label(caption, 11.0, style::MEDIUM, style::TEXT_2)).center(Fill))
+                    .width(Fill)
+                    .height(30)
+                    .padding(0)
+                    .on_press_maybe((!self.busy).then_some(Message::FontWeight(slot, weight)))
+                    .style(style::pressable(
+                        if font.weight == weight {
+                            Tone::Selected
+                        } else {
+                            Tone::Row
+                        },
+                        6.0,
+                    )),
+            )
+        });
+        field
+            .push(label(
+                t().settings.font_weight,
+                11.0,
+                style::INTER,
+                style::TEXT_3,
+            ))
+            .push(weights)
+            .push(
+                self.font_missing[slot.index()].then(|| {
+                    ui::note(icon::CIRCLE_ALERT, t().settings.font_missing, style::TEXT_2)
+                }),
+            )
+            .into()
+    }
+
     fn style_form(&self) -> Element<'_, Message> {
         let theme = self.draft.styles.theme(self.kind);
 
@@ -435,6 +549,8 @@ impl ThemeDialog {
                     field(t().theme.presets, presets),
                 ]
                 .spacing(10),
+                self.font_field(FontSlot::Body),
+                self.font_field(FontSlot::Footer),
                 column![ui::eyebrow(t().theme.text_heading), sliders].spacing(12),
                 layout,
             ]

@@ -6,7 +6,7 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_core::bible::{Book, Passage, Reference, Verse};
-use sdw_core::settings::{CanvasFormat, ScreenMargins, SettingsError};
+use sdw_core::settings::{CanvasFormat, FontSpec, FontWeight, ScreenMargins, SettingsError};
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
     BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
@@ -18,6 +18,7 @@ use crate::display::Display;
 use crate::i18n::{Label, fill, t};
 use crate::icon;
 use crate::panes::{Card, slide_card};
+use crate::render::fonts;
 use crate::render::slide::{self, Visibility, color};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
@@ -145,6 +146,37 @@ impl MarginSide {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontSlot {
+    Body,
+    Footer,
+}
+
+impl FontSlot {
+    const ALL: [Self; 2] = [Self::Body, Self::Footer];
+
+    fn index(self) -> usize {
+        match self {
+            Self::Body => 0,
+            Self::Footer => 1,
+        }
+    }
+
+    fn get(self, theme: &SlideTheme) -> &FontSpec {
+        match self {
+            Self::Body => &theme.body_font,
+            Self::Footer => &theme.footer_font,
+        }
+    }
+
+    fn get_mut(self, theme: &mut SlideTheme) -> &mut FontSpec {
+        match self {
+            Self::Body => &mut theme.body_font,
+            Self::Footer => &mut theme.footer_font,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Captions {
     body_size: Box<str>,
@@ -169,6 +201,10 @@ pub struct ThemeDialog {
     kind: ContentKind,
     category: Category,
     margins: [String; 4],
+    font_queries: [String; 2],
+    font_matches: [Vec<&'static str>; 2],
+    font_missing: [bool; 2],
+    font_picker: Option<FontSlot>,
     hex: [[String; 3]; 2],
     song: ScheduleItem,
     scripture: ScheduleItem,
@@ -183,6 +219,10 @@ pub struct ThemeDialog {
 pub enum Message {
     KindSelected(ContentKind),
     CategorySelected(Category),
+    FontPicker(FontSlot),
+    FontSearch(FontSlot, String),
+    FontSelected(FontSlot, &'static str),
+    FontWeight(FontSlot, FontWeight),
     MonitorSelected(Option<u32>),
     Guides(bool),
     OpenAtStartup(bool),
@@ -259,6 +299,10 @@ impl ThemeDialog {
             kind,
             category: Category::General,
             margins: Default::default(),
+            font_queries: Default::default(),
+            font_matches: Default::default(),
+            font_missing: [false; 2],
+            font_picker: None,
             hex: Default::default(),
             song,
             scripture,
@@ -306,6 +350,27 @@ impl ThemeDialog {
                 self.error = None;
                 return Action::RefreshDisplays;
             }
+            Message::FontPicker(slot) => {
+                self.font_picker = if self.font_picker == Some(slot) {
+                    None
+                } else {
+                    Some(slot)
+                };
+                self.font_queries[slot.index()].clear();
+                self.font_matches[slot.index()] = fonts::search("", 6);
+                return Action::None;
+            }
+            Message::FontSearch(slot, query) => {
+                self.font_matches[slot.index()] = fonts::search(&query, 6);
+                self.font_queries[slot.index()] = query;
+                self.font_picker = Some(slot);
+                return Action::None;
+            }
+            Message::FontSelected(slot, family) => {
+                slot.get_mut(self.theme_mut()).family = family.into();
+                self.font_picker = None;
+            }
+            Message::FontWeight(slot, weight) => slot.get_mut(self.theme_mut()).weight = weight,
             Message::Guides(value) => {
                 self.guides = value;
                 return Action::None;
@@ -335,6 +400,7 @@ impl ThemeDialog {
                 self.margins[side.index()] = value;
             }
             Message::CategorySelected(category) => {
+                self.font_picker = None;
                 self.category = category;
                 if let Some(kind) = category.kind() {
                     self.kind = kind;
@@ -342,6 +408,7 @@ impl ThemeDialog {
                 }
             }
             Message::KindSelected(kind) => {
+                self.font_picker = None;
                 if self.category.kind().is_some() {
                     self.category = Category::for_kind(kind);
                 }
@@ -533,6 +600,7 @@ impl ThemeDialog {
 
     fn describe(&mut self) {
         let theme = self.draft.styles.theme(self.kind);
+        self.font_missing = FontSlot::ALL.map(|slot| fonts::missing(slot.get(theme)));
         let pixels = |value: f32| {
             fill(t().theme.pixels, &[("value", &format!("{value:.0}"))]).into_boxed_str()
         };
@@ -608,7 +676,7 @@ mod tests {
     use sdw_core::theme::{MAX_LINES, Rgb, TextAlign};
     use sdw_core::{ScheduleItem, Song, Styles};
 
-    use super::{Action, Category, ColorSlot, MarginSide, Message, ThemeDialog};
+    use super::{Action, Category, ColorSlot, FontSlot, MarginSide, Message, ThemeDialog};
 
     fn dialog() -> ThemeDialog {
         ThemeDialog::new(&Styles::default(), true, None)
@@ -632,6 +700,35 @@ mod tests {
             panic!("expected an ok action");
         };
         assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn body_and_footer_fonts_are_independent_and_search_does_not_select() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::FontSelected(FontSlot::Body, "JetBrains Mono"));
+        let _ = dialog.update(Message::FontWeight(
+            FontSlot::Body,
+            sdw_core::settings::FontWeight::Bold,
+        ));
+        let _ = dialog.update(Message::FontWeight(
+            FontSlot::Footer,
+            sdw_core::settings::FontWeight::Medium,
+        ));
+        let _ = dialog.update(Message::FontSearch(FontSlot::Footer, "Mono".into()));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected font preferences");
+        };
+        assert_eq!(&*saved.styles.song.theme.body_font.family, "JetBrains Mono");
+        assert_eq!(
+            saved.styles.song.theme.body_font.weight,
+            sdw_core::settings::FontWeight::Bold
+        );
+        assert_eq!(&*saved.styles.song.theme.footer_font.family, "Inter");
+        assert_eq!(
+            saved.styles.song.theme.footer_font.weight,
+            sdw_core::settings::FontWeight::Medium
+        );
+        assert_eq!(&*saved.styles.scripture.theme.body_font.family, "Inter");
     }
 
     #[test]

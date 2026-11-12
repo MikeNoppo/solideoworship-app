@@ -431,6 +431,17 @@
     "guides_hint": "Putih: area aman · Biru: padding teks",
     "overflow": "Teks mungkin tidak muat. Kurangi ukuran, padding, atau isi slide.",
     "preview_note": "Perubahan draft tampil di sini. Terapkan atau OK memperbarui preview operator.",
-    "format_note": "Kanvas menyesuaikan layar output tanpa meregangkan tampilan."
+    "format_note": "Kanvas menyesuaikan layar output tanpa meregangkan tampilan.",
+    "body_font": "FONT TEKS",
+    "footer_font": "FONT FOOTER",
+    "normal": "Normal",
+    "medium": "Medium",
+    "semibold": "Semibold",
+    "bold": "Tebal",
+    "font_search": "Cari keluarga font yang terpasang",
+    "font_missing": "Font ini tidak tersedia. Preview dan output memakai Inter.",
+    "font_empty": "Tidak ada keluarga font yang cocok.",
+    "font_limit": "Paling banyak 6 keluarga ditampilkan. Ketik untuk mempersempit hasil.",
+    "font_weight": "Ketebalan font"
   }
 }

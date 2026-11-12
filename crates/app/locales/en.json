@@ -431,6 +431,17 @@
     "guides_hint": "White: safe area · Blue: text padding",
     "overflow": "Text may not fit. Reduce text size, padding or slide content.",
     "preview_note": "Draft changes appear here. Apply or OK updates the operator preview.",
-    "format_note": "The canvas fits inside the output screen without stretching."
+    "format_note": "The canvas fits inside the output screen without stretching.",
+    "body_font": "BODY FONT",
+    "footer_font": "FOOTER FONT",
+    "normal": "Normal",
+    "medium": "Medium",
+    "semibold": "Semibold",
+    "bold": "Bold",
+    "font_search": "Search installed font families",
+    "font_missing": "This font is unavailable. The preview and output use Inter.",
+    "font_empty": "No matching font families.",
+    "font_limit": "Showing up to 6 families. Type to narrow the results.",
+    "font_weight": "Font weight"
   }
 }
