@@ -6,6 +6,7 @@ mod captions;
 mod display;
 mod editor;
 mod files;
+mod focus;
 mod i18n;
 mod icon;
 mod logo;
@@ -185,6 +186,7 @@ struct App {
     settings: Settings,
     live: Option<Presentation>,
     live_entry: Option<u64>,
+    live_generation: u64,
     live_theme: SlideTheme,
     live_sections: Vec<Box<str>>,
 
@@ -444,14 +446,40 @@ impl App {
                 Task::none()
             }
             Message::LiveSlideSelected(index) => {
-                if let Some(live) = &mut self.live {
-                    let _ = live.go_to(index);
-                }
+                self.navigate_live(index);
                 Task::none()
             }
             Message::LiveMoved(step) => {
-                if let Some(live) = &mut self.live {
-                    let _ = step.apply(live);
+                if let Some(live) = &self.live {
+                    let index = step.target_index(live);
+                    if let Some(index) = index {
+                        self.navigate_live(index);
+                    }
+                }
+                Task::none()
+            }
+            Message::SectionShortcutRequested(window, shortcut) => {
+                if self.modal.is_some() || self.live.is_none() {
+                    return Task::none();
+                }
+                if self.output == Some(window) {
+                    self.navigate_section(shortcut);
+                } else if self.control == Some(window) {
+                    let ticket = self.modal_ticket;
+                    let generation = self.live_generation;
+                    return focus::any_input().map(move |focused| {
+                        Message::SectionShortcutChecked(shortcut, ticket, generation, focused)
+                    });
+                }
+                Task::none()
+            }
+            Message::SectionShortcutChecked(shortcut, ticket, generation, focused) => {
+                if !focused
+                    && self.modal.is_none()
+                    && ticket == self.modal_ticket
+                    && generation == self.live_generation
+                {
+                    self.navigate_section(shortcut);
                 }
                 Task::none()
             }
@@ -477,6 +505,7 @@ impl App {
                                 .into_boxed_str()
                         })
                         .collect();
+                    self.live_generation = self.live_generation.wrapping_add(1);
                     self.live = live;
                     self.live_entry = self
                         .schedule
@@ -1026,26 +1055,7 @@ impl App {
                     _ => None,
                 }));
             }
-            Phase::Operator => subscriptions.push(event::listen_with(|event, status, _window| {
-                match (event, status) {
-                    (
-                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                            key, modifiers, ..
-                        }),
-                        _,
-                    ) if modifiers.command() => command_shortcut(key),
-                    (
-                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                            key, modifiers, ..
-                        }),
-                        event::Status::Ignored,
-                        // WHY: iced fills `key` from key_without_modifiers, so
-                        // Cmd+C/Ctrl+C also arrives as Character("c"). Without this check,
-                        // copying text would clear the projector screen.
-                    ) if modifiers.is_empty() => shortcut(key),
-                    _ => None,
-                }
-            })),
+            Phase::Operator => subscriptions.push(event::listen_with(operator_shortcut)),
         }
 
         if self.drag.is_some() {
@@ -1232,6 +1242,20 @@ impl App {
             },
             move |result| Message::SettingsSaved(ticket, close_after_save, result),
         )
+    }
+
+    fn navigate_live(&mut self, index: usize) -> bool {
+        self.live.as_mut().is_some_and(|live| live.go_to(index))
+    }
+
+    fn navigate_section(&mut self, shortcut: char) -> bool {
+        let Some(rule) = self.settings.labels.rule_for_shortcut(shortcut) else {
+            return false;
+        };
+        let Some(index) = self.live.as_ref().and_then(|live| live.next_section(rule)) else {
+            return false;
+        };
+        self.navigate_live(index)
     }
 
     fn apply_settings(&mut self, settings: Settings) -> Task<Message> {
@@ -1542,6 +1566,46 @@ fn sentence(template: &str, error: &str) -> Box<str> {
     fill(template, &[("error", &error.trim_end_matches('.'))]).into_boxed_str()
 }
 
+fn operator_shortcut(
+    event: iced::Event,
+    status: event::Status,
+    window: window::Id,
+) -> Option<Message> {
+    match (event, status) {
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                repeat: false,
+                ..
+            }),
+            event::Status::Ignored,
+        ) if modifiers == keyboard::Modifiers::ALT => match key.as_ref() {
+            keyboard::Key::Character(letter) => {
+                let mut characters = letter.chars();
+                let character = characters.next()?;
+                (character.is_ascii_alphabetic() && characters.next().is_none()).then_some(
+                    Message::SectionShortcutRequested(window, character.to_ascii_uppercase()),
+                )
+            }
+            _ => None,
+        },
+        (iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }), _)
+            if modifiers.command() =>
+        {
+            command_shortcut(key)
+        }
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
+            event::Status::Ignored,
+            // WHY: iced fills `key` from key_without_modifiers, so
+            // Cmd+C/Ctrl+C also arrives as Character("c"). Without this check,
+            // copying text would clear the projector screen.
+        ) if modifiers.is_empty() => shortcut(key),
+        _ => None,
+    }
+}
+
 fn save_shortcut(key: keyboard::Key) -> Option<Message> {
     match key.as_ref() {
         keyboard::Key::Character("s") => Some(Message::SaveShortcut),
@@ -1607,6 +1671,112 @@ mod tests {
             Some(Modal::Unsaved(pending)) => Some(pending),
             _ => None,
         }
+    }
+
+    fn live_song() -> App {
+        let mut app = App::default();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new(
+                "Sections",
+                "[Verse 1]\nfirst\n\ncontinued\n\n[Chorus]\nchorus\n\n[Bait 2]\nsecond",
+                None,
+            )),
+            None,
+            &app.settings.styles,
+        );
+        let _ = app.update(Message::GoLive);
+        app
+    }
+
+    #[test]
+    fn confirmed_section_shortcuts_cycle_without_changing_output_or_schedule() {
+        let mut app = live_song();
+        app.output_state = OutputState::Black;
+        let revision = app.schedule.revision();
+        for expected in [3, 0] {
+            let _ = app.update(Message::SectionShortcutChecked(
+                'v',
+                app.modal_ticket,
+                app.live_generation,
+                false,
+            ));
+            assert_eq!(app.live.as_ref().unwrap().index(), expected);
+        }
+        assert_eq!(app.output_state, OutputState::Black);
+        assert!(app.output.is_none());
+        assert_eq!(app.schedule.revision(), revision);
+    }
+
+    #[test]
+    fn section_shortcuts_ignore_focused_inputs_and_stale_focus_results() {
+        let mut app = live_song();
+        for (ticket, generation, focused) in [
+            (app.modal_ticket, app.live_generation, true),
+            (app.modal_ticket.wrapping_add(1), app.live_generation, false),
+            (app.modal_ticket, app.live_generation.wrapping_sub(1), false),
+        ] {
+            let _ = app.update(Message::SectionShortcutChecked(
+                'v', ticket, generation, focused,
+            ));
+            assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        }
+        app.open_modal(Modal::Unsaved(Pending::Quit));
+        let _ = app.update(Message::SectionShortcutChecked(
+            'v',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+    }
+
+    fn alt_key(modifiers: iced::keyboard::Modifiers, repeat: bool) -> iced::Event {
+        let key = iced::keyboard::Key::Character("v".into());
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            modified_key: key.clone(),
+            key,
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyV),
+            location: iced::keyboard::Location::Standard,
+            modifiers,
+            text: None,
+            repeat,
+        })
+    }
+
+    #[test]
+    fn section_shortcut_events_require_exact_alt_without_repeat_or_capture() {
+        use iced::event::Status;
+        use iced::keyboard::Modifiers;
+        let window = window::Id::unique();
+        for (modifiers, repeat, status) in [
+            (Modifiers::ALT, true, Status::Ignored),
+            (Modifiers::ALT, false, Status::Captured),
+            (Modifiers::ALT | Modifiers::CTRL, false, Status::Ignored),
+            (Modifiers::ALT | Modifiers::SHIFT, false, Status::Ignored),
+            (Modifiers::ALT | Modifiers::LOGO, false, Status::Ignored),
+        ] {
+            assert!(super::operator_shortcut(alt_key(modifiers, repeat), status, window).is_none());
+        }
+        assert!(matches!(
+            super::operator_shortcut(alt_key(Modifiers::ALT, false), Status::Ignored, window),
+            Some(Message::SectionShortcutRequested(id, 'V')) if id == window
+        ));
+    }
+
+    #[test]
+    fn output_section_shortcuts_bypass_control_input_focus_but_respect_modals() {
+        let mut app = live_song();
+        let output = window::Id::unique();
+        app.output = Some(output);
+        app.control = Some(window::Id::unique());
+        let _ = app.update(Message::SectionShortcutRequested(app.control.unwrap(), 'V'));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        let _ = app.update(Message::SectionShortcutRequested(output, 'V'));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+        assert_eq!(&*app.captions.live_position, "4 / 4");
+        app.open_modal(Modal::Unsaved(Pending::Quit));
+        let _ = app.update(Message::SectionShortcutRequested(output, 'V'));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
     }
 
     #[test]
