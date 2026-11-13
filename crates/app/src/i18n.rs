@@ -159,6 +159,7 @@ impl Label for Category {
             Self::Output => t().settings.output,
             Self::Song => t().settings.song,
             Self::Scripture => t().settings.scripture,
+            Self::Labels => t().settings.labels,
         }
     }
 }
@@ -210,10 +211,9 @@ pub trait Localize {
 impl Localize for SettingsError {
     fn localize(&self) -> String {
         match self {
-            Self::InvalidValues
-            | Self::InvalidLabels
-            | Self::ConflictingLabels
-            | Self::InvalidTransitions => t().settings.invalid_values.into(),
+            Self::InvalidValues | Self::InvalidTransitions => t().settings.invalid_values.into(),
+            Self::InvalidLabels => t().settings.invalid_labels.into(),
+            Self::ConflictingLabels => t().settings.conflicting_labels.into(),
             Self::EmptyContentArea => t().settings.empty_area.into(),
         }
     }

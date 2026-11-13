@@ -4,19 +4,23 @@ use iced::widget::column;
 impl ThemeDialog {
     pub fn view(&self, window_width: f32) -> Element<'_, Message> {
         let width = WIDTH.min(window_width - 64.0);
+        let content: Element<'_, Message> = if self.category == Category::Labels {
+            row![self.sidebar(), ui::line(style::BORDER), self.labels_form()]
+                .height(Fill)
+                .into()
+        } else {
+            row![
+                self.sidebar(),
+                ui::line(style::BORDER),
+                self.form(),
+                ui::line(style::BORDER),
+                self.preview(width)
+            ]
+            .height(Fill)
+            .into()
+        };
         ui::sheet(
-            column![
-                self.header(),
-                row![
-                    self.sidebar(),
-                    ui::line(style::BORDER),
-                    self.form(),
-                    ui::line(style::BORDER),
-                    self.preview(width)
-                ]
-                .height(Fill),
-                ui::sheet_footer(self.footer()),
-            ],
+            column![self.header(), content, ui::sheet_footer(self.footer()),],
             WIDTH,
             HEIGHT,
         )
@@ -64,6 +68,7 @@ impl ThemeDialog {
                         Category::Output => icon::MONITOR,
                         Category::Song => icon::MUSIC,
                         Category::Scripture => icon::BOOK_OPEN,
+                        Category::Labels => icon::TAG,
                     };
                     let selected = self.category == category;
                     list.push(

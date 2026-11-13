@@ -447,6 +447,17 @@
     "translation": "Show the translation",
     "one_verse": "One complete verse per slide",
     "one_verse_hint": "The character limit is ignored in this mode. Verses are never split.",
-    "grouping_hint": "Otherwise, complete verses are grouped by the character limit."
+    "grouping_hint": "Otherwise, complete verses are grouped by the character limit.",
+    "labels": "Song labels",
+    "label_name": "Name",
+    "label_aliases": "Aliases (comma-separated)",
+    "label_color": "Hex color",
+    "label_shortcut": "A–Z key",
+    "label_invalid": "Check values",
+    "labels_hint": "Colors appear on operator labels only. Alt/Option + a letter cycles through matching song sections. Leave the shortcut blank to disable it.",
+    "labels_limit": "Up to 32 labels, 8 aliases each, and 64 characters per name or alias. Names, aliases and shortcuts must not conflict with another label.",
+    "add_label": "Add label",
+    "invalid_labels": "Check song labels: names and aliases need 1–64 characters, at most 8 aliases, a six-digit hex color, and a blank or single uppercase A–Z shortcut.",
+    "conflicting_labels": "Two song labels share a name, alias or shortcut. Use distinct values before saving."
   }
 }

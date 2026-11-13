@@ -1,11 +1,14 @@
 mod form;
+mod labels;
 mod view;
 
 use iced::widget::{
     Column, Row, button, container, row, slider, space, stack, text_input, toggler,
 };
 use iced::{Center, Element, Fill, Padding, Pixels};
+use labels::{LabelDraft, LabelField};
 use sdw_core::bible::{Book, Passage, Reference, Verse};
+use sdw_core::labels::{LabelRule, LabelSettings, MAX_RULES};
 use sdw_core::settings::{CanvasFormat, FontSpec, FontWeight, ScreenMargins};
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
@@ -86,10 +89,17 @@ pub enum Category {
     Output,
     Song,
     Scripture,
+    Labels,
 }
 
 impl Category {
-    const ALL: [Self; 4] = [Self::General, Self::Output, Self::Song, Self::Scripture];
+    const ALL: [Self; 5] = [
+        Self::General,
+        Self::Output,
+        Self::Song,
+        Self::Scripture,
+        Self::Labels,
+    ];
 
     fn kind(self) -> Option<ContentKind> {
         match self {
@@ -190,6 +200,7 @@ struct Captions {
 
 pub struct ThemeDialog {
     draft: Settings,
+    labels: Vec<LabelDraft>,
     preview_settings: Settings,
     overflow: bool,
     guides: bool,
@@ -247,6 +258,9 @@ pub enum Message {
     MaxChars(u16),
     Shadows(bool),
     SlideSelected(usize),
+    LabelChanged(usize, LabelField, String),
+    AddLabel,
+    DeleteLabel(usize),
     Reset,
     Save,
     Apply,
@@ -281,6 +295,7 @@ impl ThemeDialog {
 
         let mut dialog = Self {
             draft: settings.clone(),
+            labels: Vec::new(),
             preview_settings: settings.clone().clamped(),
             overflow: false,
             guides: true,
@@ -330,6 +345,24 @@ impl ThemeDialog {
             self.error = None;
         }
         match message {
+            Message::LabelChanged(index, field, value) => {
+                if let Some(label) = self.labels.get_mut(index) {
+                    *field.get_mut(label) = value;
+                }
+                return Action::None;
+            }
+            Message::AddLabel => {
+                if self.labels.len() < MAX_RULES {
+                    self.labels.push(LabelDraft::empty());
+                }
+                return Action::None;
+            }
+            Message::DeleteLabel(index) => {
+                if index < self.labels.len() {
+                    self.labels.remove(index);
+                }
+                return Action::None;
+            }
             Message::RefreshDisplays => {
                 if self.refreshing {
                     return Action::None;
@@ -452,6 +485,10 @@ impl ThemeDialog {
             Message::Reset => {
                 let defaults = Settings::default();
                 match self.category {
+                    Category::Labels => {
+                        self.draft.labels = defaults.labels;
+                        self.sync_labels();
+                    }
                     Category::General => self.draft.general = defaults.general,
                     Category::Output => {
                         self.draft.output = defaults.output;
@@ -468,6 +505,13 @@ impl ThemeDialog {
                 }
             }
             Message::Save | Message::Apply => {
+                match self.validated_labels() {
+                    Ok(labels) => self.draft.labels = labels,
+                    Err(error) => {
+                        self.error = Some(error.localize().into_boxed_str());
+                        return Action::None;
+                    }
+                }
                 if self.margins.iter().any(|value| {
                     value
                         .parse::<f32>()
@@ -510,6 +554,7 @@ impl ThemeDialog {
         self.busy = false;
         self.error = None;
         self.sync_margins();
+        self.sync_labels();
         self.sync_hex(ContentKind::Song);
         self.sync_hex(ContentKind::Scripture);
         self.recompile();
@@ -659,6 +704,27 @@ mod tests {
         let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
         let _ = dialog.update(Message::CategorySelected(Category::Song));
         dialog
+    }
+
+    #[test]
+    fn invalid_label_draft_blocks_apply_from_another_category() {
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::LabelChanged(
+            0,
+            super::LabelField::Color,
+            "#12".into(),
+        ));
+        let _ = dialog.update(Message::CategorySelected(Category::General));
+        assert_eq!(dialog.update(Message::Apply), Action::None);
+        let _ = dialog.update(Message::LabelChanged(
+            0,
+            super::LabelField::Color,
+            "#123456".into(),
+        ));
+        let Action::SaveSettings(settings, false) = dialog.update(Message::Apply) else {
+            panic!("expected corrected label color to save");
+        };
+        assert_eq!(settings.labels.rules[0].color, Rgb::from_rgb8(18, 52, 86));
     }
 
     #[test]
