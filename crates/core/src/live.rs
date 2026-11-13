@@ -95,6 +95,7 @@ pub enum OutputState {
     Show,
     Black,
     Clear,
+    Logo,
 }
 
 impl OutputState {
@@ -108,6 +109,10 @@ impl OutputState {
 
     pub fn shows_background(self) -> bool {
         matches!(self, Self::Show | Self::Clear)
+    }
+
+    pub fn shows_logo(self) -> bool {
+        matches!(self, Self::Logo)
     }
 }
 
@@ -127,6 +132,7 @@ mod tests {
                 .map(|index| Slide {
                     body: index.to_string().into_boxed_str(),
                     label: None,
+                    header: None,
                     footer: None,
                 })
                 .collect(),
@@ -205,5 +211,21 @@ mod tests {
     fn show_shows_background_and_content() {
         assert!(OutputState::Show.shows_background());
         assert!(OutputState::Show.shows_content());
+        assert!(!OutputState::Show.shows_logo());
+    }
+
+    #[test]
+    fn logo_shows_logo_without_slide_content_or_theme_background() {
+        assert!(OutputState::Logo.shows_logo());
+        assert!(!OutputState::Logo.shows_content());
+        assert!(!OutputState::Logo.shows_background());
+        assert_eq!(
+            OutputState::Logo.toggled(OutputState::Logo),
+            OutputState::Show
+        );
+        assert_eq!(
+            OutputState::Black.toggled(OutputState::Logo),
+            OutputState::Logo
+        );
     }
 }

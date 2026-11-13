@@ -42,12 +42,34 @@ impl Rgb {
         )
     }
 
-    fn clamped(self) -> Self {
+    pub fn clamped(self) -> Self {
         Self::new(
             clamp(self.r, &CHANNEL),
             clamp(self.g, &CHANNEL),
             clamp(self.b, &CHANNEL),
         )
+    }
+
+    pub fn is_valid(self) -> bool {
+        [self.r, self.g, self.b]
+            .into_iter()
+            .all(|value| CHANNEL.contains(&value))
+    }
+
+    pub fn contrasting_foreground(self) -> Self {
+        let linear = |value: f32| {
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let luminance = 0.2126 * linear(self.r) + 0.7152 * linear(self.g) + 0.0722 * linear(self.b);
+        if (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) {
+            Self::from_rgb8(0, 0, 0)
+        } else {
+            Self::from_rgb8(255, 255, 255)
+        }
     }
 }
 
@@ -69,6 +91,20 @@ pub enum TextAlign {
     #[default]
     Center,
     Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReferencePosition {
+    #[default]
+    Bottom,
+    Top,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReferenceFormat {
+    #[default]
+    Parentheses,
+    MiddleDot,
 }
 
 // Reference canvas in which every theme size is expressed. The renderer scales from here,
@@ -100,6 +136,8 @@ pub struct SlideTheme {
     pub body_font: FontSpec,
     pub footer_font: FontSpec,
     pub show_label: bool,
+    pub text_shadow: bool,
+    pub text_scrim: bool,
 }
 
 impl SlideTheme {
@@ -117,6 +155,8 @@ impl SlideTheme {
             body_font: FontSpec::default(),
             footer_font: FontSpec::default(),
             show_label: false,
+            text_shadow: false,
+            text_scrim: false,
         }
     }
 
@@ -127,7 +167,7 @@ impl SlideTheme {
         }
     }
 
-    fn clamped(self) -> Self {
+    pub fn clamped(self) -> Self {
         Self {
             background: self.background.clamped(),
             body: self.body.clamped(),
@@ -155,6 +195,7 @@ pub struct SongStyle {
     pub theme: SlideTheme,
     pub max_lines: u16,
     pub show_copyright: bool,
+    pub copyright_first_slide_only: bool,
     pub license: Box<str>,
 }
 
@@ -165,6 +206,8 @@ pub struct ScriptureStyle {
     pub show_verse_numbers: bool,
     pub show_reference: bool,
     pub show_translation: bool,
+    pub reference_position: ReferencePosition,
+    pub reference_format: ReferenceFormat,
     pub one_verse_per_slide: bool,
 }
 
@@ -211,6 +254,7 @@ impl Default for Styles {
                 theme: SlideTheme::song(),
                 max_lines: 4,
                 show_copyright: true,
+                copyright_first_slide_only: false,
                 license: "".into(),
             },
             scripture: ScriptureStyle {
@@ -219,6 +263,8 @@ impl Default for Styles {
                 show_verse_numbers: true,
                 show_reference: true,
                 show_translation: true,
+                reference_position: ReferencePosition::Bottom,
+                reference_format: ReferenceFormat::Parentheses,
                 one_verse_per_slide: false,
             },
         }

@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::labels::LabelSettings;
 use crate::theme::{
-    BODY_SIZE, CANVAS_WIDTH, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Styles,
+    BODY_SIZE, CANVAS_WIDTH, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, Styles,
 };
 use crate::transition::TransitionSettings;
 
@@ -21,6 +21,7 @@ impl Settings {
         self.labels = self.labels.clamped();
         self.transitions = self.transitions.clamped();
         self.output.layout = self.output.layout.clamped();
+        self.output.logo_background = self.output.logo_background.clamped();
         self.output.monitor = self.output.monitor.filter(MonitorPreference::is_valid);
 
         if [&self.styles.song.theme, &self.styles.scripture.theme]
@@ -46,11 +47,7 @@ impl Settings {
                 && MARGIN.contains(&theme.margin)
                 && [theme.background, theme.body, theme.footer]
                     .into_iter()
-                    .all(|color| {
-                        [color.r, color.g, color.b]
-                            .into_iter()
-                            .all(|value| (0.0..=1.0).contains(&value))
-                    })
+                    .all(Rgb::is_valid)
         });
         let margins = self.output.layout.margins;
 
@@ -59,6 +56,7 @@ impl Settings {
             .monitor
             .as_ref()
             .is_some_and(|monitor| !monitor.is_valid())
+            || !self.output.logo_background.is_valid()
             || !valid_themes
             || !MAX_LINES.contains(&self.styles.song.max_lines)
             || !MAX_CHARS.contains(&self.styles.scripture.max_chars)
@@ -126,10 +124,21 @@ impl Default for GeneralSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputSettings {
     pub monitor: Option<MonitorPreference>,
     pub layout: OutputLayout,
+    pub logo_background: Rgb,
+}
+
+impl Default for OutputSettings {
+    fn default() -> Self {
+        Self {
+            monitor: None,
+            layout: OutputLayout::default(),
+            logo_background: Rgb::from_rgb8(20, 20, 22),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,10 +1,10 @@
 use crate::bible::{Passage, Verse};
 use crate::slide::{ContentKind, Slide, SlideDeck, SlideSection};
 use crate::song::Song;
-use crate::theme::{ScriptureStyle, SongStyle};
+use crate::theme::{ReferenceFormat, ReferencePosition, ScriptureStyle, SongStyle};
 
 pub fn song(song: &Song, max_lines: usize) -> SlideDeck {
-    song_with_footer(song, max_lines, song.copyright())
+    song_with_footer(song, max_lines, song.copyright(), false)
 }
 
 pub fn song_with_style(song: &Song, style: &SongStyle) -> SlideDeck {
@@ -21,13 +21,20 @@ pub fn song_with_style(song: &Song, style: &SongStyle) -> SlideDeck {
         song,
         usize::from(style.max_lines),
         footer.as_deref().filter(|text| !text.is_empty()),
+        style.copyright_first_slide_only,
     )
 }
 
-fn song_with_footer(song: &Song, max_lines: usize, footer: Option<&str>) -> SlideDeck {
+fn song_with_footer(
+    song: &Song,
+    max_lines: usize,
+    footer: Option<&str>,
+    footer_first_slide_only: bool,
+) -> SlideDeck {
     let max_lines = max_lines.max(1);
     let mut slides = SongSlides {
         footer,
+        footer_first_slide_only,
         label: None,
         part: 0,
         lines: Vec::with_capacity(max_lines),
@@ -69,6 +76,7 @@ fn heading(line: &str) -> Option<&str> {
 
 struct SongSlides<'a> {
     footer: Option<&'a str>,
+    footer_first_slide_only: bool,
     label: Option<&'a str>,
     part: usize,
     lines: Vec<&'a str>,
@@ -103,10 +111,17 @@ impl SongSlides<'_> {
             }
         });
 
+        let footer = if self.footer_first_slide_only && !self.slides.is_empty() {
+            None
+        } else {
+            self.footer.map(Box::from)
+        };
+
         self.slides.push(Slide {
             body: self.lines.join("\n").into_boxed_str(),
             label,
-            footer: self.footer.map(Box::from),
+            header: None,
+            footer,
         });
         self.lines.clear();
     }
@@ -219,19 +234,36 @@ fn verse_slide(
         format!("{book_chapter}:{first}-{last}")
     };
 
-    let footer = match (
+    let format = style.map_or(ReferenceFormat::Parentheses, |style| style.reference_format);
+    let formatted = match (
         style.is_none_or(|style| style.show_reference),
         style.is_none_or(|style| style.show_translation),
+        format,
     ) {
-        (true, true) => Some(format!("{reference} ({translation})").into_boxed_str()),
-        (true, false) => Some(reference.clone().into_boxed_str()),
-        (false, true) => Some(format!("({translation})").into_boxed_str()),
-        (false, false) => None,
+        (true, true, ReferenceFormat::Parentheses) => {
+            Some(format!("{reference} ({translation})").into_boxed_str())
+        }
+        (true, true, ReferenceFormat::MiddleDot) => {
+            Some(format!("{reference} · {translation}").into_boxed_str())
+        }
+        (true, false, _) => Some(reference.clone().into_boxed_str()),
+        (false, true, ReferenceFormat::Parentheses) => {
+            Some(format!("({translation})").into_boxed_str())
+        }
+        (false, true, ReferenceFormat::MiddleDot) => Some(translation.into()),
+        (false, false, _) => None,
     };
+
+    let (header, footer) =
+        match style.map_or(ReferencePosition::Bottom, |style| style.reference_position) {
+            ReferencePosition::Bottom => (None, formatted),
+            ReferencePosition::Top => (formatted, None),
+        };
 
     Slide {
         body: body.into_boxed_str(),
         label: Some(reference.into_boxed_str()),
+        header,
         footer,
     }
 }
@@ -520,5 +552,54 @@ mod tests {
         let deck = scripture(&Passage::new(reference, "TB", verses).unwrap(), 100);
 
         assert_eq!(&*deck.title, "Mazmur 23:1-2 (TB)");
+    }
+
+    #[test]
+    fn copyright_first_slide_only_places_footer_on_first_slide() {
+        let song = Song::new(
+            "Amazing Grace",
+            "[Verse 1]\nLine 1\n\n[Chorus]\nLine 2",
+            Some("Public Domain"),
+        );
+        let mut style = Styles::default().song;
+        style.license = "CCLI 123".into();
+        style.copyright_first_slide_only = true;
+
+        let deck = song_with_style(&song, &style);
+        assert_eq!(deck.len(), 2);
+        assert_eq!(
+            deck.slides[0].footer.as_deref(),
+            Some("Public Domain · CCLI 123")
+        );
+        assert_eq!(deck.slides[1].footer, None);
+
+        style.show_copyright = false;
+        let hidden = song_with_style(&song, &style);
+        assert_eq!(hidden.slides[0].footer, None);
+        assert_eq!(hidden.slides[1].footer, None);
+    }
+
+    #[test]
+    fn scripture_reference_position_and_format_preserve_operator_label() {
+        use crate::theme::{ReferenceFormat, ReferencePosition};
+
+        let source = passage(43, 3, &[(16, "Kasih Allah")]);
+        let mut style = Styles::default().scripture;
+        style.reference_position = ReferencePosition::Top;
+        style.reference_format = ReferenceFormat::MiddleDot;
+
+        let deck = scripture_with_style(&source, &style);
+        assert_eq!(deck.slides[0].label.as_deref(), Some("Yohanes 3:16"));
+        assert_eq!(deck.slides[0].header.as_deref(), Some("Yohanes 3:16 · TB"));
+        assert_eq!(deck.slides[0].footer, None);
+
+        style.show_reference = false;
+        let translation_only = scripture_with_style(&source, &style);
+        assert_eq!(
+            translation_only.slides[0].label.as_deref(),
+            Some("Yohanes 3:16")
+        );
+        assert_eq!(translation_only.slides[0].header.as_deref(), Some("TB"));
+        assert_eq!(translation_only.slides[0].footer, None);
     }
 }

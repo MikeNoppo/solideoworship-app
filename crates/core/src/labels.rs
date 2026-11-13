@@ -20,21 +20,7 @@ impl LabelRule {
     }
 
     pub fn foreground(&self) -> Rgb {
-        let linear = |value: f32| {
-            if value <= 0.04045 {
-                value / 12.92
-            } else {
-                ((value + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        let luminance = 0.2126 * linear(self.color.r)
-            + 0.7152 * linear(self.color.g)
-            + 0.0722 * linear(self.color.b);
-        if (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) {
-            Rgb::from_rgb8(0, 0, 0)
-        } else {
-            Rgb::from_rgb8(255, 255, 255)
-        }
+        self.color.contrasting_foreground()
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {

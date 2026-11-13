@@ -14,4 +14,4 @@ pub use schedule::ScheduleItem;
 pub use settings::Settings;
 pub use slide::{ContentKind, Slide, SlideDeck, SlideSection};
 pub use song::Song;
-pub use theme::{SlideTheme, Styles};
+pub use theme::{ReferenceFormat, ReferencePosition, SlideTheme, Styles};
