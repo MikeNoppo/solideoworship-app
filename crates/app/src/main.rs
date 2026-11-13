@@ -4073,7 +4073,7 @@ mod tests {
 
         assert!(matches!(
             super::operator_shortcut(
-                press("=", "+", Modifiers::CTRL | Modifiers::SHIFT),
+                press("=", "+", Modifiers::COMMAND | Modifiers::SHIFT),
                 Status::Captured,
                 window
             ),
@@ -4097,7 +4097,7 @@ mod tests {
         ));
         assert!(
             super::operator_shortcut(
-                press("=", "+", Modifiers::CTRL | Modifiers::ALT),
+                press("=", "+", Modifiers::COMMAND | Modifiers::ALT),
                 Status::Ignored,
                 window
             )
@@ -4105,7 +4105,7 @@ mod tests {
         );
         assert!(matches!(
             super::modal_shortcut(
-                press("=", "+", Modifiers::CTRL | Modifiers::SHIFT),
+                press("=", "+", Modifiers::COMMAND | Modifiers::SHIFT),
                 Status::Captured
             ),
             Some(Message::UiZoom(Zoom::In))
