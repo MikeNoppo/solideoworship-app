@@ -41,6 +41,16 @@ impl Entry {
         };
     }
 
+    fn duplicate(&self) -> Self {
+        Self {
+            key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
+            item: self.item.clone(),
+            origin: self.origin,
+            deck: Arc::clone(&self.deck),
+            meta: self.meta.clone(),
+        }
+    }
+
     pub fn origin(&self) -> Option<SongId> {
         self.origin
     }
@@ -210,6 +220,15 @@ impl Schedule {
         self.entries.push(Entry::new(item, origin, styles));
         self.revision += 1;
         self.select(self.entries.len() - 1);
+    }
+
+    pub fn duplicate(&mut self, index: usize) -> Option<usize> {
+        let copy = self.entries.get(index)?.duplicate();
+        let insert_at = index + 1;
+        self.entries.insert(insert_at, copy);
+        self.revision += 1;
+        self.select(insert_at);
+        Some(insert_at)
     }
 
     pub fn replace_song(&mut self, id: SongId, song: &Song, styles: &Styles) {
@@ -783,5 +802,24 @@ mod tests {
         assert_eq!(schedule.selected(), Some(0));
         assert_eq!(preview_title(&schedule), Some("InSchedule"));
         assert_eq!(schedule.previewed_song(), None);
+    }
+
+    #[test]
+    fn duplicating_an_entry_inserts_an_independent_copy_after_it() {
+        let mut schedule = schedule(&["First", "Second"]);
+        let origin = song_ids(1)[0];
+        schedule.push(song("Shared"), Some(origin), &Styles::default());
+        schedule.mark_saved(PathBuf::from("service.sdw"), schedule.revision());
+        let original_key = schedule.entries()[2].key();
+
+        let inserted = schedule.duplicate(2);
+
+        assert_eq!(inserted, Some(3));
+        assert_eq!(schedule.entries().len(), 4);
+        assert_eq!(schedule.selected(), Some(3));
+        assert!(schedule.is_dirty());
+        assert_eq!(schedule.entries()[3].origin(), Some(origin));
+        assert_ne!(schedule.entries()[3].key(), original_key);
+        assert_eq!(preview_title(&schedule), Some("Shared"));
     }
 }

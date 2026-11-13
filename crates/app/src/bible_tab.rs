@@ -13,6 +13,8 @@ use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
 use crate::work::Outcome;
 
+pub const INPUT: &str = "bible-reference";
+
 const PREVIEW_LIMIT: usize = 30;
 const RECENT_LIMIT: usize = 6;
 const EXAMPLES: [&str; 4] = ["Yoh 3:16", "Mzm 23", "Rm 8:28-39", "1 Kor 13"];
@@ -450,6 +452,7 @@ impl BibleTab {
         };
 
         let field = text_input(t().bible.reference_placeholder, &self.input)
+            .id(INPUT)
             .on_input_maybe(enabled.then_some(Message::InputChanged))
             .on_submit(Message::Submitted)
             .icon(text_input::Icon {
