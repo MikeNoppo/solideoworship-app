@@ -414,18 +414,10 @@ fn menu_item(
     key: Option<&'static str>,
     on_press: Message,
 ) -> Element<'static, Message> {
-    button(
-        row![
-            icon::view(glyph, 14.0, style::TEXT_2),
-            label(caption, 13.0, style::INTER, style::TEXT_2).width(Fill),
-        ]
-        .push(key.map(|key| ui::kbd(key, 20.0, 11.0, true)))
-        .spacing(10)
-        .align_y(Center),
+    ui::menu_item(
+        Some(glyph),
+        caption,
+        key.map(|key| ui::kbd(key, 20.0, 11.0, true)),
+        Some(on_press),
     )
-    .width(Fill)
-    .padding([8, 10])
-    .on_press(on_press)
-    .style(style::pressable(Tone::Row, 6.0))
-    .into()
 }

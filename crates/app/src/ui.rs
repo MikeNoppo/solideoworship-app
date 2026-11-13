@@ -373,6 +373,34 @@ pub fn note<'a, M: 'a>(glyph: &'static str, caption: &'a str, color: Color) -> E
     .into()
 }
 
+pub fn menu_item<'a, M: Clone + 'a>(
+    glyph: Option<&'static str>,
+    caption: &'a str,
+    trailing: Option<Element<'a, M>>,
+    on_press: Option<M>,
+) -> Element<'a, M> {
+    let tint = style::fade(style::TEXT_2, on_press.is_some());
+    let leading: Element<'a, M> = match glyph {
+        Some(glyph) => icon::view(glyph, 14.0, tint).into(),
+        None => Space::new().width(14).height(0).into(),
+    };
+
+    button(
+        row![
+            leading,
+            label(caption, 13.0, style::INTER, tint).width(Fill)
+        ]
+        .push(trailing)
+        .spacing(10)
+        .align_y(Center),
+    )
+    .width(Fill)
+    .padding([8, 10])
+    .on_press_maybe(on_press)
+    .style(style::pressable(Tone::Row, 6.0))
+    .into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::number;
