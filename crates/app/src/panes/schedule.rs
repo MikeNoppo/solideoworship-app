@@ -9,7 +9,7 @@ use crate::panes::{columns, live_badge};
 use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
 use crate::style;
-use crate::ui::{self, icon_button, label};
+use crate::ui::{self, label};
 use crate::{App, Drag, ScheduleMenu};
 
 const ROW_HEIGHT: f32 = 52.0;
@@ -321,19 +321,6 @@ fn item<'a>(
         .width(Fill),
     ]
     .push(is_live.then(live_badge))
-    .push(
-        (app.hovered_row == Some(index) && app.drag.is_none()).then(|| {
-            ui::hint(
-                icon_button(
-                    icon::X,
-                    style::TEXT_3,
-                    28.0,
-                    Some(Message::ScheduleRemoved(index)),
-                ),
-                t().schedule.remove,
-            )
-        }),
-    )
     .spacing(10)
     .height(Fill)
     .align_y(Center);
