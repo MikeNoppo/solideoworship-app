@@ -14,19 +14,23 @@ struct Catalog {
 }
 
 static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
-    let mut system = font_system().write().expect("write font system");
+    let mut names: Vec<_> = {
+        let mut system = font_system().write().expect("write font system");
 
-    for bytes in style::FONTS {
-        system.load_font(Cow::Borrowed(bytes));
-    }
+        for bytes in style::FONTS {
+            system.load_font(Cow::Borrowed(bytes));
+        }
 
-    let mut names: Vec<_> = system
-        .raw()
-        .db()
-        .faces()
-        .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
-        .filter(|name| !name.starts_with('.') && !matches!(name.as_str(), "lucide" | "Iced-Icons"))
-        .collect();
+        system
+            .raw()
+            .db()
+            .faces()
+            .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
+            .filter(|name| {
+                !name.starts_with('.') && !matches!(name.as_str(), "lucide" | "Iced-Icons")
+            })
+            .collect()
+    };
     names.sort_unstable();
     names.dedup();
 
@@ -44,6 +48,10 @@ static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
         searchable,
     }
 });
+
+pub fn warm() {
+    let _ = families();
+}
 
 pub fn families() -> &'static [&'static str] {
     &CATALOG.families

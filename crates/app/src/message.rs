@@ -76,14 +76,33 @@ pub enum UnsavedChoice {
     Cancel,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct StartupLibrary {
+    pub settings: Settings,
+    pub songs: Vec<SongSummary>,
+    pub song_count: usize,
+    pub bibles: Vec<BibleSummary>,
+    pub bible_index: Option<(BibleId, Vec<BibleBook>)>,
+}
+
+impl From<Settings> for StartupLibrary {
+    fn from(settings: Settings) -> Self {
+        Self {
+            settings,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     AnimationFrame(Instant),
     SplashOpened,
     SplashElapsed,
     ControlOpened,
-    LibraryOpened(Outcome<Box<Settings>>),
+    LibraryOpened(Outcome<Box<StartupLibrary>>),
     RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
+    FontsLoaded,
 
     DisplaysRequested,
     DisplaysLoaded(Result<Vec<Display>, Box<str>>),
@@ -190,6 +209,7 @@ impl Message {
             | Self::SplitMoved(..)
             | Self::SplitEnded
             | Self::BibleIndexLoaded(..)
+            | Self::FontsLoaded
             | Self::RowHovered(..)
             | Self::ScheduleAddSubmenu(..)
             | Self::DragOver(..)

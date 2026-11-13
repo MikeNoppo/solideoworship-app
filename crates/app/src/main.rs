@@ -48,7 +48,9 @@ use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
-use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice, Zoom};
+use crate::message::{
+    LibraryTab, Menu, Message, Notice, Pending, StartupLibrary, Step, UnsavedChoice, Zoom,
+};
 use crate::recovery::Recovery;
 use crate::render::transition::{Frame, Playback, Scene};
 use crate::schedule::{Entry, Schedule};
@@ -60,6 +62,7 @@ use crate::work::{Outcome, Store};
 // process start: wgpu initialisation alone takes hundreds of milliseconds before
 // anything is visible.
 const SPLASH_MINIMUM: Duration = Duration::from_millis(1200);
+const SPLASH_STEP: Duration = Duration::from_millis(SPLASH_MINIMUM.as_millis() as u64 / 3);
 
 const SONG_LIMIT: usize = 100;
 
@@ -187,6 +190,8 @@ struct App {
 
     displays: Vec<Display>,
     displays_loaded: bool,
+    splash_step: u8,
+    splash_waiting: bool,
     splash_elapsed: bool,
     selected: Option<u32>,
     screens_error: Option<Box<str>>,
@@ -197,6 +202,8 @@ struct App {
 
     store: Store,
     recovery: Recovery,
+    recovery_loaded: bool,
+    fonts_loaded: bool,
     library_ready: bool,
     library_unavailable: Option<Box<str>>,
     library_error: Option<Box<str>>,
@@ -249,13 +256,15 @@ impl App {
             recovery: Recovery::new(paths::recovery_file()),
             ..Self::default()
         };
-        let library_opened = app.store.run(
-            |library| library.settings().map(Box::new),
-            Message::LibraryOpened,
-        );
+        let library_opened = app.store.run(startup_library, Message::LibraryOpened);
         let recovery_path = app.recovery.path().to_path_buf();
         let recovery_loaded =
             work::background(move || recovery::load(&recovery_path)).map(Message::RecoveryLoaded);
+        let fonts_loaded = work::background(|| {
+            render::fonts::warm();
+            Ok(())
+        })
+        .map(|_| Message::FontsLoaded);
 
         (
             app,
@@ -264,6 +273,7 @@ impl App {
                 load_displays(),
                 library_opened,
                 recovery_loaded,
+                fonts_loaded,
             ]),
         )
     }
@@ -333,7 +343,18 @@ impl App {
                 Task::none()
             }
             Message::SplashElapsed => {
-                self.splash_elapsed = true;
+                match self.splash_step {
+                    0 if self.displays_loaded => {
+                        self.splash_step = 1;
+                        self.splash_waiting = false;
+                    }
+                    1 if self.library_ready => {
+                        self.splash_step = 2;
+                        self.splash_waiting = false;
+                    }
+                    0 | 1 => self.splash_waiting = true,
+                    _ => self.splash_elapsed = true,
+                }
                 self.leave_splash()
             }
             Message::ControlOpened => {
@@ -348,26 +369,43 @@ impl App {
             Message::LibraryOpened(result) => {
                 self.library_ready = true;
 
-                let search = match result {
-                    Ok(settings) => {
-                        self.settings = *settings;
+                match result {
+                    Ok(startup) => {
+                        let StartupLibrary {
+                            settings,
+                            mut songs,
+                            song_count,
+                            bibles,
+                            bible_index,
+                        } = *startup;
+                        self.settings = settings;
                         style::set_shadows(self.settings.general.shadows);
                         self.schedule.recompile(&self.settings.styles);
                         self.bible.set_style(&self.settings.styles.scripture);
                         self.resolve_monitor();
-                        Task::batch([self.search_songs(), self.count_songs(), self.load_bibles()])
+
+                        self.songs_truncated = songs.len() > SONG_LIMIT;
+                        songs.truncate(SONG_LIMIT);
+                        self.song_results = songs;
+                        self.song_results_query = Box::default();
+                        self.song_count = Some(song_count);
+
+                        let _ = self.bible.set_bibles(bibles);
+                        if let Some((bible, index)) = bible_index {
+                            self.bible.set_index(bible, index);
+                        }
                     }
                     Err(error) => {
                         self.library_unavailable = Some(sentence(t().notice.library_body, &error));
                         self.notify(Notice::Library);
-                        Task::none()
                     }
-                };
+                }
 
-                Task::batch([search, self.leave_splash(), self.startup_output()])
+                Task::batch([self.leave_splash(), self.startup_output()])
             }
 
             Message::RecoveryLoaded(result) => {
+                self.recovery_loaded = true;
                 match result {
                     Ok(Some(items)) if self.schedule.is_empty() => {
                         self.schedule.restore(items, &self.settings.styles);
@@ -379,7 +417,11 @@ impl App {
                 }
 
                 self.recovery.activate();
-                Task::none()
+                self.leave_splash()
+            }
+            Message::FontsLoaded => {
+                self.fonts_loaded = true;
+                self.leave_splash()
             }
 
             Message::DisplaysRequested => {
@@ -1309,8 +1351,9 @@ impl App {
         ];
 
         match self.phase {
-            Phase::Splash if self.splash_ready => subscriptions
-                .push(iced::time::every(SPLASH_MINIMUM).map(|_| Message::SplashElapsed)),
+            Phase::Splash if self.splash_ready => {
+                subscriptions.push(iced::time::every(SPLASH_STEP).map(|_| Message::SplashElapsed))
+            }
             Phase::Splash => {}
             Phase::Operator if self.modal.is_some() => {
                 subscriptions.push(event::listen_with(|event, status, _window| {
@@ -1387,19 +1430,29 @@ impl App {
     }
 
     fn splash_status(&self) -> (&'static str, usize) {
-        if !self.displays_loaded {
-            (t().app.checking_screens, 0)
-        } else if !self.library_ready {
-            (t().app.opening_library, 1)
-        } else {
-            (t().app.preparing_window, 2)
+        match self.splash_step {
+            0 => (t().app.checking_screens, 0),
+            1 => (t().app.opening_library, 1),
+            _ => (t().app.preparing_window, 2),
         }
     }
 
     fn leave_splash(&mut self) -> Task<Message> {
+        if self.splash_waiting {
+            if self.splash_step == 0 && self.displays_loaded {
+                self.splash_step = 1;
+                self.splash_waiting = false;
+            } else if self.splash_step == 1 && self.library_ready {
+                self.splash_step = 2;
+                self.splash_waiting = false;
+            }
+        }
+
         if self.phase != Phase::Splash
             || !self.displays_loaded
             || !self.library_ready
+            || !self.recovery_loaded
+            || !self.fonts_loaded
             || !self.splash_elapsed
         {
             return Task::none();
@@ -2006,6 +2059,27 @@ impl App {
 // the event loop, including the projector output window.
 fn load_displays() -> Task<Message> {
     work::background(display::all).map(Message::DisplaysLoaded)
+}
+
+fn startup_library(
+    library: &mut sdw_library::Library,
+) -> Result<Box<StartupLibrary>, sdw_library::Error> {
+    let settings = library.settings()?;
+    let songs = library.search_songs("", SONG_LIMIT + 1)?;
+    let song_count = library.song_count()?;
+    let bibles = library.bibles()?;
+    let bible_index = match bibles.first() {
+        Some(bible) => Some((bible.id, library.bible_index(bible.id)?)),
+        None => None,
+    };
+
+    Ok(Box::new(StartupLibrary {
+        settings,
+        songs,
+        song_count,
+        bibles,
+        bible_index,
+    }))
 }
 
 fn same_screen(old: &[Display], new: &[Display], id: u32) -> Option<u32> {
@@ -3249,7 +3323,7 @@ mod tests {
             let mut settings = sdw_core::Settings::default();
             settings.general.open_output_on_startup = true;
             settings.output.monitor = Some(screen(9, "Projector").preference());
-            let _ = app.update(Message::LibraryOpened(Ok(Box::new(settings))));
+            let _ = app.update(Message::LibraryOpened(Ok(Box::new(settings.into()))));
             let _ = app.update(Message::DisplaysLoaded(Ok(displays)));
             let _ = app.update(Message::ControlOpened);
             assert_eq!(app.selected, None);
@@ -3593,7 +3667,7 @@ mod tests {
             let mut settings = sdw_core::Settings::default();
             settings.output.monitor = Some(remembered.preference());
             settings.general.open_output_on_startup = true;
-            let preferences = Message::LibraryOpened(Ok(Box::new(settings)));
+            let preferences = Message::LibraryOpened(Ok(Box::new(settings.into())));
             let displays = Message::DisplaysLoaded(Ok(vec![screen(2, "Operator"), remembered]));
             let (first, second) = if preferences_first {
                 (preferences, displays)
@@ -4240,6 +4314,105 @@ mod tests {
             panic!("expected SaveSettings");
         };
         assert_eq!(saved.general.ui_scale, 110);
+    }
+
+    #[test]
+    fn splash_steps_advance_from_one_to_three_even_when_preloads_finish_early() {
+        use super::Phase;
+
+        let mut app = App::default();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(1, "HDMI-1")])));
+        let _ = app.update(Message::LibraryOpened(Ok(Box::default())));
+        let _ = app.update(Message::RecoveryLoaded(Ok(None)));
+        let _ = app.update(Message::FontsLoaded);
+        let _ = app.update(Message::SplashOpened);
+
+        assert_eq!(app.phase, Phase::Splash);
+        assert_eq!(app.splash_status(), (t().app.checking_screens, 0));
+
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.phase, Phase::Splash);
+        assert_eq!(app.splash_status(), (t().app.opening_library, 1));
+
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.phase, Phase::Splash);
+        assert_eq!(app.splash_status(), (t().app.preparing_window, 2));
+
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.phase, Phase::Operator);
+        assert!(app.control.is_some());
+    }
+
+    #[test]
+    fn splash_waits_for_displays_library_snapshot_recovery_and_fonts_before_leaving() {
+        use super::{Phase, startup_library};
+
+        let mut library = Library::open_in_memory().unwrap();
+        for index in 0..=super::SONG_LIMIT {
+            library
+                .insert_song(&Song::new(&format!("Song {index:03}"), "one", None))
+                .unwrap();
+        }
+        let report = library
+            .import_zefania(
+                b"<XMLBIBLE><BIBLEBOOK bnumber=\"43\"><CHAPTER cnumber=\"3\">\
+                <VERS vnumber=\"16\">one</VERS></CHAPTER></BIBLEBOOK></XMLBIBLE>"
+                    .as_slice(),
+                "TB",
+            )
+            .unwrap();
+        let snapshot = startup_library(&mut library).unwrap();
+
+        let mut app = App::default();
+        let _ = app.update(Message::SplashOpened);
+        assert_eq!(app.splash_status(), (t().app.checking_screens, 0));
+
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.splash_status(), (t().app.checking_screens, 0));
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(1, "HDMI-1")])));
+        assert_eq!(app.splash_status(), (t().app.opening_library, 1));
+
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.splash_status(), (t().app.opening_library, 1));
+
+        let _ = app.update(Message::LibraryOpened(Ok(snapshot)));
+        assert_eq!(app.splash_status(), (t().app.preparing_window, 2));
+        assert!(app.songs_truncated);
+        assert_eq!(app.song_results.len(), super::SONG_LIMIT);
+        assert_eq!(app.song_count, Some(super::SONG_LIMIT + 1));
+        assert_eq!(app.bible.bibles(), &[report.bible]);
+        assert!(app.bible.index_target().is_none());
+
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.phase, Phase::Splash);
+
+        let _ = app.update(Message::RecoveryLoaded(Ok(None)));
+        assert_eq!(app.phase, Phase::Splash);
+
+        let _ = app.update(Message::FontsLoaded);
+        assert_eq!(app.phase, Phase::Operator);
+        assert!(app.control.is_some());
+    }
+
+    #[test]
+    fn unavailable_library_does_not_block_splash_progression() {
+        use super::Phase;
+
+        let mut app = App::default();
+        let _ = app.update(Message::SplashOpened);
+        let _ = app.update(Message::DisplaysLoaded(Err("no displays".into())));
+        let _ = app.update(Message::LibraryOpened(Err("corrupt".into())));
+        let _ = app.update(Message::RecoveryLoaded(Ok(None)));
+        let _ = app.update(Message::FontsLoaded);
+
+        assert_eq!(app.splash_status(), (t().app.checking_screens, 0));
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.splash_status(), (t().app.opening_library, 1));
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.splash_status(), (t().app.preparing_window, 2));
+        let _ = app.update(Message::SplashElapsed);
+        assert_eq!(app.phase, Phase::Operator);
     }
 }
 
