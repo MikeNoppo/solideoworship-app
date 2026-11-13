@@ -1,5 +1,6 @@
 mod form;
 mod labels;
+mod transitions;
 mod view;
 
 use iced::widget::{
@@ -14,7 +15,9 @@ use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
     BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
 };
+use sdw_core::transition::{TransitionMode, TransitionSettings};
 use sdw_core::{ScheduleItem, Settings, Song};
+pub use transitions::TransitionTarget;
 
 use crate::display::Display;
 
@@ -90,15 +93,17 @@ pub enum Category {
     Song,
     Scripture,
     Labels,
+    Transitions,
 }
 
 impl Category {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::General,
         Self::Output,
         Self::Song,
         Self::Scripture,
         Self::Labels,
+        Self::Transitions,
     ];
 
     fn kind(self) -> Option<ContentKind> {
@@ -201,6 +206,7 @@ struct Captions {
 pub struct ThemeDialog {
     draft: Settings,
     labels: Vec<LabelDraft>,
+    durations: [String; 3],
     preview_settings: Settings,
     overflow: bool,
     guides: bool,
@@ -258,6 +264,8 @@ pub enum Message {
     MaxChars(u16),
     Shadows(bool),
     SlideSelected(usize),
+    TransitionMode(TransitionTarget, TransitionMode),
+    TransitionDuration(TransitionTarget, String),
     LabelChanged(usize, LabelField, String),
     AddLabel,
     DeleteLabel(usize),
@@ -296,6 +304,7 @@ impl ThemeDialog {
         let mut dialog = Self {
             draft: settings.clone(),
             labels: Vec::new(),
+            durations: Default::default(),
             preview_settings: settings.clone().clamped(),
             overflow: false,
             guides: true,
@@ -345,6 +354,17 @@ impl ThemeDialog {
             self.error = None;
         }
         match message {
+            Message::TransitionMode(target, mode) => {
+                target.get_mut(&mut self.draft.transitions).mode = mode;
+                return Action::None;
+            }
+            Message::TransitionDuration(target, value) => {
+                if let Ok(duration) = value.parse() {
+                    target.get_mut(&mut self.draft.transitions).duration_ms = duration;
+                }
+                self.durations[target.index()] = value;
+                return Action::None;
+            }
             Message::LabelChanged(index, field, value) => {
                 if let Some(label) = self.labels.get_mut(index) {
                     *field.get_mut(label) = value;
@@ -485,6 +505,10 @@ impl ThemeDialog {
             Message::Reset => {
                 let defaults = Settings::default();
                 match self.category {
+                    Category::Transitions => {
+                        self.draft.transitions = defaults.transitions;
+                        self.sync_transitions();
+                    }
                     Category::Labels => {
                         self.draft.labels = defaults.labels;
                         self.sync_labels();
@@ -505,6 +529,10 @@ impl ThemeDialog {
                 }
             }
             Message::Save | Message::Apply => {
+                if !self.valid_transition_durations() {
+                    self.error = Some(t().settings.invalid_transitions.into());
+                    return Action::None;
+                }
                 match self.validated_labels() {
                     Ok(labels) => self.draft.labels = labels,
                     Err(error) => {
@@ -555,6 +583,7 @@ impl ThemeDialog {
         self.error = None;
         self.sync_margins();
         self.sync_labels();
+        self.sync_transitions();
         self.sync_hex(ContentKind::Song);
         self.sync_hex(ContentKind::Scripture);
         self.recompile();
@@ -704,6 +733,112 @@ mod tests {
         let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
         let _ = dialog.update(Message::CategorySelected(Category::Song));
         dialog
+    }
+
+    #[test]
+    fn transition_modes_preserve_independent_durations_and_reject_invalid_raw_text() {
+        use super::TransitionTarget;
+        use sdw_core::transition::TransitionMode;
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Slides,
+            TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Slides,
+            "850".into(),
+        ));
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Slides,
+            TransitionMode::Cut,
+        ));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Black,
+            "550x".into(),
+        ));
+        let _ = dialog.update(Message::CategorySelected(Category::General));
+        assert_eq!(dialog.update(Message::Apply), Action::None);
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Black,
+            "650".into(),
+        ));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected independent transition preferences");
+        };
+        assert_eq!(saved.transitions.slides.mode, TransitionMode::Cut);
+        assert_eq!(saved.transitions.slides.duration_ms, 850);
+        assert_eq!(saved.transitions.black.duration_ms, 650);
+        assert_eq!(saved.transitions.clear.duration_ms, 500);
+    }
+
+    #[test]
+    fn label_conflicts_and_malformed_aliases_or_shortcuts_block_saving() {
+        use super::LabelField;
+        for (field, value) in [
+            (LabelField::Name, "Chorus"),
+            (LabelField::Aliases, "new name, Chorus"),
+            (LabelField::Aliases, "valid,"),
+            (LabelField::Shortcut, "C"),
+            (LabelField::Shortcut, "vv"),
+            (LabelField::Shortcut, "v"),
+            (LabelField::Shortcut, "1"),
+        ] {
+            let mut dialog = dialog();
+            let _ = dialog.update(Message::LabelChanged(0, field, value.into()));
+            assert_eq!(dialog.update(Message::Apply), Action::None);
+        }
+    }
+
+    #[test]
+    fn label_add_delete_and_category_reset_preserve_unrelated_settings() {
+        use super::LabelField;
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::OpenAtStartup(true));
+        let _ = dialog.update(Message::DeleteLabel(0));
+        let _ = dialog.update(Message::AddLabel);
+        let _ = dialog.update(Message::LabelChanged(7, LabelField::Name, "Solo".into()));
+        let _ = dialog.update(Message::LabelChanged(
+            7,
+            LabelField::Aliases,
+            "Instrumental, Soloist".into(),
+        ));
+        let _ = dialog.update(Message::LabelChanged(7, LabelField::Shortcut, "S".into()));
+        let Action::SaveSettings(saved, false) = dialog.update(Message::Apply) else {
+            panic!("expected added label to save");
+        };
+        assert_eq!(saved.labels.rules.len(), 8);
+        assert_eq!(&*saved.labels.rules[7].name, "Solo");
+        assert_eq!(saved.labels.rules[7].shortcut, Some('S'));
+        let _ = dialog.update(Message::DeleteLabel(7));
+        dialog.saved(&saved);
+        let _ = dialog.update(Message::CategorySelected(Category::Labels));
+        let _ = dialog.update(Message::Reset);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected reset label settings");
+        };
+        assert_eq!(saved.labels, sdw_core::labels::LabelSettings::default());
+        assert!(saved.general.open_output_on_startup);
+    }
+
+    #[test]
+    fn transition_reset_restores_only_transitions_and_clears_invalid_duration() {
+        use super::TransitionTarget;
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::LicenseChanged("CCLI 123".into()));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Slides,
+            "invalid".into(),
+        ));
+        let _ = dialog.update(Message::CategorySelected(Category::Transitions));
+        let _ = dialog.update(Message::Reset);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected reset transition settings");
+        };
+        assert_eq!(
+            saved.transitions,
+            sdw_core::transition::TransitionSettings::default()
+        );
+        assert_eq!(&*saved.styles.song.license, "CCLI 123");
     }
 
     #[test]

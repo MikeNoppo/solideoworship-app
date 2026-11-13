@@ -14,7 +14,8 @@ use sdw_library::schedule_file::ScheduleFileError;
 
 use crate::message::LibraryTab;
 use crate::report;
-use crate::theme_dialog::{Category, ColorSlot, FontSlot, MarginSide};
+use crate::theme_dialog::{Category, ColorSlot, FontSlot, MarginSide, TransitionTarget};
+use sdw_core::transition::TransitionMode;
 
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 
@@ -160,6 +161,7 @@ impl Label for Category {
             Self::Song => t().settings.song,
             Self::Scripture => t().settings.scripture,
             Self::Labels => t().settings.labels,
+            Self::Transitions => t().settings.transitions,
         }
     }
 }
@@ -211,7 +213,8 @@ pub trait Localize {
 impl Localize for SettingsError {
     fn localize(&self) -> String {
         match self {
-            Self::InvalidValues | Self::InvalidTransitions => t().settings.invalid_values.into(),
+            Self::InvalidValues => t().settings.invalid_values.into(),
+            Self::InvalidTransitions => t().settings.invalid_transitions.into(),
             Self::InvalidLabels => t().settings.invalid_labels.into(),
             Self::ConflictingLabels => t().settings.conflicting_labels.into(),
             Self::EmptyContentArea => t().settings.empty_area.into(),
@@ -348,6 +351,25 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 
     filled.push_str(rest);
     filled
+}
+
+impl Label for TransitionMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Cut => t().settings.cut,
+            Self::Fade => t().settings.fade,
+        }
+    }
+}
+
+impl Label for TransitionTarget {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Slides => t().settings.transition_slides,
+            Self::Black => t().settings.transition_black,
+            Self::Clear => t().settings.transition_clear,
+        }
+    }
 }
 
 #[cfg(test)]

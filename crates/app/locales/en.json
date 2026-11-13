@@ -458,6 +458,16 @@
     "labels_limit": "Up to 32 labels, 8 aliases each, and 64 characters per name or alias. Names, aliases and shortcuts must not conflict with another label.",
     "add_label": "Add label",
     "invalid_labels": "Check song labels: names and aliases need 1–64 characters, at most 8 aliases, a six-digit hex color, and a blank or single uppercase A–Z shortcut.",
-    "conflicting_labels": "Two song labels share a name, alias or shortcut. Use distinct values before saving."
+    "conflicting_labels": "Two song labels share a name, alias or shortcut. Use distinct values before saving.",
+    "transitions": "Transitions",
+    "cut": "Cut",
+    "fade": "Fade",
+    "transition_slides": "Slide changes",
+    "transition_black": "Black / return to Show",
+    "transition_clear": "Clear / return to Show",
+    "fade_hint": "Fade dims the outgoing text, then brings in the next text while blending the solid background.",
+    "duration_hint": "Fade duration: 100–2000 ms, in steps of 50. Cut keeps the remembered duration.",
+    "milliseconds": "ms",
+    "invalid_transitions": "Enter transition durations from 100 to 2000 ms in steps of 50."
   }
 }

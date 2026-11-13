@@ -69,6 +69,7 @@ impl ThemeDialog {
                         Category::Song => icon::MUSIC,
                         Category::Scripture => icon::BOOK_OPEN,
                         Category::Labels => icon::TAG,
+                        Category::Transitions => icon::PLAY,
                     };
                     let selected = self.category == category;
                     list.push(

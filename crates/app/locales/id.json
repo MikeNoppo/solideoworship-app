@@ -458,6 +458,16 @@
     "labels_limit": "Maksimal 32 label, 8 alias per label, dan 64 karakter per nama atau alias. Nama, alias, dan tombol tidak boleh bertentangan dengan label lain.",
     "add_label": "Tambah label",
     "invalid_labels": "Periksa label lagu: nama dan alias harus 1–64 karakter, maksimal 8 alias, warna hex enam digit, dan tombol kosong atau satu huruf besar A–Z.",
-    "conflicting_labels": "Dua label lagu memiliki nama, alias, atau tombol yang sama. Gunakan nilai berbeda sebelum menyimpan."
+    "conflicting_labels": "Dua label lagu memiliki nama, alias, atau tombol yang sama. Gunakan nilai berbeda sebelum menyimpan.",
+    "transitions": "Transisi",
+    "cut": "Langsung",
+    "fade": "Pudar",
+    "transition_slides": "Pergantian slide",
+    "transition_black": "Hitam / kembali ke Tampil",
+    "transition_clear": "Kosong / kembali ke Tampil",
+    "fade_hint": "Pudar meredupkan teks sebelumnya, lalu menampilkan teks berikutnya sambil memadukan warna latar polos.",
+    "duration_hint": "Durasi Pudar: 100–2000 md, kelipatan 50. Langsung tetap mengingat durasi.",
+    "milliseconds": "md",
+    "invalid_transitions": "Masukkan durasi transisi dari 100 hingga 2000 md dalam kelipatan 50."
   }
 }
