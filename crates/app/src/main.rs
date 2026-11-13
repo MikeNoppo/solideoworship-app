@@ -1780,6 +1780,42 @@ mod tests {
     }
 
     #[test]
+    fn applied_labels_refresh_operator_rules_without_recompiling_live_or_source() {
+        let mut app = live_song();
+        let live = app.live.as_ref().unwrap().share();
+        let revision = app.schedule.revision();
+        let original_theme = app.live_theme.clone();
+        let mut settings = app.settings.clone();
+        settings.labels.rules[0].color = sdw_core::theme::Rgb::from_rgb8(250, 230, 30);
+        settings.labels.rules[0].shortcut = Some('Z');
+        let _ = app.apply_settings(settings);
+        for index in [0, 1, 3] {
+            let rule = crate::panes::label_rule(&live, index, &app.settings.labels).unwrap();
+            assert_eq!(rule.color, sdw_core::theme::Rgb::from_rgb8(250, 230, 30));
+        }
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        let _ = app.update(Message::SectionShortcutChecked(
+            'Z',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+        assert!(std::sync::Arc::ptr_eq(
+            &live,
+            &app.live.as_ref().unwrap().share()
+        ));
+        assert_eq!(app.schedule.revision(), revision);
+        assert_eq!(app.live_theme, original_theme);
+    }
+
+    #[test]
     fn new_without_changes_does_not_ask() {
         let mut app = App::default();
 

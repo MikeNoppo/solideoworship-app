@@ -17,6 +17,7 @@ use crate::panes::{Card, slide_card};
 use crate::render::slide::{self, Visibility};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
+use sdw_core::labels::LabelSettings;
 
 pub const TITLE_INPUT: &str = "editor-title";
 
@@ -193,7 +194,11 @@ impl Editor {
         self.confirm_delete = false;
     }
 
-    pub fn view<'a>(&'a self, theme: &'a SlideTheme) -> Element<'a, Message> {
+    pub fn view<'a>(
+        &'a self,
+        theme: &'a SlideTheme,
+        labels: &'a LabelSettings,
+    ) -> Element<'a, Message> {
         let (title, subtitle) = if self.origin.is_some() {
             (t().editor.edit_title, t().editor.edit_subtitle)
         } else {
@@ -203,7 +208,12 @@ impl Editor {
         ui::sheet(
             column![
                 ui::sheet_header(title, subtitle, Message::Cancel),
-                row![self.form(), ui::line(style::BORDER), self.slides(theme)].height(Fill),
+                row![
+                    self.form(),
+                    ui::line(style::BORDER),
+                    self.slides(theme, labels)
+                ]
+                .height(Fill),
                 ui::sheet_footer(self.footer()),
             ],
             SHEET_WIDTH,
@@ -297,7 +307,11 @@ impl Editor {
         .into()
     }
 
-    fn slides<'a>(&'a self, theme: &'a SlideTheme) -> Element<'a, Message> {
+    fn slides<'a>(
+        &'a self,
+        theme: &'a SlideTheme,
+        labels: &'a LabelSettings,
+    ) -> Element<'a, Message> {
         let stage_height = ((SLIDES_WIDTH - SLIDES_PADDING * 2.0) / theme.layout.ratio()).round();
         let header = row![
             label(t().editor.slides, 13.0, style::SEMIBOLD, style::TEXT).width(Fill),
@@ -339,6 +353,7 @@ impl Editor {
                             cells.push(slide_card(
                                 Card {
                                     slide: item,
+                                    label_rule: crate::panes::label_rule(&self.deck, index, labels),
                                     theme,
                                     number: ui::number(index + 1),
                                     width,
