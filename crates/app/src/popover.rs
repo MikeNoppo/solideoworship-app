@@ -5,10 +5,11 @@ use iced::{
     Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard, mouse,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Align {
     Start,
     End,
+    At(Point),
 }
 
 pub struct Popover<'a, Message> {
@@ -202,15 +203,25 @@ impl<Message: Clone> overlay::Overlay<Message, Theme, Renderer> for Popup<'_, '_
         );
         let size = node.size();
 
-        let x = match self.align {
-            Align::Start => self.anchor.x,
-            Align::End => self.anchor.x + self.anchor.width - size.width,
+        let position = match self.align {
+            Align::Start => Point::new(
+                self.anchor
+                    .x
+                    .clamp(0.0, (bounds.width - size.width).max(0.0)),
+                (self.anchor.y + self.anchor.height + self.gap)
+                    .min((bounds.height - size.height).max(0.0)),
+            ),
+            Align::End => Point::new(
+                (self.anchor.x + self.anchor.width - size.width)
+                    .clamp(0.0, (bounds.width - size.width).max(0.0)),
+                (self.anchor.y + self.anchor.height + self.gap)
+                    .min((bounds.height - size.height).max(0.0)),
+            ),
+            Align::At(point) => Point::new(
+                point.x.clamp(0.0, (bounds.width - size.width).max(0.0)),
+                point.y.clamp(0.0, (bounds.height - size.height).max(0.0)),
+            ),
         };
-        let position = Point::new(
-            x.clamp(0.0, (bounds.width - size.width).max(0.0)),
-            (self.anchor.y + self.anchor.height + self.gap)
-                .min((bounds.height - size.height).max(0.0)),
-        );
 
         node.move_to(position)
     }
@@ -285,5 +296,160 @@ impl<Message: Clone> overlay::Overlay<Message, Theme, Renderer> for Popup<'_, '_
             &layout.bounds(),
             renderer,
         )
+    }
+}
+
+pub struct RightClick<'a, Message> {
+    content: Element<'a, Message>,
+    on_press: Box<dyn Fn(Point) -> Message + 'a>,
+}
+
+pub fn right_click<'a, Message>(
+    content: impl Into<Element<'a, Message>>,
+    on_press: impl Fn(Point) -> Message + 'a,
+) -> RightClick<'a, Message> {
+    RightClick {
+        content: content.into(),
+        on_press: Box::new(on_press),
+    }
+}
+
+impl<Message: 'static> Widget<Message, Theme, Renderer> for RightClick<'_, Message> {
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+
+        if !shell.is_event_captured()
+            && matches!(
+                event,
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
+            )
+            && let Some(position) = cursor.position()
+            && layout
+                .bounds()
+                .intersection(viewport)
+                .is_some_and(|visible| visible.contains(position))
+        {
+            shell.publish((self.on_press)(position));
+            shell.capture_event();
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a, Message: 'static> From<RightClick<'a, Message>> for Element<'a, Message> {
+    fn from(right_click: RightClick<'a, Message>) -> Self {
+        Self::new(right_click)
     }
 }
