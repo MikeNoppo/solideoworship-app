@@ -2085,7 +2085,7 @@ mod tests {
             app.live_frame().background,
             app.settings.output.logo_background
         );
-        assert!(!app.captions.mode_hint.is_empty());
+        assert!(app.captions.mode_hint.contains(t().slides.logo_ready_hint));
 
         let _ = app.update(toggle_logo.clone());
         assert_eq!(app.output_state, OutputState::Show);
@@ -2100,6 +2100,8 @@ mod tests {
         let _ = app.update(toggle_logo);
         assert_eq!(app.output_state, OutputState::Logo);
         assert!(app.has_animation());
+        assert!(app.captions.mode_hint.contains("1"));
+        assert!(!app.captions.mode_hint.contains(t().slides.logo_ready_hint));
     }
 
     #[test]

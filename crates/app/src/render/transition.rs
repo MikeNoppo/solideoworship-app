@@ -504,8 +504,30 @@ mod tests {
         assert_eq!(playback.frame().body_opacity, 0.0);
         playback.advance(now + Duration::from_millis(2000));
         assert_eq!(playback.frame().logo_opacity, 0.0);
-        assert!(playback.retarget(logo, fade(), now + Duration::from_millis(2000)));
+        assert!(playback.retarget(logo.clone(), fade(), now + Duration::from_millis(2000)));
         playback.advance(now + Duration::from_millis(2250));
         assert_eq!(playback.frame().logo_opacity, 0.25);
+
+        playback.advance(now + Duration::from_millis(3000));
+        let mut moved_slide = logo.clone();
+        moved_slide.presentation = Some(
+            Presentation::new(Arc::new(SlideDeck {
+                title: "Other".into(),
+                kind: ContentKind::Song,
+                sections: Vec::new(),
+                slides: vec![Slide {
+                    body: "Second".into(),
+                    label: None,
+                    header: None,
+                    footer: None,
+                }],
+            }))
+            .unwrap(),
+        );
+        assert!(!playback.retarget(moved_slide, fade(), now + Duration::from_millis(3000)));
+
+        let mut other_bg = logo;
+        other_bg.logo_background = Rgb::new(0.1, 0.1, 0.1);
+        assert!(playback.retarget(other_bg, fade(), now + Duration::from_millis(3000)));
     }
 }
