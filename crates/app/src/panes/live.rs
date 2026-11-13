@@ -6,7 +6,7 @@ use crate::App;
 use crate::i18n::{Label, t};
 use crate::icon;
 use crate::message::{Message, Step};
-use crate::panes::columns;
+use crate::panes::{columns, label_chip, label_rule};
 use crate::render::slide::{self, Visibility};
 use crate::style::{self, Tone};
 use crate::ui::{self, label, wide_action};
@@ -305,7 +305,15 @@ fn slide_row<'a>(
             },
         ),
         column![
-            label(section, 10.0, style::SEMIBOLD, style::TEXT_3),
+            label_chip(
+                section,
+                10.0,
+                app.live.as_ref().and_then(|live| label_rule(
+                    live.deck(),
+                    index,
+                    &app.settings.labels
+                )),
+            ),
             label(
                 first_line,
                 13.0,

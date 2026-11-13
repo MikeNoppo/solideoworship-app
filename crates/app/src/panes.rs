@@ -10,7 +10,8 @@ pub mod welcome;
 
 use iced::widget::{button, column, container, row};
 use iced::{Border, Center, Element, Fill};
-use sdw_core::slide::Slide;
+use sdw_core::labels::{LabelRule, LabelSettings};
+use sdw_core::slide::{ContentKind, Slide, SlideDeck};
 use sdw_core::theme::SlideTheme;
 
 use crate::i18n::t;
@@ -56,8 +57,36 @@ pub fn live_badge<'a, M: 'a>() -> Element<'a, M> {
 
 const FRAME: f32 = 2.0;
 
+pub fn label_rule<'a>(
+    deck: &SlideDeck,
+    index: usize,
+    labels: &'a LabelSettings,
+) -> Option<&'a LabelRule> {
+    (deck.kind == ContentKind::Song)
+        .then(|| deck.section_at(index))
+        .flatten()
+        .and_then(|section| labels.rule_for(&section.name))
+}
+
+pub fn label_chip<'a, M: 'a>(
+    caption: &'a str,
+    size: f32,
+    rule: Option<&LabelRule>,
+) -> Element<'a, M> {
+    let foreground = rule.map_or(style::TEXT_3, |rule| slide::color(rule.foreground()));
+    let chip = container(ui::label(caption, size, style::SEMIBOLD, foreground));
+    match rule {
+        Some(rule) => chip
+            .padding([1, 5])
+            .style(style::rounded(slide::color(rule.color), 4.0))
+            .into(),
+        None => chip.into(),
+    }
+}
+
 pub struct Card<'a> {
     pub slide: &'a Slide,
+    pub label_rule: Option<&'a LabelRule>,
     pub theme: &'a SlideTheme,
     pub number: &'a str,
     pub width: f32,
@@ -96,15 +125,14 @@ pub fn slide_card<'a, M: Clone + 'a>(card: Card<'a>, on_press: M) -> Element<'a,
 
     let caption = row![
         ui::label(card.number, number_size, style::SEMIBOLD, style::TEXT_3),
-        ui::label(
+        container(label_chip(
             card.slide
                 .label
                 .as_deref()
                 .unwrap_or(t().slides.fallback_label),
             label_size,
-            style::MEDIUM,
-            style::TEXT_2,
-        )
+            card.label_rule,
+        ))
         .width(Fill),
     ]
     .push(card.is_live.then(live_badge))

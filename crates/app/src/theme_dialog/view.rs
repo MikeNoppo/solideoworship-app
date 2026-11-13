@@ -125,6 +125,11 @@ impl ThemeDialog {
                         cells.push(slide_card(
                             Card {
                                 slide: item,
+                                label_rule: crate::panes::label_rule(
+                                    &self.deck,
+                                    index,
+                                    &self.preview_settings.labels,
+                                ),
                                 theme,
                                 number: ui::number(index + 1),
                                 width: card_width,

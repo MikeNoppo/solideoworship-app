@@ -12,6 +12,18 @@ pub fn color(rgb: Rgb) -> Color {
     Color::from_rgb(rgb.r, rgb.g, rgb.b)
 }
 
+pub fn color_with_opacity(rgb: Rgb, opacity: f32) -> Color {
+    let opacity = if opacity.is_finite() {
+        opacity.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    Color {
+        a: opacity,
+        ..color(rgb)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Visibility {
     pub background: bool,
@@ -36,7 +48,7 @@ pub fn stage<'a, Message>(
 where
     Message: 'a,
 {
-    stage_content(slide, theme, visibility, false)
+    stage_content(slide, theme, visibility, false, None)
 }
 
 pub fn stage_with_guides<'a, Message>(
@@ -47,7 +59,22 @@ pub fn stage_with_guides<'a, Message>(
 where
     Message: 'a,
 {
-    stage_content(slide, theme, visibility, true)
+    stage_content(slide, theme, visibility, true, None)
+}
+
+pub fn stage_sampled<'a, Message: 'a>(
+    slide: Option<&'a Slide>,
+    theme: &'a SlideTheme,
+    body_opacity: f32,
+    background: Rgb,
+) -> Element<'a, Message> {
+    stage_content(
+        slide,
+        theme,
+        Visibility::FULL,
+        false,
+        Some((body_opacity, background)),
+    )
 }
 
 fn stage_content<'a, Message>(
@@ -55,13 +82,19 @@ fn stage_content<'a, Message>(
     theme: &'a SlideTheme,
     visibility: Visibility,
     guides: bool,
+    appearance: Option<(f32, Rgb)>,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
     responsive(move |size| {
         let width = size.width.min(size.height * theme.layout.ratio());
-        let canvas = canvas(slide, theme, visibility, width, 0.0);
+        let canvas = match appearance {
+            Some((opacity, background)) => {
+                canvas_sampled(slide, theme, width, 0.0, opacity, background)
+            }
+            None => canvas(slide, theme, visibility, width, 0.0),
+        };
 
         let content =
             if guides {
@@ -105,24 +138,41 @@ fn canvas<'a, Message>(
 where
     Message: 'a,
 {
+    canvas_sampled(
+        slide,
+        theme,
+        width,
+        radius,
+        if visibility.body { 1.0 } else { 0.0 },
+        if visibility.background {
+            theme.background
+        } else {
+            Rgb::new(0.0, 0.0, 0.0)
+        },
+    )
+}
+
+fn canvas_sampled<'a, Message: 'a>(
+    slide: Option<&'a Slide>,
+    theme: &'a SlideTheme,
+    width: f32,
+    radius: f32,
+    body_opacity: f32,
+    background: Rgb,
+) -> Element<'a, Message> {
     // Every theme size is expressed on a 1920x1080 canvas and scaled once here.
     // That is why a 160 px thumbnail and a 1920 px projector share the same layout.
     let scale = width / CANVAS_WIDTH;
     let height = width / theme.layout.ratio();
-
-    let background = if visibility.background {
-        color(theme.background)
-    } else {
-        Color::BLACK
-    };
+    let background = color(background);
 
     let area = theme.layout.content_area(theme.margin);
     let body = slide
-        .filter(|_| visibility.body && area.is_some())
+        .filter(|_| body_opacity > 0.0 && area.is_some())
         .map(|slide| {
             runs(slide, theme).fold(
                 Column::new().spacing(theme.footer_size * scale).width(Fill),
-                |lines, run| lines.push(run.widget(scale)),
+                |lines, run| lines.push(run.widget(scale, body_opacity)),
             )
         });
     let margins = theme.layout.margins;
@@ -190,12 +240,12 @@ struct Run<'a> {
 }
 
 impl<'a> Run<'a> {
-    fn widget<Message: 'a>(self, scale: f32) -> Element<'a, Message> {
+    fn widget<Message: 'a>(self, scale: f32, opacity: f32) -> Element<'a, Message> {
         text(self.content)
             .font(self.font)
             .size(self.size * scale)
             .line_height(self.line_height)
-            .color(color(self.color))
+            .color(color_with_opacity(self.color, opacity))
             .align_x(self.align)
             .shaping(typography::Shaping::Auto)
             .wrapping(typography::Wrapping::Word)
@@ -286,7 +336,7 @@ mod tests {
     use sdw_core::slide::Slide;
     use sdw_core::theme::SlideTheme;
 
-    use super::overflows;
+    use super::{color_with_opacity, overflows};
 
     #[test]
     fn complete_text_is_measured_beyond_the_canvas_height() {
@@ -349,5 +399,16 @@ mod tests {
         assert!(overflows(&slide, &theme));
         theme.layout.margins.top = 1080.0;
         assert!(overflows(&slide, &theme));
+    }
+
+    #[test]
+    fn text_opacity_preserves_rgb_and_limits_alpha_to_finite_coverage() {
+        let rgb = sdw_core::theme::Rgb::new(0.25, 0.5, 0.75);
+        let color = color_with_opacity(rgb, 0.5);
+        assert_eq!(color, iced::Color::from_rgba(0.25, 0.5, 0.75, 0.5));
+        assert_eq!(color_with_opacity(rgb, -1.0).a, 0.0);
+        assert_eq!(color_with_opacity(rgb, 2.0).a, 1.0);
+        assert_eq!(color_with_opacity(rgb, f32::NAN).a, 0.0);
+        assert_eq!(color_with_opacity(rgb, f32::INFINITY).a, 0.0);
     }
 }

@@ -19,10 +19,10 @@ pub enum Step {
 }
 
 impl Step {
-    pub fn apply(self, show: &mut Presentation) -> bool {
+    pub fn target_index(self, show: &Presentation) -> Option<usize> {
         match self {
-            Self::Next => show.advance(),
-            Self::Previous => show.rewind(),
+            Self::Next => show.index().checked_add(1),
+            Self::Previous => show.index().checked_sub(1),
         }
     }
 }
@@ -103,6 +103,8 @@ pub enum Message {
     PreviewSlideSelected(usize),
     LiveSlideSelected(usize),
     LiveMoved(Step),
+    SectionShortcutRequested(window::Id, char),
+    SectionShortcutChecked(char, u64, u64, bool),
     GoLive,
 
     LibraryTabSelected(LibraryTab),
@@ -189,6 +191,8 @@ impl Message {
             | Self::PreviewSlideSelected(..)
             | Self::LiveSlideSelected(..)
             | Self::LiveMoved(..)
+            | Self::SectionShortcutRequested(..)
+            | Self::SectionShortcutChecked(..)
             | Self::GoLive
             | Self::LibraryTabSelected(..)
             | Self::SearchChanged(..)
