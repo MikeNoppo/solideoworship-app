@@ -1,10 +1,8 @@
-# 01: Persist label/transition settings and compile real sections
+# 01: Persist label and transition settings
 
-Blocked by: none
-Status: ready-for-agent
+Blocked by: 00
+Status: claimed
 
-Deliver the core/shared contract in ../spec.md: label rules/validation/matching and defaults, transition settings, aggregate persistence preserving v1 data, song section starts and Presentation cycling behavior. Keep all existing callers compiling and legacy source/schedule APIs intact. Minimum i18n variant mapping fixes allowed to keep exhaustive matches compiling. No new UI or runtime wiring.
+Persist the shared contract delivered in 00 through aggregate settings storage, preserving v1 data. Keep existing callers compiling and legacy source/schedule APIs intact. The foundation implementer retains this ticket on feat/settings-p2-foundation; later commits require separate review before integration. No new UI or runtime wiring.
 
-- [ ] Nonempty heading blocks produce correct generic sections; continuations remain one section.
-- [ ] Aliases/numbered labels match and cycle; conflicting/invalid rules are rejected.
 - [ ] New preferences roundtrip and v1 records retain settings; targeted tests/workspace check pass.
