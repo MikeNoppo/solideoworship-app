@@ -1,8 +1,11 @@
-use iced::widget::{Column, button, column, container, hover, row, space, stack, text_input};
+use iced::widget::{
+    Column, Space, button, column, container, hover, row, space, stack, text_input,
+};
 use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_library::SongSummary;
 
 use crate::bible_tab;
+use crate::drag;
 use crate::i18n::{Label, t};
 use crate::message::{LibraryTab, Message};
 use crate::panes::columns;
@@ -409,8 +412,16 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
     };
 
     let is_previewed = app.schedule.previewed_song() == Some(song.id);
+    let tone = if is_previewed {
+        Tone::Selected
+    } else if is_top {
+        Tone::Highlighted
+    } else {
+        Tone::Row
+    };
+    let song_id = song.id;
 
-    let base = button(
+    let base = drag::draggable(
         row![
             icon::view(icon::MUSIC, 14.0, style::TEXT_3),
             label(&song.title, 13.0, style::INTER, style::TEXT).width(Fill),
@@ -423,45 +434,46 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
     .width(Fill)
     .height(40)
     .padding([0, 10])
-    .on_press(Message::SongPreviewed(song.id))
-    .style(style::pressable(
-        if is_previewed {
-            Tone::Selected
-        } else if is_top {
-            Tone::Highlighted
-        } else {
-            Tone::Row
-        },
-        6.0,
-    ));
-    let actions = container(
-        row![
-            ui::hint(
-                icon_button(
-                    icon::PENCIL,
-                    style::TEXT_2,
-                    28.0,
-                    Some(Message::SongEditRequested(song.id)),
-                ),
-                t().library.edit,
-            ),
-            ui::hint(
-                icon_button(
-                    icon::PLUS,
-                    style::TEXT_2,
-                    28.0,
-                    Some(Message::SongPicked(song.id)),
-                ),
-                t().library.add,
-            ),
-        ]
-        .spacing(2),
-    )
-    .padding([0, 6])
-    .center_y(40)
-    .style(style::fill(style::RAISED));
+    .tone(tone)
+    .radius(6.0)
+    .dragging(app.drag.is_some())
+    .on_press(Message::SongPreviewed(song_id))
+    .on_drag(move |position| Message::SongDragStarted(song_id, position));
 
-    hover(base, container(actions).align_right(Fill).center_y(40))
+    let overlay: Element<'_, Message> = if app.drag.is_some() {
+        Space::new().into()
+    } else {
+        let actions = container(
+            row![
+                ui::hint(
+                    icon_button(
+                        icon::PENCIL,
+                        style::TEXT_2,
+                        28.0,
+                        Some(Message::SongEditRequested(song_id)),
+                    ),
+                    t().library.edit,
+                ),
+                ui::hint(
+                    icon_button(
+                        icon::PLUS,
+                        style::TEXT_2,
+                        28.0,
+                        Some(Message::SongPicked(song_id)),
+                    ),
+                    t().library.add,
+                ),
+            ]
+            .spacing(2),
+        )
+        .padding([0, 6])
+        .center_y(40)
+        .style(style::fill(style::RAISED));
+
+        container(actions).align_right(Fill).center_y(40).into()
+    };
+
+    hover(base, overlay)
 }
 
 fn unavailable<'a>() -> Element<'a, Message> {

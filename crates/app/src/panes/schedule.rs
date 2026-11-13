@@ -1,5 +1,5 @@
-use iced::widget::{Column, column, container, mouse_area, opaque, row, space};
-use iced::{Center, Element, Fill, Padding, Point, Top};
+use iced::widget::{Column, Space, column, container, mouse_area, opaque, row, space, stack};
+use iced::{Bottom, Center, Element, Fill, Padding, Point, Top};
 use sdw_core::ContentKind;
 
 use crate::i18n::t;
@@ -10,12 +10,17 @@ use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
 use crate::style;
 use crate::ui::{self, icon_button, label};
-use crate::{App, ScheduleMenu};
+use crate::{App, Drag, ScheduleMenu};
 
 const ROW_HEIGHT: f32 = 52.0;
 const ROW_GAP: f32 = 4.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
+    let song_drop = match &app.drag {
+        Some(Drag::Song { target, .. }) => Some(*target),
+        _ => None,
+    };
+
     let header = row![
         label(t().schedule.title, 13.0, style::SEMIBOLD, style::TEXT),
         space::horizontal(),
@@ -36,39 +41,62 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .align_y(Center);
 
     let body: Element<'_, Message> = if app.schedule.is_empty() {
-        container(ui::empty(
-            icon::LIST_PLUS,
-            true,
-            t().schedule.empty_title,
-            Some(t().schedule.empty_body),
-        ))
+        let is_drop_target = song_drop == Some(Some(0));
+
+        container(
+            container(ui::empty(
+                icon::LIST_PLUS,
+                true,
+                t().schedule.empty_title,
+                Some(t().schedule.empty_body),
+            ))
+            .width(Fill)
+            .padding([24, 16])
+            .style(style::boxed(
+                is_drop_target.then_some(style::SURFACE),
+                if is_drop_target {
+                    style::INVERSE
+                } else {
+                    iced::Color::TRANSPARENT
+                },
+                10.0,
+            )),
+        )
         .padding(Padding {
             top: 0.0,
-            right: 24.0,
+            right: 12.0,
             bottom: 80.0,
-            left: 24.0,
+            left: 12.0,
         })
         .center(Fill)
         .into()
     } else {
+        let len = app.schedule.entries().len();
+        let last = len - 1;
+        let drop_target = song_drop.flatten();
         let rows = app
             .schedule
             .entries()
             .iter()
             .enumerate()
             .fold(Column::new().spacing(ROW_GAP), |list, (index, entry)| {
-                list.push(item(app, index, entry))
+                list.push(item(app, index, entry, last, drop_target))
             });
 
-        let last = app.schedule.entries().len() - 1;
-        let rows = mouse_area(rows).on_exit(Message::RowHovered(None));
-        let rows = if app.drag.is_some() {
-            rows.on_move(move |position| {
+        let rows = mouse_area(rows).on_exit(if song_drop.is_some() {
+            Message::SongDropTarget(Some(len))
+        } else {
+            Message::RowHovered(None)
+        });
+        let rows = match &app.drag {
+            Some(Drag::Row { .. }) => rows.on_move(move |position| {
                 let row = (position.y / (ROW_HEIGHT + ROW_GAP)).max(0.0) as usize;
                 Message::DragOver(row.min(last))
-            })
-        } else {
-            rows
+            }),
+            Some(Drag::Song { .. }) => rows.on_move(move |position| {
+                Message::SongDropTarget(Some(insertion_index(position.y, len)))
+            }),
+            None => rows,
         };
 
         let tip = (app.schedule.entries().len() <= 2).then(|| {
@@ -95,6 +123,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .padding([16, 12]),
         |position| Message::ScheduleContextMenu(None, position),
     );
+    let pane = mouse_area(pane);
+    let pane = if song_drop.is_some() {
+        pane.on_enter(Message::DragEnteredSchedule)
+            .on_exit(Message::DragExitedSchedule)
+            .interaction(iced::mouse::Interaction::Grabbing)
+    } else {
+        pane
+    };
 
     let (menu_position, menu_popup) = match app.schedule_menu {
         Some(menu) => (menu.position, Some(context_menu(app, menu))),
@@ -223,7 +259,42 @@ fn separator() -> Element<'static, Message> {
     container(ui::hrule(style::BORDER)).padding([4, 0]).into()
 }
 
-fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message> {
+fn insertion_index(y: f32, len: usize) -> usize {
+    if y <= 0.0 || len == 0 {
+        return 0;
+    }
+
+    let step = ROW_HEIGHT + ROW_GAP;
+    let slot = (y / step) as usize;
+    let within = y - slot as f32 * step;
+    let index = if within >= ROW_HEIGHT * 0.5 {
+        slot + 1
+    } else {
+        slot
+    };
+
+    index.min(len)
+}
+
+fn drop_line<'a>() -> Element<'a, Message> {
+    row![
+        ui::dot(6.0, style::INVERSE),
+        container(Space::new())
+            .width(Fill)
+            .height(2)
+            .style(style::rounded(style::INVERSE, 1.0)),
+    ]
+    .align_y(Center)
+    .into()
+}
+
+fn item<'a>(
+    app: &'a App,
+    index: usize,
+    entry: &'a Entry,
+    last: usize,
+    drop_target: Option<usize>,
+) -> Element<'a, Message> {
     let is_selected = app.schedule.selected() == Some(index);
     let is_live = app.output.is_some() && app.is_live(entry);
 
@@ -232,9 +303,10 @@ fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message
         ContentKind::Scripture => icon::BOOK_OPEN,
     };
 
-    let is_target = app
-        .drag
-        .is_some_and(|drag| drag.over == index && drag.from != index);
+    let is_target = matches!(
+        app.drag,
+        Some(Drag::Row { from, over }) if over == index && from != index
+    );
 
     let content = row![
         label(ui::number(index + 1), 12.0, style::MEDIUM, style::TEXT_3),
@@ -268,33 +340,79 @@ fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message
 
     let background = if is_selected {
         Some(style::ACTIVE)
-    } else if app.hovered_row == Some(index) {
+    } else if app.hovered_row == Some(index) && app.drag.is_none() {
         Some(style::RAISED)
     } else {
         None
     };
 
-    right_click(
-        mouse_area(
-            container(content)
-                .width(Fill)
-                .height(ROW_HEIGHT)
-                .padding([0, 10])
-                .style(style::boxed(
-                    background,
-                    if is_target {
-                        style::TEXT_3
-                    } else {
-                        iced::Color::TRANSPARENT
-                    },
-                    8.0,
-                )),
-        )
-        .on_press(Message::DragStarted(index))
-        .on_release(Message::DragEnded)
-        .on_enter(Message::RowHovered(Some(index)))
-        .interaction(iced::mouse::Interaction::Pointer),
-        move |position| Message::ScheduleContextMenu(Some(index), position),
+    let area = mouse_area(
+        container(content)
+            .width(Fill)
+            .height(ROW_HEIGHT)
+            .padding([0, 10])
+            .style(style::boxed(
+                background,
+                if is_target {
+                    style::TEXT_3
+                } else {
+                    iced::Color::TRANSPARENT
+                },
+                8.0,
+            )),
     )
-    .into()
+    .interaction(if app.drag.is_some() {
+        iced::mouse::Interaction::Grabbing
+    } else {
+        iced::mouse::Interaction::Pointer
+    });
+
+    let area = match &app.drag {
+        None => area
+            .on_press(Message::DragStarted(index))
+            .on_enter(Message::RowHovered(Some(index))),
+        Some(Drag::Row { .. }) => area.on_release(Message::DragEnded),
+        Some(Drag::Song { .. }) => area,
+    };
+
+    let row_box = right_click(area, move |position| {
+        Message::ScheduleContextMenu(Some(index), position)
+    });
+
+    if drop_target == Some(index) {
+        stack![
+            row_box,
+            container(drop_line()).width(Fill).height(Fill).align_y(Top),
+        ]
+        .into()
+    } else if index == last && drop_target == Some(last + 1) {
+        stack![
+            row_box,
+            container(drop_line())
+                .width(Fill)
+                .height(Fill)
+                .align_y(Bottom),
+        ]
+        .into()
+    } else {
+        row_box.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::insertion_index;
+
+    #[test]
+    fn insertion_index_splits_rows_and_gaps_smoothly() {
+        assert_eq!(insertion_index(-10.0, 3), 0);
+        assert_eq!(insertion_index(0.0, 3), 0);
+        assert_eq!(insertion_index(25.0, 3), 0);
+        assert_eq!(insertion_index(26.0, 3), 1);
+        assert_eq!(insertion_index(54.0, 3), 1);
+        assert_eq!(insertion_index(56.0, 3), 1);
+        assert_eq!(insertion_index(82.0, 3), 2);
+        assert_eq!(insertion_index(500.0, 3), 3);
+        assert_eq!(insertion_index(10.0, 0), 0);
+    }
 }

@@ -109,6 +109,11 @@ pub enum Message {
     RowHovered(Option<usize>),
     DragStarted(usize),
     DragOver(usize),
+    SongDragStarted(SongId, iced::Point),
+    DragMoved(window::Id, iced::Point),
+    DragEnteredSchedule,
+    DragExitedSchedule,
+    SongDropTarget(Option<usize>),
     DragEnded,
     PreviewSlideSelected(usize),
     LiveSlideSelected(usize),
@@ -128,6 +133,7 @@ pub enum Message {
     SongPreviewLoaded(u64, SongId, Outcome<Song>),
     SongPicked(SongId),
     SongLoaded(SongId, Outcome<Song>),
+    SongInserted(usize, SongId, Outcome<Song>),
     SongCreateRequested,
     SongEditRequested(SongId),
     SongEditLoaded(SongId, Outcome<Song>),
@@ -178,6 +184,11 @@ impl Message {
             | Self::RowHovered(..)
             | Self::ScheduleAddSubmenu(..)
             | Self::DragOver(..)
+            | Self::SongDragStarted(..)
+            | Self::DragMoved(..)
+            | Self::DragEnteredSchedule
+            | Self::DragExitedSchedule
+            | Self::SongDropTarget(..)
             | Self::ToastDismissed
             | Self::ToastExpired(..)
             | Self::ModalDismissed
@@ -229,6 +240,7 @@ impl Message {
             | Self::SongPreviewLoaded(..)
             | Self::SongPicked(..)
             | Self::SongLoaded(..)
+            | Self::SongInserted(..)
             | Self::SongCreateRequested
             | Self::SongEditRequested(..)
             | Self::SongEditLoaded(..)

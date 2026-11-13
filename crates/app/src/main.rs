@@ -4,6 +4,7 @@ mod bible_manager;
 mod bible_tab;
 mod captions;
 mod display;
+mod drag;
 mod editor;
 mod files;
 mod focus;
@@ -51,7 +52,7 @@ use crate::recovery::Recovery;
 use crate::render::transition::{Frame, Playback, Scene};
 use crate::schedule::{Entry, Schedule};
 use crate::theme_dialog::ThemeDialog;
-use crate::work::Store;
+use crate::work::{Outcome, Store};
 
 // The splash stays up at least this long even if loading finishes sooner, so it
 // does not flash and vanish. Measured from when its window actually opens, not from
@@ -101,10 +102,18 @@ enum Phase {
     Operator,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Drag {
-    from: usize,
-    over: usize,
+#[derive(Debug, Clone, PartialEq)]
+enum Drag {
+    Row {
+        from: usize,
+        over: usize,
+    },
+    Song {
+        id: SongId,
+        title: Box<str>,
+        cursor: iced::Point,
+        target: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -412,6 +421,9 @@ impl App {
             Message::OutputRequested => self.open_output(),
             Message::OutputOpened(id) => windows::go_fullscreen(id),
             Message::OutputDismissed => {
+                if self.drag.take().is_some() {
+                    return Task::none();
+                }
                 self.reopen_output = false;
                 self.close_output()
             }
@@ -528,24 +540,82 @@ impl App {
                 self.dismiss_menus();
                 self.preview_ticket += 1;
                 self.schedule.select(index);
-                self.drag = Some(Drag {
+                self.drag = Some(Drag::Row {
                     from: index,
                     over: index,
                 });
                 Task::none()
             }
             Message::DragOver(index) => {
-                if let Some(drag) = &mut self.drag {
-                    drag.over = index;
+                if let Some(Drag::Row { over, .. }) = &mut self.drag {
+                    *over = index;
                 }
                 Task::none()
             }
-            Message::DragEnded => {
-                if let Some(drag) = self.drag.take() {
-                    self.schedule.move_entry(drag.from, drag.over);
+            Message::SongDragStarted(id, cursor) => {
+                self.dismiss_menus();
+                self.hovered_row = None;
+                let title = self
+                    .song_results
+                    .iter()
+                    .find(|song| song.id == id)
+                    .map(|song| song.title.clone())
+                    .unwrap_or_default();
+                self.drag = Some(Drag::Song {
+                    id,
+                    title,
+                    cursor,
+                    target: None,
+                });
+                Task::none()
+            }
+            Message::DragMoved(window, position) => {
+                if self.control.is_some_and(|control| control != window) {
+                    return Task::none();
+                }
+                if let Some(Drag::Song { cursor, .. }) = &mut self.drag {
+                    *cursor = position;
                 }
                 Task::none()
             }
+            Message::DragEnteredSchedule => {
+                if let Some(Drag::Song { target, .. }) = &mut self.drag
+                    && target.is_none()
+                {
+                    *target = Some(self.schedule.entries().len());
+                }
+                Task::none()
+            }
+            Message::DragExitedSchedule => {
+                if let Some(Drag::Song { target, .. }) = &mut self.drag {
+                    *target = None;
+                }
+                Task::none()
+            }
+            Message::SongDropTarget(next) => {
+                if let Some(Drag::Song { target, .. }) = &mut self.drag {
+                    *target = next;
+                }
+                Task::none()
+            }
+            Message::DragEnded => match self.drag.take() {
+                Some(Drag::Row { from, over }) => {
+                    self.schedule.move_entry(from, over);
+                    Task::none()
+                }
+                Some(Drag::Song {
+                    id,
+                    target: Some(index),
+                    ..
+                }) => {
+                    self.preview_ticket += 1;
+                    self.store.run(
+                        move |library| library.song(id),
+                        move |result| Message::SongInserted(index, id, result),
+                    )
+                }
+                Some(Drag::Song { target: None, .. }) | None => Task::none(),
+            },
             Message::SelectedRemoved => {
                 if let Some(index) = self.schedule.selected() {
                     self.remove_entry(index);
@@ -736,16 +806,11 @@ impl App {
                 )
             }
             Message::SongLoaded(id, result) => {
-                match result {
-                    Ok(song) => {
-                        self.schedule.push(
-                            ScheduleItem::Song(song),
-                            Some(id),
-                            &self.settings.styles,
-                        );
-                    }
-                    Err(error) => self.library_error = Some(error),
-                }
+                self.insert_song(None, id, result);
+                Task::none()
+            }
+            Message::SongInserted(index, id, result) => {
+                self.insert_song(Some(index), id, result);
                 Task::none()
             }
             Message::SongCreateRequested => {
@@ -1217,13 +1282,27 @@ impl App {
             subscriptions.push(window::frames().map(Message::AnimationFrame));
         }
 
-        if self.drag.is_some() {
-            subscriptions.push(event::listen_with(|event, _status, _window| match event {
-                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(_)) => {
-                    Some(Message::DragEnded)
-                }
-                _ => None,
-            }));
+        match &self.drag {
+            Some(Drag::Row { .. }) => {
+                subscriptions.push(event::listen_with(|event, _status, _window| match event {
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(_)) => {
+                        Some(Message::DragEnded)
+                    }
+                    _ => None,
+                }));
+            }
+            Some(Drag::Song { .. }) => {
+                subscriptions.push(event::listen_with(|event, _status, window| match event {
+                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                        Some(Message::DragMoved(window, position))
+                    }
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                        iced::mouse::Button::Left,
+                    )) => Some(Message::DragEnded),
+                    _ => None,
+                }));
+            }
+            None => {}
         }
 
         if self.splitter_drag.is_some() {
@@ -1554,8 +1633,27 @@ impl App {
 
     fn open_modal(&mut self, modal: Modal) {
         self.dismiss_menus();
+        self.drag = None;
         self.modal_ticket += 1;
         self.modal = Some(modal);
+    }
+
+    fn insert_song(&mut self, index: Option<usize>, id: SongId, result: Outcome<Song>) {
+        match result {
+            Ok(song) => {
+                let item = ScheduleItem::Song(song);
+                match index {
+                    Some(index) => {
+                        self.schedule
+                            .insert(index, item, Some(id), &self.settings.styles);
+                    }
+                    None => {
+                        self.schedule.push(item, Some(id), &self.settings.styles);
+                    }
+                }
+            }
+            Err(error) => self.library_error = Some(error),
+        }
     }
 
     fn modal_for(&mut self, ticket: u64) -> Option<&mut Modal> {
@@ -3470,6 +3568,118 @@ mod tests {
 
         assert_eq!(&*app.schedule.entries()[0].deck().title, "B");
         assert_eq!(app.schedule.selected(), Some(0));
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn dragging_a_song_inserts_at_drop_target_and_ignores_drops_outside() {
+        let mut app = dirty_app();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new("C", "three", None)),
+            None,
+            &app.settings.styles,
+        );
+        let (id, song) = library_song();
+        app.song_results = vec![SongSummary {
+            id,
+            title: song.title().into(),
+        }];
+        let control = window::Id::unique();
+        let other = window::Id::unique();
+        app.control = Some(control);
+        app.control_width = 1280.0;
+        app.control_height = 800.0;
+
+        let _ = app.update(Message::SongDragStarted(id, iced::Point::new(500.0, 500.0)));
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song { target: None, .. })
+        ));
+
+        let _ = app.update(Message::DragMoved(other, iced::Point::new(10.0, 10.0)));
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song { cursor, .. }) if cursor == iced::Point::new(500.0, 500.0)
+        ));
+
+        let _ = app.update(Message::DragMoved(control, iced::Point::new(120.0, 140.0)));
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song { cursor, .. }) if cursor == iced::Point::new(120.0, 140.0)
+        ));
+        let _ = app.update(Message::DragEnteredSchedule);
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song {
+                target: Some(2),
+                ..
+            })
+        ));
+
+        let _ = app.update(Message::SongDropTarget(Some(1)));
+        let _ = app.update(Message::DragEnteredSchedule);
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song {
+                target: Some(1),
+                ..
+            })
+        ));
+
+        let _ = crate::panes::control::view(&app);
+
+        let _ = app.update(Message::DragExitedSchedule);
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song { target: None, .. })
+        ));
+        let _ = app.update(Message::DragEnded);
+        assert!(app.drag.is_none());
+        assert_eq!(app.schedule.entries().len(), 2);
+
+        let _ = app.update(Message::SongDragStarted(id, iced::Point::new(500.0, 500.0)));
+        let _ = app.update(Message::SongDropTarget(Some(1)));
+        let _ = app.update(Message::DragEnded);
+        assert!(app.drag.is_none());
+
+        let _ = app.update(Message::SongInserted(1, id, Ok(song)));
+        let titles: Vec<&str> = app
+            .schedule
+            .entries()
+            .iter()
+            .map(|entry| &*entry.deck().title)
+            .collect();
+        assert_eq!(titles, ["A", "A", "C"]);
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(app.schedule.entries()[1].origin(), Some(id));
+
+        let _ = app.update(Message::SongInserted(0, id, Err("missing".into())));
+        assert_eq!(app.library_error.as_deref(), Some("missing"));
+    }
+
+    #[test]
+    fn dragging_a_song_over_empty_schedule_and_cancelling_with_escape() {
+        let mut app = App::default();
+        let (id, song) = library_song();
+        app.song_results = vec![SongSummary {
+            id,
+            title: song.title().into(),
+        }];
+        app.control_width = 1280.0;
+        app.control_height = 800.0;
+
+        let _ = app.update(Message::SongDragStarted(id, iced::Point::new(400.0, 500.0)));
+        let _ = app.update(Message::DragEnteredSchedule);
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Song {
+                target: Some(0),
+                ..
+            })
+        ));
+        let _ = crate::panes::control::view(&app);
+
+        let _ = app.update(Message::OutputDismissed);
         assert!(app.drag.is_none());
     }
 

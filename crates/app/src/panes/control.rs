@@ -1,12 +1,12 @@
-use iced::widget::{Space, center, column, container, mouse_area, opaque, row, stack};
-use iced::{Center, Element, Fill, FillPortion, Padding};
+use iced::widget::{Space, center, column, container, mouse_area, opaque, row, stack, text};
+use iced::{Center, Element, Fill, FillPortion, Padding, Point};
 
 use crate::i18n::t;
 use crate::message::{Message, Notice};
 use crate::panes::{library, live, preview, schedule, toolbar, unsaved, welcome};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
-use crate::{App, Modal, Toast, icon};
+use crate::{App, Drag, Modal, Toast, icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let shows_preview = app.schedule.preview().is_some() || welcome::is_complete(app);
@@ -85,21 +85,73 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .height(Fill)
         .style(style::fill(style::BG));
 
-    let dialog = match &app.modal {
-        Some(Modal::Editor(editor)) => editor
-            .view(&app.settings.styles.song.theme, &app.settings.labels)
-            .map(Message::Editor),
-        Some(Modal::Theme(dialog)) => dialog.view(app.control_width).map(Message::Theme),
-        Some(Modal::Unsaved(_)) => unsaved::view(app),
-        Some(Modal::Bibles(manager)) => manager.view().map(Message::BibleManager),
-        None => return base.into(),
+    let dialog: Option<Element<'_, Message>> = match &app.modal {
+        Some(Modal::Editor(editor)) => Some(
+            editor
+                .view(&app.settings.styles.song.theme, &app.settings.labels)
+                .map(Message::Editor),
+        ),
+        Some(Modal::Theme(dialog)) => Some(dialog.view(app.control_width).map(Message::Theme)),
+        Some(Modal::Unsaved(_)) => Some(unsaved::view(app)),
+        Some(Modal::Bibles(manager)) => Some(manager.view().map(Message::BibleManager)),
+        None => None,
     };
 
-    stack![
-        base,
-        opaque(center(dialog).padding(32).style(style::backdrop)),
-    ]
-    .into()
+    let overlay: Option<Element<'_, Message>> = match dialog {
+        Some(dialog) => Some(opaque(center(dialog).padding(32).style(style::backdrop))),
+        None => match &app.drag {
+            Some(Drag::Song {
+                title,
+                cursor,
+                target,
+                ..
+            }) => Some(drag_ghost(
+                title,
+                *cursor,
+                target.is_some(),
+                app.control_width,
+                app.control_height,
+            )),
+            _ => None,
+        },
+    };
+
+    stack![base].push(overlay).into()
+}
+
+fn drag_ghost<'a>(
+    title: &'a str,
+    cursor: Point,
+    over_target: bool,
+    window_width: f32,
+    window_height: f32,
+) -> Element<'a, Message> {
+    let chip = container(
+        row![
+            icon::view(icon::MUSIC, 13.0, style::TEXT_2),
+            label(title, 12.5, style::MEDIUM, style::TEXT).wrapping(text::Wrapping::None),
+        ]
+        .spacing(8)
+        .align_y(Center),
+    )
+    .max_width(240)
+    .clip(true)
+    .padding([6, 12])
+    .style(style::drag_chip(over_target));
+
+    let left = (cursor.x + 14.0).clamp(0.0, (window_width - 180.0).max(0.0));
+    let top = (cursor.y - 16.0).clamp(0.0, (window_height - 40.0).max(0.0));
+
+    container(chip)
+        .padding(Padding {
+            top,
+            left,
+            right: 0.0,
+            bottom: 0.0,
+        })
+        .width(Fill)
+        .height(Fill)
+        .into()
 }
 
 fn splitter<'a>(app: &'a App) -> Element<'a, Message> {

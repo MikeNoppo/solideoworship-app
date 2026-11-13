@@ -153,6 +153,19 @@ pub fn toast(_theme: &Theme) -> container::Style {
     }
 }
 
+pub fn drag_chip(over_target: bool) -> impl Fn(&Theme) -> container::Style {
+    move |_theme| container::Style {
+        background: Some(RAISED.into()),
+        border: Border {
+            color: if over_target { INVERSE } else { BORDER_STRONG },
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        shadow: shadow(0.5, 8.0, 24.0),
+        ..container::Style::default()
+    }
+}
+
 pub fn tooltip(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(ACTIVE.into()),
@@ -180,26 +193,30 @@ pub enum Tone {
     Highlighted,
 }
 
+pub fn tone_colors(tone: Tone) -> (Option<Color>, Option<Color>, Option<Color>) {
+    match tone {
+        Tone::Primary => (
+            Some(INVERSE),
+            Some(Color::WHITE),
+            Some(Color::from_rgb8(0xD4, 0xD4, 0xD8)),
+        ),
+        Tone::Secondary => (Some(RAISED), Some(ACTIVE), Some(BORDER_STRONG)),
+        Tone::Ghost | Tone::Row | Tone::Destructive | Tone::Outline => {
+            (None, Some(RAISED), Some(ACTIVE))
+        }
+        Tone::Danger => (
+            Some(LIVE),
+            Some(Color::from_rgb8(0xEC, 0x5D, 0x62)),
+            Some(Color::from_rgb8(0xC9, 0x3C, 0x41)),
+        ),
+        Tone::Selected | Tone::Toggled => (Some(ACTIVE), Some(ACTIVE), Some(ACTIVE)),
+        Tone::Highlighted => (Some(RAISED), Some(ACTIVE), Some(ACTIVE)),
+    }
+}
+
 pub fn pressable(tone: Tone, radius: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_theme, status| {
-        let (base, hovered, pressed) = match tone {
-            Tone::Primary => (
-                Some(INVERSE),
-                Some(Color::WHITE),
-                Some(Color::from_rgb8(0xD4, 0xD4, 0xD8)),
-            ),
-            Tone::Secondary => (Some(RAISED), Some(ACTIVE), Some(BORDER_STRONG)),
-            Tone::Ghost | Tone::Row | Tone::Destructive | Tone::Outline => {
-                (None, Some(RAISED), Some(ACTIVE))
-            }
-            Tone::Danger => (
-                Some(LIVE),
-                Some(Color::from_rgb8(0xEC, 0x5D, 0x62)),
-                Some(Color::from_rgb8(0xC9, 0x3C, 0x41)),
-            ),
-            Tone::Selected | Tone::Toggled => (Some(ACTIVE), Some(ACTIVE), Some(ACTIVE)),
-            Tone::Highlighted => (Some(RAISED), Some(ACTIVE), Some(ACTIVE)),
-        };
+        let (base, hovered, pressed) = tone_colors(tone);
 
         let background = match status {
             button::Status::Active => base,
