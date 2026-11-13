@@ -2854,6 +2854,10 @@ mod tests {
         let _ = app.update(Message::WindowCloseRequested(control));
 
         assert_eq!(pending(&app), Some(Pending::Quit));
+        assert_eq!(&*app.captions.unsaved_title, t().unsaved.quit_title);
+        assert!(!app.captions.unsaved_body.is_empty());
+        assert!(!app.captions.unsaved_file.is_empty());
+        assert_eq!(&*app.captions.unsaved_saved, t().unsaved.never_saved);
     }
 
     #[test]

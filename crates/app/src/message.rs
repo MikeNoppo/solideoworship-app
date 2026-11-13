@@ -184,7 +184,6 @@ impl Message {
     pub fn refreshes_captions(&self) -> bool {
         match self {
             Self::AnimationFrame(..)
-            | Self::WindowCloseRequested(..)
             | Self::WindowResized(..)
             | Self::SplitHovered(..)
             | Self::SplitStarted
@@ -227,6 +226,7 @@ impl Message {
             | Self::OutputDismissed
             | Self::OutputStateChanged(..)
             | Self::OutputStateToggled(..)
+            | Self::WindowCloseRequested(..)
             | Self::WindowClosed(..)
             | Self::SelectedRemoved
             | Self::ScheduleRemoved(..)
