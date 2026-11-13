@@ -101,6 +101,11 @@ pub enum Message {
 
     SelectedRemoved,
     ScheduleRemoved(usize),
+    ScheduleMoved(usize, usize),
+    ScheduleDuplicated(usize),
+    ScheduleContextMenu(Option<usize>, iced::Point),
+    ScheduleAddSubmenu(bool),
+    ScheduleScriptureRequested,
     RowHovered(Option<usize>),
     DragStarted(usize),
     DragOver(usize),
@@ -171,6 +176,7 @@ impl Message {
             | Self::SplitEnded
             | Self::BibleIndexLoaded(..)
             | Self::RowHovered(..)
+            | Self::ScheduleAddSubmenu(..)
             | Self::DragOver(..)
             | Self::ToastDismissed
             | Self::ToastExpired(..)
@@ -200,6 +206,10 @@ impl Message {
             | Self::WindowClosed(..)
             | Self::SelectedRemoved
             | Self::ScheduleRemoved(..)
+            | Self::ScheduleMoved(..)
+            | Self::ScheduleDuplicated(..)
+            | Self::ScheduleContextMenu(..)
+            | Self::ScheduleScriptureRequested
             | Self::DragStarted(..)
             | Self::DragEnded
             | Self::PreviewSlideSelected(..)

@@ -1,15 +1,16 @@
-use iced::widget::{Column, column, container, mouse_area, row, space};
-use iced::{Center, Element, Fill, Padding};
+use iced::widget::{Column, column, container, mouse_area, opaque, row, space};
+use iced::{Center, Element, Fill, Padding, Point, Top};
 use sdw_core::ContentKind;
 
-use crate::App;
 use crate::i18n::t;
 use crate::icon;
 use crate::message::Message;
 use crate::panes::{columns, live_badge};
+use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
 use crate::style;
 use crate::ui::{self, icon_button, label};
+use crate::{App, ScheduleMenu};
 
 const ROW_HEIGHT: f32 = 52.0;
 const ROW_GAP: f32 = 4.0;
@@ -87,11 +88,139 @@ pub fn view(app: &App) -> Element<'_, Message> {
         column![ui::scroll(rows)].push(tip).spacing(4).into()
     };
 
-    container(column![header, body].spacing(4))
-        .width(columns(app.control_width).schedule)
-        .height(Fill)
-        .padding([16, 12])
+    let pane = right_click(
+        container(column![header, body].spacing(4))
+            .width(columns(app.control_width).schedule)
+            .height(Fill)
+            .padding([16, 12]),
+        |position| Message::ScheduleContextMenu(None, position),
+    );
+
+    let (menu_position, menu_popup) = match app.schedule_menu {
+        Some(menu) => (menu.position, Some(context_menu(app, menu))),
+        None => (Point::ORIGIN, None),
+    };
+
+    popover(
+        pane,
+        menu_popup,
+        Align::At(menu_position),
+        Message::MenuDismissed,
+    )
+    .into()
+}
+
+fn context_menu(app: &App, menu: ScheduleMenu) -> Element<'static, Message> {
+    let entries = app.schedule.entries();
+    let total = entries.len();
+    let target = menu.target.filter(|&index| index < total);
+    let song_id = target.and_then(|index| entries[index].origin());
+
+    let add_row = mouse_area(ui::menu_item(
+        Some(icon::PLUS),
+        t().schedule.add_item,
+        Some(icon::view(icon::ARROW_RIGHT, 12.0, style::TEXT_3).into()),
+        Some(Message::ScheduleAddSubmenu(!menu.add_open)),
+    ))
+    .on_enter(Message::ScheduleAddSubmenu(true));
+
+    let actions = mouse_area(
+        column![
+            ui::menu_item(
+                Some(icon::PLAY),
+                t().toolbar.go_live,
+                None,
+                target.map(|_| Message::GoLive),
+            ),
+            ui::menu_item(
+                Some(icon::PENCIL),
+                t().slides.edit_song,
+                None,
+                song_id.map(Message::SongEditRequested),
+            ),
+            separator(),
+            ui::menu_item(
+                None,
+                t().schedule.move_up,
+                None,
+                target
+                    .filter(|&index| index > 0)
+                    .map(|index| Message::ScheduleMoved(index, index - 1)),
+            ),
+            ui::menu_item(
+                None,
+                t().schedule.move_down,
+                None,
+                target
+                    .filter(|&index| index + 1 < total)
+                    .map(|index| Message::ScheduleMoved(index, index + 1)),
+            ),
+            separator(),
+            ui::menu_item(
+                None,
+                t().schedule.duplicate,
+                None,
+                target.map(Message::ScheduleDuplicated),
+            ),
+            ui::menu_item(
+                Some(icon::TRASH_2),
+                t().schedule.remove,
+                None,
+                target.map(Message::ScheduleRemoved),
+            ),
+        ]
+        .spacing(2),
+    )
+    .on_enter(Message::ScheduleAddSubmenu(false));
+
+    let main: Element<'static, Message> =
+        container(column![add_row, separator(), actions].spacing(2))
+            .width(220)
+            .padding(6)
+            .style(style::menu)
+            .into();
+
+    if !menu.add_open {
+        return main;
+    }
+
+    let submenu: Element<'static, Message> = container(
+        column![
+            ui::menu_item(
+                Some(icon::MUSIC),
+                t().common.new_song,
+                None,
+                Some(Message::SongCreateRequested),
+            ),
+            ui::menu_item(
+                Some(icon::BOOK_OPEN),
+                t().schedule.add_scripture,
+                None,
+                Some(Message::ScheduleScriptureRequested),
+            ),
+            separator(),
+            ui::menu_item(
+                Some(icon::FOLDER_OPEN),
+                t().schedule.open_schedule,
+                None,
+                Some(Message::ScheduleOpenRequested),
+            ),
+        ]
+        .spacing(2),
+    )
+    .width(210)
+    .padding(6)
+    .style(style::menu)
+    .into();
+
+    mouse_area(row![opaque(main), opaque(submenu)].spacing(4).align_y(Top))
+        .on_press(Message::MenuDismissed)
+        .on_right_press(Message::MenuDismissed)
         .into()
+}
+
+fn separator() -> Element<'static, Message> {
+    container(ui::hrule(style::BORDER)).padding([4, 0]).into()
 }
 
 fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message> {
@@ -145,24 +274,27 @@ fn item<'a>(app: &'a App, index: usize, entry: &'a Entry) -> Element<'a, Message
         None
     };
 
-    mouse_area(
-        container(content)
-            .width(Fill)
-            .height(ROW_HEIGHT)
-            .padding([0, 10])
-            .style(style::boxed(
-                background,
-                if is_target {
-                    style::TEXT_3
-                } else {
-                    iced::Color::TRANSPARENT
-                },
-                8.0,
-            )),
+    right_click(
+        mouse_area(
+            container(content)
+                .width(Fill)
+                .height(ROW_HEIGHT)
+                .padding([0, 10])
+                .style(style::boxed(
+                    background,
+                    if is_target {
+                        style::TEXT_3
+                    } else {
+                        iced::Color::TRANSPARENT
+                    },
+                    8.0,
+                )),
+        )
+        .on_press(Message::DragStarted(index))
+        .on_release(Message::DragEnded)
+        .on_enter(Message::RowHovered(Some(index)))
+        .interaction(iced::mouse::Interaction::Pointer),
+        move |position| Message::ScheduleContextMenu(Some(index), position),
     )
-    .on_press(Message::DragStarted(index))
-    .on_release(Message::DragEnded)
-    .on_enter(Message::RowHovered(Some(index)))
-    .interaction(iced::mouse::Interaction::Pointer)
     .into()
 }

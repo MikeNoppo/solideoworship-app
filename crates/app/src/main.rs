@@ -113,6 +113,13 @@ struct SplitDrag {
     start_ratio: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ScheduleMenu {
+    position: iced::Point,
+    target: Option<usize>,
+    add_open: bool,
+}
+
 enum Toast {
     Saved {
         id: SongId,
@@ -173,6 +180,7 @@ struct App {
     screens_error: Option<Box<str>>,
     disconnected: Option<Box<str>>,
     menu: Option<Menu>,
+    schedule_menu: Option<ScheduleMenu>,
     notices: Vec<Notice>,
 
     store: Store,
@@ -349,7 +357,7 @@ impl App {
             }
 
             Message::DisplaysRequested => {
-                self.menu = None;
+                self.dismiss_menus();
                 load_displays()
             }
             Message::DisplaysLoaded(Ok(displays)) => {
@@ -375,7 +383,7 @@ impl App {
                 };
                 let preference = display.preference();
                 self.settings.output.monitor = Some(preference.clone());
-                self.menu = None;
+                self.dismiss_menus();
                 self.reconnected();
                 let save = self.store.run(
                     move |library| {
@@ -388,11 +396,12 @@ impl App {
                 Task::batch([self.select_display(id), save])
             }
             Message::MenuToggled(menu) => {
+                self.schedule_menu = None;
                 self.menu = (self.menu != Some(menu)).then_some(menu);
                 Task::none()
             }
             Message::MenuDismissed => {
-                self.menu = None;
+                self.dismiss_menus();
                 Task::none()
             }
             Message::NoticeDismissed(notice) => {
@@ -471,11 +480,52 @@ impl App {
                 self.remove_entry(index);
                 Task::none()
             }
+            Message::ScheduleMoved(from, to) => {
+                self.dismiss_menus();
+                self.schedule.move_entry(from, to);
+                Task::none()
+            }
+            Message::ScheduleDuplicated(index) => {
+                self.dismiss_menus();
+                if self.schedule.duplicate(index).is_some() {
+                    self.preview_ticket += 1;
+                }
+                Task::none()
+            }
+            Message::ScheduleContextMenu(target, position) => {
+                if self.modal.is_some() {
+                    return Task::none();
+                }
+                self.menu = None;
+                let valid = target.filter(|&index| index < self.schedule.entries().len());
+                if let Some(index) = valid {
+                    self.preview_ticket += 1;
+                    self.schedule.select(index);
+                }
+                self.schedule_menu = Some(ScheduleMenu {
+                    position,
+                    target: valid,
+                    add_open: false,
+                });
+                Task::none()
+            }
+            Message::ScheduleAddSubmenu(open) => {
+                if let Some(menu) = &mut self.schedule_menu {
+                    menu.add_open = open;
+                }
+                Task::none()
+            }
+            Message::ScheduleScriptureRequested => {
+                self.dismiss_menus();
+                self.library_tab = LibraryTab::Scripture;
+                operation::focus(bible_tab::INPUT)
+            }
             Message::RowHovered(row) => {
                 self.hovered_row = row;
                 Task::none()
             }
             Message::DragStarted(index) => {
+                self.dismiss_menus();
                 self.preview_ticket += 1;
                 self.schedule.select(index);
                 self.drag = Some(Drag {
@@ -547,6 +597,7 @@ impl App {
                 Task::none()
             }
             Message::GoLive => {
+                self.dismiss_menus();
                 if self.schedule.preview().is_some() {
                     self.prepare_playback();
                 }
@@ -607,6 +658,7 @@ impl App {
                 Task::none()
             }
             Message::SearchFocused => {
+                self.dismiss_menus();
                 self.library_tab = LibraryTab::Songs;
                 operation::focus(panes::library::SEARCH)
             }
@@ -696,11 +748,17 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SongCreateRequested => self.open_editor(None, &Song::new("", "", None)),
-            Message::SongEditRequested(id) => self.store.run(
-                move |library| library.song(id),
-                move |result| Message::SongEditLoaded(id, result),
-            ),
+            Message::SongCreateRequested => {
+                self.dismiss_menus();
+                self.open_editor(None, &Song::new("", "", None))
+            }
+            Message::SongEditRequested(id) => {
+                self.dismiss_menus();
+                self.store.run(
+                    move |library| library.song(id),
+                    move |result| Message::SongEditLoaded(id, result),
+                )
+            }
             Message::SongEditLoaded(id, result) => match result {
                 Ok(song) if self.modal.is_none() => self.open_editor(Some(id), &song),
                 Ok(_) => Task::none(),
@@ -883,11 +941,11 @@ impl App {
                 None => self.update(Message::ScheduleSaveRequested),
             },
             Message::ScheduleNewRequested => {
-                self.menu = None;
+                self.dismiss_menus();
                 self.guard(Pending::New)
             }
             Message::ScheduleOpenRequested => {
-                self.menu = None;
+                self.dismiss_menus();
                 self.guard(Pending::Open)
             }
             Message::Unsaved(choice) => {
@@ -953,7 +1011,7 @@ impl App {
                 Task::none()
             }
             Message::ScheduleSaveRequested => {
-                self.menu = None;
+                self.dismiss_menus();
 
                 match self.schedule.path() {
                     Some(path) => self.write_schedule(SaveTarget::existing(path.to_path_buf())),
@@ -961,7 +1019,7 @@ impl App {
                 }
             }
             Message::ScheduleSaveAsRequested => {
-                self.menu = None;
+                self.dismiss_menus();
 
                 match self.control {
                     Some(control) => files::choose_schedule_path(control, self.schedule.path())
@@ -1013,7 +1071,7 @@ impl App {
             }
             Message::Bible(message) => {
                 if matches!(message, bible_tab::Message::BibleSelected(_)) {
-                    self.menu = None;
+                    self.dismiss_menus();
                 }
 
                 let action = self.bible.update(message);
@@ -1236,6 +1294,7 @@ impl App {
     }
 
     fn remove_entry(&mut self, index: usize) {
+        self.dismiss_menus();
         self.preview_ticket += 1;
         let Some(entry) = self.schedule.remove(index) else {
             return;
@@ -1488,7 +1547,13 @@ impl App {
         operation::focus(editor::TITLE_INPUT)
     }
 
+    fn dismiss_menus(&mut self) {
+        self.menu = None;
+        self.schedule_menu = None;
+    }
+
     fn open_modal(&mut self, modal: Modal) {
+        self.dismiss_menus();
         self.modal_ticket += 1;
         self.modal = Some(modal);
     }
@@ -3554,6 +3619,106 @@ mod tests {
         let _ = app.update(Message::SongPreviewed(second));
         assert!(app.song_click.is_none());
         assert_eq!(app.preview_ticket, first_ticket + 2);
+    }
+
+    #[test]
+    fn schedule_context_menu_selects_row_or_targets_empty_space_and_renders() {
+        let mut empty = App::default();
+        let pos = iced::Point::new(50.0, 140.0);
+        let _ = empty.update(Message::ScheduleContextMenu(None, pos));
+        assert_eq!(empty.schedule_menu.map(|m| m.target), Some(None));
+        let _ = empty.update(Message::ScheduleAddSubmenu(true));
+        assert_eq!(empty.schedule_menu.map(|m| m.add_open), Some(true));
+        let _ = crate::panes::control::view(&empty);
+
+        let mut app = live_with_two_songs();
+        let _ = app.update(Message::ScheduleContextMenu(Some(1), pos));
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(app.schedule_menu.map(|m| m.target), Some(Some(1)));
+        let _ = crate::panes::control::view(&app);
+
+        let _ = app.update(Message::ScheduleAddSubmenu(true));
+        let _ = crate::panes::control::view(&app);
+
+        let _ = app.update(Message::ScheduleContextMenu(None, pos));
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(app.schedule_menu.map(|m| m.target), Some(None));
+        let _ = crate::panes::control::view(&app);
+
+        let _ = app.update(Message::ScheduleContextMenu(Some(99), pos));
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(app.schedule_menu.map(|m| m.target), Some(None));
+
+        let (id, song) = library_song();
+        app.schedule
+            .push(ScheduleItem::Song(song), Some(id), &app.settings.styles);
+        let _ = app.update(Message::ScheduleContextMenu(Some(2), pos));
+        assert_eq!(app.schedule_menu.map(|m| m.target), Some(Some(2)));
+        assert_eq!(app.schedule.entries()[2].origin(), Some(id));
+        let _ = crate::panes::control::view(&app);
+
+        let _ = app.update(Message::MenuDismissed);
+        assert!(app.schedule_menu.is_none());
+
+        let _ = app.update(Message::SongCreateRequested);
+        assert!(app.modal.is_some());
+        let _ = app.update(Message::ScheduleContextMenu(Some(0), pos));
+        assert!(app.schedule_menu.is_none());
+    }
+
+    #[test]
+    fn schedule_context_menu_actions_update_schedule_and_dismiss_menu() {
+        let mut app = live_with_two_songs();
+        let pos = iced::Point::new(60.0, 90.0);
+        let original_live_key = app.live_entry;
+        assert_eq!(original_live_key, Some(app.schedule.entries()[0].key()));
+
+        let _ = app.update(Message::ScheduleContextMenu(Some(0), pos));
+        let _ = app.update(Message::ScheduleDuplicated(0));
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.schedule.entries().len(), 3);
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(&*app.schedule.entries()[1].deck().title, "First");
+        assert_eq!(app.live_entry, original_live_key);
+        assert_ne!(Some(app.schedule.entries()[1].key()), app.live_entry);
+
+        let _ = app.update(Message::ScheduleContextMenu(Some(2), pos));
+        let _ = app.update(Message::ScheduleMoved(2, 1));
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(&*app.schedule.entries()[1].deck().title, "Second");
+        assert_eq!(app.schedule.selected(), Some(1));
+
+        let _ = app.update(Message::ScheduleContextMenu(Some(1), pos));
+        let _ = app.update(Message::GoLive);
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(
+            app.live.as_ref().map(|live| &*live.deck().title),
+            Some("Second")
+        );
+
+        let _ = app.update(Message::ScheduleContextMenu(Some(0), pos));
+        let _ = app.update(Message::ScheduleRemoved(0));
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.schedule.entries().len(), 2);
+
+        let _ = app.update(Message::ScheduleContextMenu(None, pos));
+        let _ = app.update(Message::ScheduleScriptureRequested);
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.library_tab, crate::LibraryTab::Scripture);
+
+        let _ = app.update(Message::ScheduleContextMenu(None, pos));
+        let _ = app.update(Message::SearchFocused);
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.library_tab, crate::LibraryTab::Songs);
+
+        let _ = app.update(Message::ScheduleContextMenu(None, pos));
+        let _ = app.update(Message::ScheduleSaveRequested);
+        assert!(app.schedule_menu.is_none());
+
+        let _ = app.update(Message::ScheduleContextMenu(None, pos));
+        let _ = app.update(Message::MenuToggled(crate::Menu::Schedule));
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.menu, Some(crate::Menu::Schedule));
     }
 }
 

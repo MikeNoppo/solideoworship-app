@@ -76,6 +76,12 @@
     "empty_body": "Songs and passages you add from the library show up here, in service order.",
     "tip_title": "Build the service order",
     "tip_body": "Add songs or verses from the library below. Drag rows to reorder, Delete removes the selected item.",
+    "add_item": "Add item",
+    "add_scripture": "Bible verse…",
+    "open_schedule": "Open schedule…",
+    "move_up": "Move up",
+    "move_down": "Move down",
+    "duplicate": "Duplicate item",
     "remove": "Remove from schedule",
     "removed": "“{title}” was removed from the schedule"
   },

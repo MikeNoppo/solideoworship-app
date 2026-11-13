@@ -76,6 +76,12 @@
     "empty_body": "Lagu dan perikop yang Anda tambahkan dari library muncul di sini, sesuai urutan ibadah.",
     "tip_title": "Susun urutan ibadah",
     "tip_body": "Tambahkan lagu atau ayat dari library di bawah. Seret baris untuk mengurutkan, Delete menghapus item yang dipilih.",
+    "add_item": "Tambah item",
+    "add_scripture": "Ayat Alkitab…",
+    "open_schedule": "Buka susunan acara…",
+    "move_up": "Pindah ke atas",
+    "move_down": "Pindah ke bawah",
+    "duplicate": "Duplikat item",
     "remove": "Hapus dari susunan acara",
     "removed": "“{title}” dihapus dari susunan acara"
   },
