@@ -1,13 +1,16 @@
 use std::io;
 
 use rusqlite::OptionalExtension;
+use sdw_core::labels::{LabelRule, LabelSettings};
 use sdw_core::settings::{
     CanvasFormat, FontSpec, FontWeight, GeneralSettings, MonitorPreference, OutputLayout,
     OutputSettings, ScreenMargins,
 };
 use sdw_core::theme::{Rgb, ScriptureStyle, SlideTheme, SongStyle, TextAlign};
+use sdw_core::transition::{TransitionMode, TransitionSettings, TransitionSpec};
 use sdw_core::{Settings, Styles};
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{Error, Library};
 
@@ -98,6 +101,10 @@ struct SettingsDto {
     styles: Option<StylesDto>,
     general: GeneralDto,
     output: OutputDto,
+    #[serde(deserialize_with = "optional_preference")]
+    labels: Option<LabelsDto>,
+    #[serde(deserialize_with = "optional_preference")]
+    transitions: Option<TransitionsDto>,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -113,6 +120,8 @@ impl From<&Settings> for SettingsDto {
                 monitor: settings.output.monitor.as_ref().map(MonitorDto::from),
                 layout: LayoutDto::from(settings.output.layout),
             },
+            labels: Some(LabelsDto::from(&settings.labels)),
+            transitions: Some(TransitionsDto::from(settings.transitions)),
         }
     }
 }
@@ -139,9 +148,148 @@ impl SettingsDto {
                 monitor: self.output.monitor.and_then(MonitorDto::into_monitor),
                 layout: self.output.layout.into_layout(defaults.output.layout),
             },
-            labels: defaults.labels,
-            transitions: defaults.transitions,
+            labels: self
+                .labels
+                .and_then(LabelsDto::into_labels)
+                .unwrap_or(defaults.labels),
+            transitions: self
+                .transitions
+                .map(TransitionsDto::into_transitions)
+                .unwrap_or(defaults.transitions),
         }
+    }
+}
+
+fn optional_preference<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
+#[derive(Serialize, Deserialize)]
+struct LabelsDto {
+    rules: Vec<LabelRuleDto>,
+}
+
+impl From<&LabelSettings> for LabelsDto {
+    fn from(labels: &LabelSettings) -> Self {
+        Self {
+            rules: labels
+                .rules
+                .iter()
+                .map(|rule| LabelRuleDto {
+                    name: rule.name.clone(),
+                    aliases: rule.aliases.clone(),
+                    color: rule.color.to_hex(),
+                    shortcut: rule.shortcut,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl LabelsDto {
+    fn into_labels(self) -> Option<LabelSettings> {
+        let rules = self
+            .rules
+            .into_iter()
+            .map(|rule| {
+                Some(LabelRule {
+                    name: rule.name,
+                    aliases: rule.aliases,
+                    color: Rgb::from_hex(&rule.color)?,
+                    shortcut: rule.shortcut,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let labels = LabelSettings { rules };
+        labels.validate().ok()?;
+        Some(labels)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct LabelRuleDto {
+    name: Box<str>,
+    aliases: Vec<Box<str>>,
+    color: String,
+    shortcut: Option<char>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct TransitionsDto {
+    #[serde(deserialize_with = "optional_preference")]
+    slides: Option<TransitionDto>,
+    #[serde(deserialize_with = "optional_preference")]
+    black: Option<TransitionDto>,
+    #[serde(deserialize_with = "optional_preference")]
+    clear: Option<TransitionDto>,
+}
+
+impl From<TransitionSettings> for TransitionsDto {
+    fn from(settings: TransitionSettings) -> Self {
+        Self {
+            slides: Some(settings.slides.into()),
+            black: Some(settings.black.into()),
+            clear: Some(settings.clear.into()),
+        }
+    }
+}
+
+impl TransitionsDto {
+    fn into_transitions(self) -> TransitionSettings {
+        TransitionSettings {
+            slides: self
+                .slides
+                .and_then(TransitionDto::into_spec)
+                .unwrap_or_default(),
+            black: self
+                .black
+                .and_then(TransitionDto::into_spec)
+                .unwrap_or_default(),
+            clear: self
+                .clear
+                .and_then(TransitionDto::into_spec)
+                .unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TransitionDto {
+    mode: String,
+    duration_ms: u16,
+}
+
+impl From<TransitionSpec> for TransitionDto {
+    fn from(spec: TransitionSpec) -> Self {
+        Self {
+            mode: match spec.mode {
+                TransitionMode::Cut => "cut",
+                TransitionMode::Fade => "fade",
+            }
+            .into(),
+            duration_ms: spec.duration_ms,
+        }
+    }
+}
+
+impl TransitionDto {
+    fn into_spec(self) -> Option<TransitionSpec> {
+        let spec = TransitionSpec {
+            mode: match self.mode.as_str() {
+                "cut" => TransitionMode::Cut,
+                "fade" => TransitionMode::Fade,
+                _ => return None,
+            },
+            duration_ms: self.duration_ms,
+        };
+        spec.validate().ok()?;
+        Some(spec)
     }
 }
 
@@ -691,6 +839,11 @@ mod tests {
         );
 
         let settings = library.settings().unwrap();
+        assert_eq!(settings.labels, sdw_core::labels::LabelSettings::default());
+        assert_eq!(
+            settings.transitions,
+            sdw_core::transition::TransitionSettings::default()
+        );
         assert_eq!(settings.styles.song.max_lines, 5);
         assert_eq!(settings.styles.song.theme.body_size, 112.0);
         assert_eq!(settings.styles.scripture.max_chars, 350);
@@ -726,6 +879,90 @@ mod tests {
         assert_eq!(settings.output.layout.format, CanvasFormat::Standard);
         assert_eq!(settings.output.layout.margins, ScreenMargins::default());
         assert_eq!(settings.validate(), Ok(()));
+    }
+
+    #[test]
+    fn label_and_transition_preferences_round_trip_and_reject_invalid_drafts() {
+        use sdw_core::labels::LabelRule;
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+
+        let mut library = Library::open_in_memory().unwrap();
+        let mut saved = sdw_core::Settings::default();
+        saved.labels.rules[0] = LabelRule {
+            name: "Stanza".into(),
+            aliases: vec!["Verse".into(), "Bait".into()],
+            color: Rgb::from_rgb8(20, 40, 60),
+            shortcut: None,
+        };
+        saved.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 750,
+        };
+        saved.transitions.black.duration_ms = 100;
+        saved.transitions.clear = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 2000,
+        };
+        saved.general.advance_after_go_live = true;
+        library.save_settings(&saved).unwrap();
+        assert_eq!(library.settings().unwrap(), saved);
+
+        let mut invalid = saved.clone();
+        invalid.labels.rules[1].aliases.push("Verse 4".into());
+        assert!(library.save_settings(&invalid).is_err());
+        assert_eq!(library.settings().unwrap(), saved);
+        invalid = saved.clone();
+        invalid.transitions.slides.duration_ms = 425;
+        assert!(library.save_settings(&invalid).is_err());
+        assert_eq!(library.settings().unwrap(), saved);
+    }
+
+    #[test]
+    fn malformed_new_preferences_fall_back_independently_without_losing_v1_values() {
+        use sdw_core::labels::LabelSettings;
+        use sdw_core::settings::CanvasFormat;
+        use sdw_core::transition::{TransitionMode, TransitionSettings, TransitionSpec};
+
+        let library = Library::open_in_memory().unwrap();
+        for labels in [
+            serde_json::json!({"rules": "broken"}),
+            serde_json::json!({"rules": [{"name":"Verse", "aliases":[], "color":"#123456", "shortcut":"V"}, {"name":"Chorus", "aliases":["Bait", "Verse 2"], "color":"#654321", "shortcut":"C"}]}),
+            serde_json::json!({"rules": [{"name":"Verse", "aliases":[], "color":"#123456", "shortcut":"V"}, {"name":"Chorus", "aliases":[], "color":"#654321", "shortcut":"V"}]}),
+        ] {
+            let stored = serde_json::json!({
+                "styles": {"song": {"max_lines": 8}},
+                "general": {"advance_after_go_live": true, "shadows": false},
+                "output": {"layout": {"format": "standard", "margins": {"left": 25}}},
+                "labels": labels,
+                "transitions": {"slides": "broken", "black": {"mode": "fade", "duration_ms": 750}, "clear": {"mode": "cut", "duration_ms": 425}}
+            });
+            store_raw_setting(&library, SETTINGS_KEY, &stored.to_string());
+            let settings = library.settings().unwrap();
+            assert_eq!(settings.styles.song.max_lines, 8);
+            assert!(settings.general.advance_after_go_live);
+            assert!(!settings.general.shadows);
+            assert_eq!(settings.output.layout.format, CanvasFormat::Standard);
+            assert_eq!(settings.output.layout.margins.left, 25.0);
+            assert_eq!(settings.labels, LabelSettings::default());
+            assert_eq!(settings.transitions.slides, TransitionSpec::default());
+            assert_eq!(
+                settings.transitions.black,
+                TransitionSpec {
+                    mode: TransitionMode::Fade,
+                    duration_ms: 750
+                }
+            );
+            assert_eq!(settings.transitions.clear, TransitionSpec::default());
+        }
+        store_raw_setting(
+            &library,
+            SETTINGS_KEY,
+            r#"{"general":{"advance_after_go_live":true},"labels":{"rules":[]},"transitions":42}"#,
+        );
+        let settings = library.settings().unwrap();
+        assert!(settings.general.advance_after_go_live);
+        assert!(settings.labels.rules.is_empty());
+        assert_eq!(settings.transitions, TransitionSettings::default());
     }
 
     #[test]
