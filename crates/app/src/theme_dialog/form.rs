@@ -30,18 +30,73 @@ impl ThemeDialog {
         value: bool,
         message: fn(bool) -> Message,
     ) -> Element<'a, Message> {
+        self.toggle_when(caption, hint, value, true, message)
+    }
+
+    fn toggle_when<'a>(
+        &self,
+        caption: &'a str,
+        hint: Option<&'a str>,
+        value: bool,
+        enabled: bool,
+        message: fn(bool) -> Message,
+    ) -> Element<'a, Message> {
         row![
-            column![label(caption, 13.0, style::INTER, style::TEXT_2)]
-                .push(hint.map(|hint| label(hint, 11.0, style::INTER, style::TEXT_3)))
-                .spacing(4)
-                .width(Fill),
+            column![label(
+                caption,
+                13.0,
+                style::INTER,
+                style::fade(style::TEXT_2, enabled)
+            )]
+            .push(hint.map(|hint| label(
+                hint,
+                11.0,
+                style::INTER,
+                style::fade(style::TEXT_3, enabled)
+            )))
+            .spacing(4)
+            .width(Fill),
             toggler(value)
-                .on_toggle_maybe((!self.busy).then_some(message))
+                .on_toggle_maybe((!self.busy && enabled).then_some(message))
                 .size(18),
         ]
         .spacing(12)
         .align_y(Center)
         .into()
+    }
+
+    fn segmented<'a, T>(
+        &self,
+        options: impl IntoIterator<Item = T>,
+        selected: T,
+        message: fn(T) -> Message,
+    ) -> Element<'a, Message>
+    where
+        T: Copy + Eq + Label + 'a,
+    {
+        options
+            .into_iter()
+            .fold(row![].spacing(6), |list, option| {
+                list.push(
+                    button(
+                        container(label(option.label(), 12.5, style::MEDIUM, style::TEXT))
+                            .center(Fill),
+                    )
+                    .width(Fill)
+                    .height(34)
+                    .padding(0)
+                    .on_press_maybe((!self.busy).then_some(message(option)))
+                    .style(style::pressable(
+                        if selected == option {
+                            Tone::Selected
+                        } else {
+                            Tone::Row
+                        },
+                        8.0,
+                    )),
+                )
+            })
+            .into()
     }
 
     fn general_form(&self) -> Column<'_, Message> {
@@ -131,28 +186,13 @@ impl ThemeDialog {
                 style::TEXT_3,
             ));
         }
-        let formats = [CanvasFormat::Wide, CanvasFormat::Standard]
-            .into_iter()
-            .fold(row![].spacing(6), |list, format| {
-                list.push(
-                    button(
-                        container(label(format.label(), 13.0, style::MEDIUM, style::TEXT))
-                            .center(Fill),
-                    )
-                    .width(Fill)
-                    .height(34)
-                    .padding(0)
-                    .on_press_maybe((!self.busy).then_some(Message::CanvasFormat(format)))
-                    .style(style::pressable(
-                        if self.draft.output.layout.format == format {
-                            Tone::Selected
-                        } else {
-                            Tone::Row
-                        },
-                        8.0,
-                    )),
-                )
-            });
+        let formats = self.segmented(
+            [CanvasFormat::Wide, CanvasFormat::Standard],
+            self.draft.output.layout.format,
+            Message::CanvasFormat,
+        );
+        let logo_bg = self.draft.output.logo_background;
+        let logo_fg = color(logo_bg.contrasting_foreground());
         column![
             column![
                 ui::eyebrow(t().settings.monitor),
@@ -206,6 +246,33 @@ impl ThemeDialog {
                 .spacing(12),
             ]
             .spacing(12),
+            column![
+                ui::eyebrow(t().settings.logo_screen),
+                field(
+                    t().settings.logo_background,
+                    hex_input(&self.logo_hex, logo_bg, self.busy, Message::LogoHexChanged),
+                ),
+                field(
+                    t().theme.presets,
+                    preset_swatches(logo_bg, self.busy, Message::LogoColorPicked),
+                ),
+                container(
+                    row![
+                        logo::mark_colored(&logo::SMALL, 22.0, logo_fg),
+                        logo::wordmark_colored(14.0, logo_fg, logo_fg.scale_alpha(0.72)),
+                    ]
+                    .spacing(10)
+                    .align_y(Center),
+                )
+                .center_x(Fill)
+                .center_y(64)
+                .style(style::boxed(
+                    Some(color(logo_bg)),
+                    style::BORDER_STRONG,
+                    8.0
+                )),
+            ]
+            .spacing(10),
         ]
         .spacing(24)
     }
@@ -402,6 +469,13 @@ impl ThemeDialog {
                     self.draft.styles.song.show_copyright,
                     Message::ShowCopyright
                 ),
+                self.toggle_when(
+                    t().settings.copyright_first_only,
+                    Some(t().settings.copyright_first_hint),
+                    self.draft.styles.song.copyright_first_slide_only,
+                    self.draft.styles.song.show_copyright,
+                    Message::CopyrightFirstOnly
+                ),
                 column![
                     label(t().settings.license, 13.0, style::INTER, style::TEXT_2),
                     text_input(
@@ -442,6 +516,24 @@ impl ThemeDialog {
                     self.draft.styles.scripture.show_translation,
                     Message::Translation
                 ),
+                column![
+                    ui::eyebrow(t().settings.reference_position),
+                    self.segmented(
+                        [ReferencePosition::Bottom, ReferencePosition::Top],
+                        self.draft.styles.scripture.reference_position,
+                        Message::ReferencePosition,
+                    ),
+                ]
+                .spacing(8),
+                column![
+                    ui::eyebrow(t().settings.reference_format),
+                    self.segmented(
+                        [ReferenceFormat::Parentheses, ReferenceFormat::MiddleDot],
+                        self.draft.styles.scripture.reference_format,
+                        Message::ReferenceFormat,
+                    ),
+                ]
+                .spacing(8),
                 ui::hrule(style::BORDER),
                 self.toggle(
                     t().settings.one_verse,
@@ -465,22 +557,19 @@ impl ThemeDialog {
         let colors = ColorSlot::ALL
             .into_iter()
             .fold(Column::new().spacing(10), |list, slot| {
-                list.push(field(slot.label(), self.hex_field(slot, slot.get(theme))))
+                list.push(field(
+                    slot.label(),
+                    hex_input(
+                        &self.hex[kind_index(self.kind)][slot.index()],
+                        slot.get(theme),
+                        self.busy,
+                        move |value| Message::HexChanged(slot, value),
+                    ),
+                ))
             });
 
-        let presets = PRESETS.into_iter().fold(row![].spacing(6), |list, preset| {
-            let is_selected = preset == theme.background;
-
-            list.push(
-                button(space::horizontal())
-                    .width(18)
-                    .height(18)
-                    .padding(0)
-                    .on_press_maybe(
-                        (!self.busy).then_some(Message::ColorPicked(ColorSlot::Background, preset)),
-                    )
-                    .style(style::swatch(color(preset), is_selected)),
-            )
+        let presets = preset_swatches(theme.background, self.busy, |preset| {
+            Message::ColorPicked(ColorSlot::Background, preset)
         });
 
         let sliders = column![
@@ -631,6 +720,22 @@ impl ThemeDialog {
                 self.font_field(FontSlot::Footer),
                 column![ui::eyebrow(t().theme.text_heading), sliders].spacing(12),
                 layout,
+                column![
+                    ui::eyebrow(t().settings.readability),
+                    self.toggle(
+                        t().settings.text_shadow,
+                        Some(t().settings.text_shadow_hint),
+                        theme.text_shadow,
+                        Message::TextShadow,
+                    ),
+                    self.toggle(
+                        t().settings.text_scrim,
+                        Some(t().settings.text_scrim_hint),
+                        theme.text_scrim,
+                        Message::TextScrim,
+                    ),
+                ]
+                .spacing(12),
             ]
             .spacing(24)
             .padding(Padding {
@@ -644,43 +749,64 @@ impl ThemeDialog {
         .height(Fill)
         .into()
     }
+}
 
-    fn hex_field(&self, slot: ColorSlot, current: Rgb) -> Element<'_, Message> {
-        stack![
-            text_input("#rrggbb", &self.hex[kind_index(self.kind)][slot.index()])
-                .on_input_maybe(
-                    (!self.busy).then_some(move |value| Message::HexChanged(slot, value))
-                )
-                .on_submit(Message::Save)
-                .font(style::MONO)
-                .size(13)
-                .line_height(Pixels(18.0))
-                .padding(Padding {
-                    top: 6.0,
-                    right: 10.0,
-                    bottom: 6.0,
-                    left: 36.0,
-                })
-                .style(
-                    if Rgb::from_hex(&self.hex[kind_index(self.kind)][slot.index()]).is_none() {
-                        style::invalid_field
-                    } else {
-                        style::field
-                    }
-                ),
-            container(
-                container(space::horizontal())
-                    .width(20)
-                    .height(20)
-                    .style(style::sample(color(current)))
+fn hex_input<'a>(
+    value: &'a str,
+    current: Rgb,
+    busy: bool,
+    on_input: impl Fn(String) -> Message + 'a,
+) -> Element<'a, Message> {
+    stack![
+        text_input("#rrggbb", value)
+            .on_input_maybe((!busy).then_some(on_input))
+            .on_submit(Message::Save)
+            .font(style::MONO)
+            .size(13)
+            .line_height(Pixels(18.0))
+            .padding(Padding {
+                top: 6.0,
+                right: 10.0,
+                bottom: 6.0,
+                left: 36.0,
+            })
+            .style(if Rgb::from_hex(value).is_none() {
+                style::invalid_field
+            } else {
+                style::field
+            }),
+        container(
+            container(space::horizontal())
+                .width(20)
+                .height(20)
+                .style(style::sample(color(current)))
+        )
+        .padding(Padding::ZERO.left(8))
+        .center_y(Fill),
+    ]
+    .width(150)
+    .height(32)
+    .into()
+}
+
+fn preset_swatches<'a>(
+    selected: Rgb,
+    busy: bool,
+    message: fn(Rgb) -> Message,
+) -> Element<'a, Message> {
+    PRESETS
+        .into_iter()
+        .fold(row![].spacing(6), |list, preset| {
+            list.push(
+                button(space::horizontal())
+                    .width(18)
+                    .height(18)
+                    .padding(0)
+                    .on_press_maybe((!busy).then_some(message(preset)))
+                    .style(style::swatch(color(preset), preset == selected)),
             )
-            .padding(Padding::ZERO.left(8))
-            .center_y(Fill),
-        ]
-        .width(150)
-        .height(32)
+        })
         .into()
-    }
 }
 
 fn field<'a>(caption: &'a str, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {

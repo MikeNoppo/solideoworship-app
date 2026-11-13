@@ -16,7 +16,8 @@ use sdw_core::labels::{LabelRule, LabelSettings, MAX_RULES};
 use sdw_core::settings::{CanvasFormat, FontSpec, FontWeight, ScreenMargins};
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
-    BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
+    BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, ReferenceFormat,
+    ReferencePosition, Rgb, SlideTheme, TextAlign,
 };
 use sdw_core::transition::{TransitionMode, TransitionSettings};
 use sdw_core::{ScheduleItem, Settings, Song};
@@ -26,6 +27,7 @@ use crate::display::Display;
 
 use crate::i18n::{Label, Localize, fill, t};
 use crate::icon;
+use crate::logo;
 use crate::panes::{Card, slide_card};
 use crate::render::fonts;
 use crate::render::slide::{self, Visibility, color};
@@ -211,7 +213,7 @@ struct Captions {
 pub struct ThemeDialog {
     draft: Settings,
     labels: Vec<LabelDraft>,
-    durations: [String; 3],
+    durations: [String; 4],
     demo: Option<Playback>,
     demo_deck: Arc<SlideDeck>,
     preview_settings: Settings,
@@ -229,6 +231,7 @@ pub struct ThemeDialog {
     font_missing: [bool; 2],
     font_picker: Option<FontSlot>,
     hex: [[String; 3]; 2],
+    logo_hex: String,
     song: ScheduleItem,
     scripture: ScheduleItem,
     deck: SlideDeck,
@@ -245,10 +248,13 @@ pub enum Message {
     FontPicker(FontSlot),
     ShowHeading(bool),
     ShowCopyright(bool),
+    CopyrightFirstOnly(bool),
     LicenseChanged(String),
     VerseNumbers(bool),
     Reference(bool),
     Translation(bool),
+    ReferencePosition(ReferencePosition),
+    ReferenceFormat(ReferenceFormat),
     OneVerse(bool),
     FontSearch(FontSlot, String),
     FontSelected(FontSlot, &'static str),
@@ -259,6 +265,8 @@ pub enum Message {
     AdvanceAfterGoLive(bool),
     CanvasFormat(CanvasFormat),
     SafeMargin(MarginSide, String),
+    LogoHexChanged(String),
+    LogoColorPicked(Rgb),
     RefreshDisplays,
     HexChanged(ColorSlot, String),
     ColorPicked(ColorSlot, Rgb),
@@ -269,6 +277,8 @@ pub enum Message {
     Align(TextAlign),
     MaxLines(u16),
     MaxChars(u16),
+    TextShadow(bool),
+    TextScrim(bool),
     Shadows(bool),
     SlideSelected(usize),
     PreviewTransition(TransitionTarget),
@@ -330,6 +340,7 @@ impl ThemeDialog {
             font_missing: [false; 2],
             font_picker: None,
             hex: Default::default(),
+            logo_hex: String::new(),
             song,
             scripture,
             deck,
@@ -425,12 +436,21 @@ impl ThemeDialog {
             }
             Message::ShowHeading(value) => self.draft.styles.song.theme.show_label = value,
             Message::ShowCopyright(value) => self.draft.styles.song.show_copyright = value,
+            Message::CopyrightFirstOnly(value) => {
+                self.draft.styles.song.copyright_first_slide_only = value;
+            }
             Message::LicenseChanged(value) => {
                 self.draft.styles.song.license = value.into_boxed_str()
             }
             Message::VerseNumbers(value) => self.draft.styles.scripture.show_verse_numbers = value,
             Message::Reference(value) => self.draft.styles.scripture.show_reference = value,
             Message::Translation(value) => self.draft.styles.scripture.show_translation = value,
+            Message::ReferencePosition(position) => {
+                self.draft.styles.scripture.reference_position = position;
+            }
+            Message::ReferenceFormat(format) => {
+                self.draft.styles.scripture.reference_format = format;
+            }
             Message::OneVerse(value) => self.draft.styles.scripture.one_verse_per_slide = value,
             Message::FontPicker(slot) => {
                 self.font_picker = if self.font_picker == Some(slot) {
@@ -484,6 +504,16 @@ impl ThemeDialog {
                 }
                 self.margins[side.index()] = value;
             }
+            Message::LogoHexChanged(value) => {
+                if let Some(rgb) = Rgb::from_hex(&value) {
+                    self.draft.output.logo_background = rgb;
+                }
+                self.logo_hex = value;
+            }
+            Message::LogoColorPicked(rgb) => {
+                self.draft.output.logo_background = rgb;
+                self.logo_hex = rgb.to_hex();
+            }
             Message::CategorySelected(category) => {
                 self.font_picker = None;
                 self.category = category;
@@ -523,6 +553,8 @@ impl ThemeDialog {
                 self.draft.styles.scripture.max_chars =
                     chars.clamp(*MAX_CHARS.start(), *MAX_CHARS.end());
             }
+            Message::TextShadow(value) => self.theme_mut().text_shadow = value,
+            Message::TextScrim(value) => self.theme_mut().text_scrim = value,
             Message::Shadows(shadows) => {
                 self.draft.general.shadows = shadows;
                 return Action::None;
@@ -549,6 +581,7 @@ impl ThemeDialog {
                     Category::Output => {
                         self.draft.output = defaults.output;
                         self.sync_margins();
+                        self.sync_logo_hex();
                     }
                     Category::Song => {
                         self.draft.styles.song = defaults.styles.song;
@@ -586,6 +619,7 @@ impl ThemeDialog {
                     .iter()
                     .flatten()
                     .any(|value| Rgb::from_hex(value).is_none())
+                    || Rgb::from_hex(&self.logo_hex).is_none()
                 {
                     self.error = Some(t().settings.invalid_color.into());
                     return Action::None;
@@ -615,6 +649,7 @@ impl ThemeDialog {
         self.busy = false;
         self.error = None;
         self.sync_margins();
+        self.sync_logo_hex();
         self.sync_labels();
         self.sync_transitions();
         self.sync_hex(ContentKind::Song);
@@ -671,6 +706,10 @@ impl ThemeDialog {
         let theme = self.draft.styles.theme(kind);
 
         self.hex[kind_index(kind)] = ColorSlot::ALL.map(|slot| slot.get(theme).to_hex());
+    }
+
+    fn sync_logo_hex(&mut self) {
+        self.logo_hex = self.draft.output.logo_background.to_hex();
     }
 
     fn recompile(&mut self) {
@@ -1298,5 +1337,112 @@ mod tests {
         let _ = dialog.update(Message::Save);
 
         assert_eq!(dialog.update(Message::Cancel), Action::None);
+    }
+
+    #[test]
+    fn logo_background_and_logo_transitions_validate_save_and_reset() {
+        use super::TransitionTarget;
+        use sdw_core::OutputState;
+        use sdw_core::transition::TransitionMode;
+
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::CategorySelected(Category::Output));
+        let original = dialog.draft.output.logo_background;
+
+        let _ = dialog.update(Message::LogoHexChanged("#12".into()));
+        assert_eq!(dialog.draft.output.logo_background, original);
+        assert_eq!(dialog.update(Message::Save), Action::None);
+        assert!(dialog.error.is_some());
+
+        let picked = Rgb::from_rgb8(24, 36, 48);
+        let _ = dialog.update(Message::LogoColorPicked(picked));
+        assert_eq!(dialog.logo_hex, "#182430");
+        assert_eq!(dialog.draft.output.logo_background, picked);
+
+        let _ = dialog.update(Message::CategorySelected(Category::Transitions));
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Logo,
+            TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Logo,
+            "650".into(),
+        ));
+        let _ = dialog.update(Message::PreviewTransition(TransitionTarget::Logo));
+        assert_eq!(
+            dialog.demo.as_ref().unwrap().target().state,
+            OutputState::Logo
+        );
+
+        let _ = dialog.update(Message::CategorySelected(Category::Output));
+        let _ = dialog.update(Message::Reset);
+        assert_eq!(dialog.draft.output.logo_background, original);
+        assert_eq!(dialog.logo_hex, original.to_hex());
+        assert_eq!(dialog.draft.transitions.logo.mode, TransitionMode::Fade);
+        assert_eq!(dialog.draft.transitions.logo.duration_ms, 650);
+
+        let _ = dialog.update(Message::LogoHexChanged("#102030".into()));
+        let Action::SaveSettings(settings, true) = dialog.update(Message::Save) else {
+            panic!("expected a save action");
+        };
+        assert_eq!(settings.output.logo_background, Rgb::from_rgb8(16, 32, 48));
+        assert_eq!(settings.transitions.logo.mode, TransitionMode::Fade);
+        assert_eq!(settings.transitions.logo.duration_ms, 650);
+    }
+
+    #[test]
+    fn phase3_song_copyright_scripture_reference_and_readability_save_and_reset() {
+        use sdw_core::theme::{ReferenceFormat, ReferencePosition};
+
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::CopyrightFirstOnly(true));
+        let _ = dialog.update(Message::TextShadow(true));
+        let _ = dialog.update(Message::TextScrim(true));
+        assert!(dialog.deck.slides.len() >= 2);
+        assert!(dialog.deck.slides[0].footer.is_some());
+        assert!(dialog.deck.slides[1].footer.is_none());
+
+        let _ = dialog.update(Message::CategorySelected(Category::Scripture));
+        let _ = dialog.update(Message::ReferencePosition(ReferencePosition::Top));
+        let _ = dialog.update(Message::ReferenceFormat(ReferenceFormat::MiddleDot));
+        let _ = dialog.update(Message::TextShadow(true));
+        let first_slide = &dialog.deck.slides[0];
+        assert!(
+            first_slide
+                .header
+                .as_deref()
+                .is_some_and(|h| h.contains(" · "))
+        );
+        assert!(first_slide.footer.is_none());
+        assert!(!dialog.draft.styles.scripture.theme.text_scrim);
+
+        let _ = dialog.update(Message::CategorySelected(Category::Song));
+        let _ = dialog.update(Message::Reset);
+        assert!(!dialog.draft.styles.song.copyright_first_slide_only);
+        assert!(!dialog.draft.styles.song.theme.text_shadow);
+        assert!(!dialog.draft.styles.song.theme.text_scrim);
+        assert!(dialog.draft.styles.scripture.theme.text_shadow);
+        assert_eq!(
+            dialog.draft.styles.scripture.reference_position,
+            ReferencePosition::Top
+        );
+        assert_eq!(
+            dialog.draft.styles.scripture.reference_format,
+            ReferenceFormat::MiddleDot
+        );
+
+        let Action::SaveSettings(settings, true) = dialog.update(Message::Save) else {
+            panic!("expected a save action");
+        };
+        assert!(!settings.styles.song.copyright_first_slide_only);
+        assert!(settings.styles.scripture.theme.text_shadow);
+        assert_eq!(
+            settings.styles.scripture.reference_position,
+            ReferencePosition::Top
+        );
+        assert_eq!(
+            settings.styles.scripture.reference_format,
+            ReferenceFormat::MiddleDot
+        );
     }
 }

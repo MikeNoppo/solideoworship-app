@@ -8,7 +8,7 @@ use sdw_core::OutputState;
 use sdw_core::bible::ReferenceError;
 use sdw_core::settings::{CanvasFormat, FontWeight, SettingsError};
 use sdw_core::slide::ContentKind;
-use sdw_core::theme::TextAlign;
+use sdw_core::theme::{ReferenceFormat, ReferencePosition, TextAlign};
 use sdw_library::Error;
 use sdw_library::schedule_file::ScheduleFileError;
 
@@ -129,6 +129,25 @@ impl Label for OutputState {
             Self::Show => t().toolbar.show,
             Self::Black => t().toolbar.black,
             Self::Clear => t().toolbar.clear,
+            Self::Logo => t().toolbar.logo,
+        }
+    }
+}
+
+impl Label for ReferencePosition {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Bottom => t().settings.reference_bottom,
+            Self::Top => t().settings.reference_top,
+        }
+    }
+}
+
+impl Label for ReferenceFormat {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Parentheses => t().settings.reference_parentheses,
+            Self::MiddleDot => t().settings.reference_middle_dot,
         }
     }
 }
@@ -368,6 +387,7 @@ impl Label for TransitionTarget {
             Self::Slides => t().settings.transition_slides,
             Self::Black => t().settings.transition_black,
             Self::Clear => t().settings.transition_clear,
+            Self::Logo => t().settings.transition_logo,
         }
     }
 }

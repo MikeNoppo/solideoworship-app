@@ -7,16 +7,18 @@ pub enum TransitionTarget {
     Slides,
     Black,
     Clear,
+    Logo,
 }
 
 impl TransitionTarget {
-    pub(super) const ALL: [Self; 3] = [Self::Slides, Self::Black, Self::Clear];
+    pub(super) const ALL: [Self; 4] = [Self::Slides, Self::Black, Self::Clear, Self::Logo];
 
     pub(super) fn index(self) -> usize {
         match self {
             Self::Slides => 0,
             Self::Black => 1,
             Self::Clear => 2,
+            Self::Logo => 3,
         }
     }
 
@@ -25,6 +27,7 @@ impl TransitionTarget {
             Self::Slides => settings.slides,
             Self::Black => settings.black,
             Self::Clear => settings.clear,
+            Self::Logo => settings.logo,
         }
     }
 
@@ -33,6 +36,7 @@ impl TransitionTarget {
             Self::Slides => &mut settings.slides,
             Self::Black => &mut settings.black,
             Self::Clear => &mut settings.clear,
+            Self::Logo => &mut settings.logo,
         }
     }
 }
@@ -53,14 +57,17 @@ impl ThemeDialog {
         }
         self.advance_animation(now);
         let theme = &self.preview_settings.styles.song.theme;
+        let logo_background = self.preview_settings.output.logo_background;
         let demo = self.demo.get_or_insert_with(|| {
-            Playback::new(Scene::new(
+            Playback::new(Scene::with_logo_background(
                 Presentation::new(Arc::clone(&self.demo_deck)),
                 theme.clone(),
                 OutputState::Show,
+                logo_background,
             ))
         });
         let mut scene = demo.target().clone();
+        scene.logo_background = logo_background;
         match target {
             TransitionTarget::Slides => {
                 if let Some(presentation) = scene.presentation.as_mut() {
@@ -79,6 +86,7 @@ impl ThemeDialog {
             }
             TransitionTarget::Black => scene.state = scene.state.toggled(OutputState::Black),
             TransitionTarget::Clear => scene.state = scene.state.toggled(OutputState::Clear),
+            TransitionTarget::Logo => scene.state = scene.state.toggled(OutputState::Logo),
         }
         demo.retarget(scene, target.get(&self.draft.transitions), now);
     }
@@ -87,7 +95,14 @@ impl ThemeDialog {
         let theme = &self.preview_settings.styles.song.theme;
         let inner = sheet_width - SIDEBAR_WIDTH - FORM_WIDTH - 2.0 - PADDING * 2.0;
         let frame = self.demo.as_ref().map_or_else(
-            || transition::Frame::new(self.demo_deck.slides.first(), theme, OutputState::Show),
+            || {
+                transition::Frame::with_logo_background(
+                    self.demo_deck.slides.first(),
+                    theme,
+                    OutputState::Show,
+                    self.preview_settings.output.logo_background,
+                )
+            },
             Playback::frame,
         );
         container(

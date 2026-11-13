@@ -96,6 +96,15 @@ impl Captions {
             OutputState::Clear => {
                 format!("{} · {}", t().slides.clear_body, t().slides.clear_hint).into_boxed_str()
             }
+            OutputState::Logo => match &app.live {
+                Some(live) => format!(
+                    "{} · {}",
+                    t().slides.logo_body,
+                    fill(t().slides.logo_hint, &[("position", &live.position())])
+                ),
+                None => format!("{} · {}", t().slides.logo_body, t().slides.logo_ready_hint),
+            }
+            .into_boxed_str(),
         };
 
         let screen = [("screen", &screen_name as &dyn std::fmt::Display)];
@@ -205,6 +214,7 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
         match app.output_state {
             OutputState::Black => return format!("{} · {}", status.black, status.black_detail),
             OutputState::Clear => return format!("{} · {}", status.clear, status.clear_detail),
+            OutputState::Logo => return format!("{} · {}", status.logo, status.logo_detail),
             OutputState::Show => {}
         }
 
