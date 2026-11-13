@@ -1733,7 +1733,7 @@ mod tests {
     fn alt_key(modifiers: iced::keyboard::Modifiers, repeat: bool) -> iced::Event {
         let key = iced::keyboard::Key::Character("v".into());
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-            modified_key: key.clone(),
+            modified_key: iced::keyboard::Key::Character("√".into()),
             key,
             physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyV),
             location: iced::keyboard::Location::Standard,
@@ -1813,6 +1813,76 @@ mod tests {
         ));
         assert_eq!(app.schedule.revision(), revision);
         assert_eq!(app.live_theme, original_theme);
+    }
+
+    #[test]
+    fn plain_output_keys_and_clipboard_shortcuts_keep_their_behavior() {
+        use iced::event::Status;
+        use iced::keyboard::{Event, Key, Modifiers};
+        let window = window::Id::unique();
+        for (letter, expected) in [("b", OutputState::Black), ("c", OutputState::Clear)] {
+            let mut key = alt_key(Modifiers::empty(), false);
+            let iced::Event::Keyboard(Event::KeyPressed { key: character, .. }) = &mut key else {
+                unreachable!();
+            };
+            *character = Key::Character(letter.into());
+            assert!(matches!(
+                super::operator_shortcut(key.clone(), Status::Ignored, window),
+                Some(Message::OutputStateToggled(state)) if state == expected
+            ));
+            for modifier in [Modifiers::CTRL, Modifiers::LOGO] {
+                let iced::Event::Keyboard(Event::KeyPressed { modifiers, .. }) = &mut key else {
+                    unreachable!();
+                };
+                *modifiers = modifier;
+                assert!(super::operator_shortcut(key.clone(), Status::Ignored, window).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn section_shortcuts_leave_scripture_and_unknown_sections_unchanged() {
+        let mut app = App::default();
+        let mut deck = sdw_core::compile::song(
+            &Song::new("Custom", "[Custom]\none\n[Verse 1]\ntwo", None),
+            4,
+        );
+        assert!(crate::panes::label_rule(&deck, 0, &app.settings.labels).is_none());
+        deck.kind = sdw_core::slide::ContentKind::Scripture;
+        assert!(crate::panes::label_rule(&deck, 1, &app.settings.labels).is_none());
+        assert!(crate::panes::label_rule(&deck, 0, &app.settings.labels).is_none());
+        app.live = sdw_core::Presentation::new(std::sync::Arc::new(deck));
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+    }
+
+    #[test]
+    fn focus_results_from_previous_live_and_closed_modals_are_discarded() {
+        let mut app = live_song();
+        let old_generation = app.live_generation;
+        let _ = app.update(Message::GoLive);
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            app.modal_ticket,
+            old_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        let old_ticket = app.modal_ticket;
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::ModalDismissed);
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            old_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
     }
 
     #[test]
