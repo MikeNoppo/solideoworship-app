@@ -1,19 +1,25 @@
 use std::fmt;
 
+use crate::labels::LabelSettings;
 use crate::theme::{
     BODY_SIZE, CANVAS_WIDTH, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Styles,
 };
+use crate::transition::TransitionSettings;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
     pub styles: Styles,
     pub general: GeneralSettings,
     pub output: OutputSettings,
+    pub labels: LabelSettings,
+    pub transitions: TransitionSettings,
 }
 
 impl Settings {
     pub fn clamped(mut self) -> Self {
         self.styles = self.styles.clamped();
+        self.labels = self.labels.clamped();
+        self.transitions = self.transitions.clamped();
         self.output.layout = self.output.layout.clamped();
         self.output.monitor = self.output.monitor.filter(MonitorPreference::is_valid);
 
@@ -30,6 +36,8 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<(), SettingsError> {
+        self.labels.validate()?;
+        self.transitions.validate()?;
         let themes = [&self.styles.song.theme, &self.styles.scripture.theme];
         let valid_themes = themes.into_iter().all(|theme| {
             BODY_SIZE.contains(&theme.body_size)
@@ -76,11 +84,21 @@ impl Settings {
 pub enum SettingsError {
     InvalidValues,
     EmptyContentArea,
+    InvalidLabels,
+    ConflictingLabels,
+    InvalidTransitions,
 }
 
 impl fmt::Display for SettingsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidTransitions => {
+                f.write_str("Transition duration must be 100 to 2000 milliseconds in steps of 50.")
+            }
+            Self::InvalidLabels => f.write_str("Song label rules contain an invalid value."),
+            Self::ConflictingLabels => {
+                f.write_str("Song label names, aliases, or shortcuts conflict.")
+            }
             Self::InvalidValues => f.write_str("Settings contain an invalid value."),
             Self::EmptyContentArea => {
                 f.write_str("The safe margins and padding leave no content area.")

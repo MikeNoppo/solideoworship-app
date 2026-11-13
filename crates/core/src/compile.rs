@@ -1,5 +1,5 @@
 use crate::bible::{Passage, Verse};
-use crate::slide::{ContentKind, Slide, SlideDeck};
+use crate::slide::{ContentKind, Slide, SlideDeck, SlideSection};
 use crate::song::Song;
 use crate::theme::{ScriptureStyle, SongStyle};
 
@@ -32,6 +32,7 @@ fn song_with_footer(song: &Song, max_lines: usize, footer: Option<&str>) -> Slid
         part: 0,
         lines: Vec::with_capacity(max_lines),
         slides: Vec::new(),
+        sections: Vec::new(),
     };
 
     for line in song.lyrics().lines().map(str::trim) {
@@ -56,6 +57,7 @@ fn song_with_footer(song: &Song, max_lines: usize, footer: Option<&str>) -> Slid
         title: song.title().into(),
         kind: ContentKind::Song,
         slides: slides.slides,
+        sections: slides.sections,
     }
 }
 
@@ -71,12 +73,22 @@ struct SongSlides<'a> {
     part: usize,
     lines: Vec<&'a str>,
     slides: Vec<Slide>,
+    sections: Vec<SlideSection>,
 }
 
 impl SongSlides<'_> {
     fn flush(&mut self) {
         if self.lines.is_empty() {
             return;
+        }
+
+        if self.part == 0
+            && let Some(label) = self.label
+        {
+            self.sections.push(SlideSection {
+                name: label.into(),
+                start: self.slides.len(),
+            });
         }
 
         self.part += 1;
@@ -128,6 +140,7 @@ fn scripture_deck(
         title: format!("{reference} ({translation})").into_boxed_str(),
         kind: ContentKind::Scripture,
         slides,
+        sections: Vec::new(),
     }
 }
 

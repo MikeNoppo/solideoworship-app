@@ -210,7 +210,10 @@ pub trait Localize {
 impl Localize for SettingsError {
     fn localize(&self) -> String {
         match self {
-            Self::InvalidValues => t().settings.invalid_values.into(),
+            Self::InvalidValues
+            | Self::InvalidLabels
+            | Self::ConflictingLabels
+            | Self::InvalidTransitions => t().settings.invalid_values.into(),
             Self::EmptyContentArea => t().settings.empty_area.into(),
         }
     }

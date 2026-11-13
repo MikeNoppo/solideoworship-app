@@ -139,6 +139,8 @@ impl SettingsDto {
                 monitor: self.output.monitor.and_then(MonitorDto::into_monitor),
                 layout: self.output.layout.into_layout(defaults.output.layout),
             },
+            labels: defaults.labels,
+            transitions: defaults.transitions,
         }
     }
 }
