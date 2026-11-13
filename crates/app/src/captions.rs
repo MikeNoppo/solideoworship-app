@@ -3,7 +3,7 @@ use sdw_core::{ContentKind, OutputState};
 use std::path::Path;
 use std::time::SystemTime;
 
-use crate::i18n::{Label, count, fill, t};
+use crate::i18n::{Label, count, fill, grouped, t};
 use crate::message::{LibraryTab, Menu, Pending};
 use crate::{App, Modal};
 
@@ -25,6 +25,7 @@ pub struct Captions {
     pub disconnected_step: Box<str>,
     pub disconnected_frame: Box<str>,
     pub results: Box<str>,
+    pub song_count: Box<str>,
     pub no_match: Box<str>,
     pub unsaved_title: Box<str>,
     pub unsaved_body: Box<str>,
@@ -151,6 +152,10 @@ impl Captions {
             t().welcome.songs_done_one,
             t().welcome.songs_done_other,
         );
+        self.song_count = app
+            .song_count
+            .map(|count| grouped(count as u64).into_boxed_str())
+            .unwrap_or_default();
 
         if let Some(Modal::Unsaved(pending)) = &app.modal {
             let name = [("name", &app.schedule_name() as &dyn std::fmt::Display)];

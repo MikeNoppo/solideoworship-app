@@ -19,23 +19,26 @@ use crate::render::slide;
 use crate::style::{self, Tone};
 use crate::ui;
 
-const COMPACT_BELOW: f32 = 1360.0;
+pub const COMPACT_BELOW: f32 = 1360.0;
 
 pub struct Columns {
     pub schedule: f32,
     pub live: f32,
+    pub library_sidebar: f32,
 }
 
 pub fn columns(window_width: f32) -> Columns {
     if window_width < COMPACT_BELOW {
         Columns {
             schedule: 240.0,
-            live: 340.0,
+            live: 300.0,
+            library_sidebar: 210.0,
         }
     } else {
         Columns {
-            schedule: 280.0,
-            live: 420.0,
+            schedule: 270.0,
+            live: 360.0,
+            library_sidebar: 240.0,
         }
     }
 }

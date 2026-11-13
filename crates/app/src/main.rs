@@ -67,6 +67,11 @@ const IMPORT_BUFFER: usize = 64 * 1024;
 
 const QUIT_FLUSH: Duration = Duration::from_secs(2);
 
+const DEFAULT_SPLIT: f32 = 0.55;
+const MIN_SPLIT: f32 = 0.32;
+const MAX_SPLIT: f32 = 0.75;
+const SPLIT_SCALE: f32 = 1000.0;
+
 fn main() -> ExitCode {
     i18n::init(
         &paths::language_file(),
@@ -99,6 +104,12 @@ enum Phase {
 struct Drag {
     from: usize,
     over: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SplitDrag {
+    anchor_y: Option<f32>,
+    start_ratio: f32,
 }
 
 enum Toast {
@@ -147,6 +158,7 @@ struct App {
     splash_ready: bool,
     control: Option<window::Id>,
     control_width: f32,
+    control_height: f32,
     control_ready: bool,
     startup_output_done: bool,
     output: Option<window::Id>,
@@ -180,6 +192,9 @@ struct App {
     flash_serial: u64,
     hovered_row: Option<usize>,
     drag: Option<Drag>,
+    split_ratio: f32,
+    split_hovered: bool,
+    splitter_drag: Option<SplitDrag>,
     modal_ticket: u64,
     after_save: Option<Pending>,
     saved_at: Option<SystemTime>,
@@ -417,7 +432,35 @@ impl App {
             Message::WindowResized(id, size) => {
                 if self.control == Some(id) {
                     self.control_width = size.width;
+                    self.control_height = size.height;
                 }
+                Task::none()
+            }
+            Message::SplitHovered(hovered) => {
+                self.split_hovered = hovered;
+                Task::none()
+            }
+            Message::SplitStarted => {
+                self.splitter_drag = Some(SplitDrag {
+                    anchor_y: None,
+                    start_ratio: self.split_ratio(),
+                });
+                Task::none()
+            }
+            Message::SplitMoved(id, y) => {
+                if self.control.is_some_and(|control| control != id) {
+                    return Task::none();
+                }
+                if let Some(drag) = &mut self.splitter_drag {
+                    let anchor_y = *drag.anchor_y.get_or_insert(y);
+                    let body_height = (self.control_height - 91.0).max(200.0);
+                    self.split_ratio = (drag.start_ratio + (y - anchor_y) / body_height)
+                        .clamp(MIN_SPLIT, MAX_SPLIT);
+                }
+                Task::none()
+            }
+            Message::SplitEnded => {
+                self.splitter_drag = None;
                 Task::none()
             }
 
@@ -939,7 +982,7 @@ impl App {
                 }
 
                 let action = self.bible.update(message);
-                self.bible_action(action)
+                Task::batch([self.bible_action(action), self.load_bible_index()])
             }
             Message::BiblesLoaded(result) => match result {
                 Ok(bibles) => {
@@ -948,13 +991,20 @@ impl App {
                     }
 
                     let action = self.bible.set_bibles(bibles);
-                    self.bible_action(action)
+                    Task::batch([self.bible_action(action), self.load_bible_index()])
                 }
                 Err(error) => {
                     self.library_error = Some(error);
                     Task::none()
                 }
             },
+            Message::BibleIndexLoaded(bible, result) => {
+                match result {
+                    Ok(index) => self.bible.set_index(bible, index),
+                    Err(error) => self.library_error = Some(error),
+                }
+                Task::none()
+            }
             Message::PassageFound(bible, reference, result) => {
                 let action = self.bible.found_with_style(
                     bible,
@@ -1083,6 +1133,18 @@ impl App {
             }));
         }
 
+        if self.splitter_drag.is_some() {
+            subscriptions.push(event::listen_with(|event, _status, window| match event {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                    Some(Message::SplitMoved(window, position.y))
+                }
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )) => Some(Message::SplitEnded),
+                _ => None,
+            }));
+        }
+
         if self.toast.is_some() {
             subscriptions.push(
                 iced::time::every(TOAST_TIME)
@@ -1126,6 +1188,7 @@ impl App {
         let (id, opened) = window::open(windows::control());
         self.control = Some(id);
         self.control_width = windows::CONTROL_SIZE.width;
+        self.control_height = windows::CONTROL_SIZE.height;
 
         // The splash closes only after the control window has actually opened, so there
         // is never a gap with no window at all.
@@ -1439,6 +1502,20 @@ impl App {
         }
     }
 
+    fn split_ratio(&self) -> f32 {
+        if self.split_ratio <= 0.0 {
+            DEFAULT_SPLIT
+        } else {
+            self.split_ratio.clamp(MIN_SPLIT, MAX_SPLIT)
+        }
+    }
+
+    fn split_portions(&self) -> (u16, u16) {
+        let top = (self.split_ratio() * SPLIT_SCALE).round() as u16;
+        let bottom = (SPLIT_SCALE as u16).saturating_sub(top).max(1);
+        (top.max(1), bottom)
+    }
+
     fn load_bibles(&self) -> Task<Message> {
         if self.library_unavailable.is_some() {
             return Task::none();
@@ -1446,6 +1523,21 @@ impl App {
 
         self.store
             .run(|library| library.bibles(), Message::BiblesLoaded)
+    }
+
+    fn load_bible_index(&self) -> Task<Message> {
+        if self.library_unavailable.is_some() {
+            return Task::none();
+        }
+
+        let Some(bible) = self.bible.index_target() else {
+            return Task::none();
+        };
+
+        self.store.run(
+            move |library| library.bible_index(bible),
+            move |result| Message::BibleIndexLoaded(bible, result),
+        )
     }
 
     fn bible_action(&mut self, action: bible_tab::Action) -> Task<Message> {
@@ -3329,6 +3421,53 @@ mod tests {
 
         assert_eq!(&*app.schedule.entries()[0].deck().title, "A");
         assert_eq!(app.schedule.selected(), Some(0));
+    }
+
+    #[test]
+    fn bottom_library_tabs_and_control_view_render_at_compact_and_wide_widths() {
+        let mut app = live_with_two_songs();
+        let _ = app.update(Message::SongsCounted(Ok(1234)));
+        assert_eq!(&*app.captions.song_count, "1,234");
+
+        for width in [1120.0, 1480.0] {
+            app.control_width = width;
+            for tab in crate::LibraryTab::ALL {
+                let _ = app.update(Message::LibraryTabSelected(tab));
+                assert_eq!(app.library_tab, tab);
+                let _ = crate::panes::control::view(&app);
+            }
+        }
+
+        let _ = app.update(Message::OutputStateChanged(OutputState::Black));
+        let _ = crate::panes::control::view(&app);
+    }
+
+    #[test]
+    fn splitter_drag_adjusts_and_clamps_split_ratio() {
+        let mut app = live_with_two_songs();
+        let control = window::Id::unique();
+        let other = window::Id::unique();
+        app.control = Some(control);
+        app.control_height = 891.0;
+
+        assert_eq!(app.split_portions(), (550, 450));
+
+        let _ = app.update(Message::SplitStarted);
+        let _ = app.update(Message::SplitMoved(other, 100.0));
+        assert_eq!(app.split_portions(), (550, 450));
+
+        let _ = app.update(Message::SplitMoved(control, 400.0));
+        let _ = app.update(Message::SplitMoved(control, 480.0));
+        assert!((app.split_ratio() - 0.65).abs() < 0.001);
+
+        let _ = app.update(Message::SplitMoved(control, 1000.0));
+        assert!((app.split_ratio() - super::MAX_SPLIT).abs() < 0.001);
+
+        let _ = app.update(Message::SplitMoved(control, 0.0));
+        assert!((app.split_ratio() - super::MIN_SPLIT).abs() < 0.001);
+
+        let _ = app.update(Message::SplitEnded);
+        assert!(app.splitter_drag.is_none());
     }
 }
 

@@ -1,12 +1,14 @@
 use iced::widget::{Column, button, column, container, row, space};
 use iced::{Center, Element, Fill, Padding};
+use sdw_core::OutputState;
 
 use crate::display::Display;
-use crate::i18n::t;
+use crate::i18n::{Label, t};
 use crate::message::{Menu, Message};
+use crate::panes::COMPACT_BELOW;
 use crate::popover::{Align, popover};
 use crate::style::{self, Tone};
-use crate::ui::{self, action, hint, icon_button, label};
+use crate::ui::{self, action, hint, hint_with_key, icon_button, label};
 use crate::{App, icon, logo};
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -130,19 +132,83 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .push(space::horizontal())
             .push(picker)
             .push(output)
+            .push(ui::vrule(20.0))
+            .push(output_modes(app))
             .spacing(10)
             .align_y(Center),
     )
-    .height(52)
+    .height(54)
     .padding(Padding {
         top: 0.0,
         right: 12.0,
         bottom: 0.0,
         left: 16.0,
     })
-    .center_y(52)
+    .center_y(54)
     .width(Fill)
     .into()
+}
+
+fn output_modes(app: &App) -> Element<'_, Message> {
+    let is_open = app.output.is_some();
+    let compact = app.control_width < COMPACT_BELOW;
+
+    let modes = [
+        (OutputState::Show, Some(icon::EYE), None),
+        (OutputState::Logo, None, Some("L")),
+        (OutputState::Black, Some(icon::SQUARE), Some("B")),
+        (OutputState::Clear, Some(icon::ERASER), Some("C")),
+    ]
+    .into_iter()
+    .fold(row![].spacing(2), |list, (state, glyph, key)| {
+        let is_active = app.output_state == state;
+        let (glyph_color, caption_color, font) = if is_active {
+            (style::TEXT, style::TEXT, style::SEMIBOLD)
+        } else {
+            (style::TEXT_3, style::TEXT_2, style::MEDIUM)
+        };
+
+        let glyph: Element<'_, Message> = match glyph {
+            Some(glyph) => icon::view(glyph, 14.0, style::fade(glyph_color, is_open)).into(),
+            None => logo::mark_colored(&logo::SMALL, 14.0, style::fade(glyph_color, is_open)),
+        };
+
+        let content = container(
+            column![
+                glyph,
+                label(
+                    state.label(),
+                    11.0,
+                    font,
+                    style::fade(caption_color, is_open)
+                ),
+            ]
+            .spacing(2)
+            .align_x(Center),
+        )
+        .center_y(Fill);
+
+        let item = button(content)
+            .height(Fill)
+            .padding([0, if compact { 8 } else { 10 }])
+            .on_press_maybe(is_open.then_some(Message::OutputStateChanged(state)))
+            .style(style::pressable(
+                if is_active { Tone::Toggled } else { Tone::Row },
+                6.0,
+            ));
+
+        list.push(hint_with_key(item, state.label(), key))
+    });
+
+    container(modes)
+        .height(44)
+        .padding(3)
+        .style(style::boxed(
+            Some(style::fade(style::SURFACE, is_open)),
+            style::fade(style::BORDER, is_open),
+            8.0,
+        ))
+        .into()
 }
 
 fn picker(app: &App) -> Element<'_, Message> {

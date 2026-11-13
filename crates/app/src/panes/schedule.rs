@@ -70,8 +70,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             rows
         };
 
-        column![
-            ui::scroll(rows),
+        let tip = (app.schedule.entries().len() <= 2).then(|| {
             container(
                 column![
                     label(t().schedule.tip_title, 12.0, style::SEMIBOLD, style::TEXT),
@@ -82,10 +81,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
             )
             .padding(12)
             .width(Fill)
-            .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0)),
-        ]
-        .spacing(4)
-        .into()
+            .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0))
+        });
+
+        column![ui::scroll(rows)].push(tip).spacing(4).into()
     };
 
     container(column![header, body].spacing(4))

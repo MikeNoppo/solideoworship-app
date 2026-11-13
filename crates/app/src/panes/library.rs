@@ -1,11 +1,11 @@
-use iced::widget::{Column, button, column, container, hover, row, stack, text_input};
+use iced::widget::{Column, button, column, container, hover, row, space, stack, text_input};
 use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_library::SongSummary;
 
 use crate::bible_tab;
 use crate::i18n::{Label, t};
-use crate::message::{LibraryTab, Menu, Message};
-use crate::popover::{Align, popover};
+use crate::message::{LibraryTab, Message};
+use crate::panes::columns;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, icon_button, label};
 use crate::{App, icon};
@@ -14,36 +14,45 @@ pub const SEARCH: &str = "library-search";
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let enabled = app.library_unavailable.is_none();
+    let sidebar_width = columns(app.control_width).library_sidebar;
 
     let tabs = LibraryTab::ALL
         .iter()
-        .fold(row![].spacing(2), |list, &tab| {
+        .fold(row![].spacing(4), |list, &tab| {
             let is_active = app.library_tab == tab;
+            let glyph = match tab {
+                LibraryTab::Songs => icon::MUSIC,
+                LibraryTab::Scripture => icon::BOOK_OPEN,
+                LibraryTab::Media => icon::LAYOUT_GRID,
+            };
+            let color = if is_active {
+                style::TEXT
+            } else {
+                style::TEXT_3
+            };
 
             list.push(
                 button(
-                    container(label(
-                        tab.label(),
-                        12.0,
-                        if is_active {
-                            style::SEMIBOLD
-                        } else {
-                            style::MEDIUM
-                        },
-                        style::fade(
+                    row![
+                        icon::view(glyph, 13.0, color),
+                        label(
+                            tab.label(),
+                            12.5,
                             if is_active {
-                                style::TEXT
+                                style::SEMIBOLD
                             } else {
-                                style::TEXT_3
+                                style::MEDIUM
                             },
-                            enabled,
+                            color,
                         ),
-                    ))
-                    .center_y(Fill),
+                    ]
+                    .spacing(7)
+                    .height(Fill)
+                    .align_y(Center),
                 )
-                .height(Fill)
+                .height(30)
                 .padding([0, 12])
-                .on_press_maybe(enabled.then_some(Message::LibraryTabSelected(tab)))
+                .on_press(Message::LibraryTabSelected(tab))
                 .style(style::pressable(
                     if is_active { Tone::Selected } else { Tone::Row },
                     6.0,
@@ -51,54 +60,218 @@ pub fn view(app: &App) -> Element<'_, Message> {
             )
         });
 
-    let tabs = container(tabs).height(32).padding(3).style(style::boxed(
-        Some(style::fade(style::SURFACE, enabled)),
-        style::fade(style::BORDER, enabled),
-        8.0,
-    ));
+    let trailing: Element<'_, Message> = match app.library_tab {
+        LibraryTab::Songs => action(
+            Tone::Secondary,
+            Some(icon::PLUS),
+            t().common.new_song,
+            None,
+            enabled.then_some(Message::SongCreateRequested),
+        )
+        .into(),
+        LibraryTab::Scripture => action(
+            Tone::Secondary,
+            Some(icon::LIBRARY),
+            t().common.manage_bibles,
+            None,
+            enabled.then_some(Message::BibleManagerRequested),
+        )
+        .into(),
+        LibraryTab::Media => container(label(
+            t().library.media_coming_soon,
+            11.0,
+            style::MEDIUM,
+            style::TEXT_3,
+        ))
+        .padding([0, 8])
+        .center_y(24)
+        .style(style::boxed(Some(style::RAISED), style::BORDER, 12.0))
+        .into(),
+    };
 
-    let (controls, body): (Element<'_, Message>, Element<'_, Message>) = match app.library_tab {
-        LibraryTab::Songs => (
-            row![
-                search(app, enabled),
-                action(
-                    Tone::Secondary,
-                    Some(icon::PLUS),
-                    t().common.new_song,
-                    None,
-                    enabled.then_some(Message::SongCreateRequested),
-                ),
-            ]
+    let header = container(
+        row![tabs, space::horizontal(), trailing]
             .spacing(10)
-            .align_y(Center)
-            .width(Fill)
-            .into(),
-            songs(app),
+            .align_y(Center),
+    )
+    .height(42)
+    .padding([0, 14])
+    .center_y(42)
+    .width(Fill)
+    .style(style::fill(style::SURFACE));
+
+    let (sidebar, body): (Element<'_, Message>, Element<'_, Message>) = match app.library_tab {
+        LibraryTab::Songs => (
+            songs_sidebar(app, enabled),
+            column![search(app, enabled), songs(app)]
+                .spacing(10)
+                .height(Fill)
+                .into(),
         ),
         LibraryTab::Scripture => (
-            row![
-                translations(app, enabled),
-                app.bible.input().map(Message::Bible),
-                action(
-                    Tone::Secondary,
-                    Some(icon::LIBRARY),
-                    t().common.manage_bibles,
-                    None,
-                    enabled.then_some(Message::BibleManagerRequested),
-                ),
-            ]
-            .spacing(10)
-            .align_y(Center)
-            .width(Fill)
-            .into(),
-            app.bible.body().map(Message::Bible),
+            scripture_sidebar(app, enabled),
+            if enabled {
+                column![
+                    app.bible.input().map(Message::Bible),
+                    app.bible.body(app.control_width).map(Message::Bible),
+                ]
+                .spacing(10)
+                .height(Fill)
+                .into()
+            } else {
+                unavailable()
+            },
+        ),
+        LibraryTab::Media => (
+            media_sidebar(),
+            placeholder(ui::empty(
+                icon::LAYOUT_GRID,
+                false,
+                t().library.media_title,
+                Some(t().library.media_body),
+            )),
         ),
     };
 
-    column![row![tabs, controls].spacing(10).align_y(Center), body]
-        .spacing(10)
+    let sidebar = container(sidebar)
+        .width(sidebar_width)
         .height(Fill)
+        .padding([12, 10])
+        .style(style::fill(style::SURFACE));
+
+    let workspace = container(body).width(Fill).height(Fill).padding(Padding {
+        top: 12.0,
+        right: 16.0,
+        bottom: 10.0,
+        left: 16.0,
+    });
+
+    column![
+        header,
+        ui::hrule(style::BORDER),
+        row![sidebar, ui::line(style::BORDER), workspace].height(Fill),
+    ]
+    .height(Fill)
+    .into()
+}
+
+fn songs_sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
+    let count_badge = (enabled && !app.captions.song_count.is_empty())
+        .then(|| label(&app.captions.song_count, 11.5, style::MEDIUM, style::TEXT_3));
+
+    let all_songs = container(
+        row![
+            icon::view(icon::LIBRARY, 14.0, style::fade(style::TEXT_2, enabled)),
+            label(
+                t().library.all_songs,
+                12.5,
+                style::SEMIBOLD,
+                style::fade(style::TEXT, enabled),
+            )
+            .width(Fill),
+        ]
+        .push(count_badge)
+        .spacing(8)
+        .align_y(Center),
+    )
+    .width(Fill)
+    .padding([7, 10])
+    .style(style::rounded(style::fade(style::ACTIVE, enabled), 6.0));
+
+    column![
+        container(ui::eyebrow(t().library.songs_heading)).padding([0, 6]),
+        all_songs,
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn scripture_sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
+    let selected = app.bible.selected();
+    let bibles = app.bible.bibles();
+
+    let list: Element<'_, Message> = if !enabled || bibles.is_empty() {
+        container(label(
+            t().bible.no_translation,
+            12.5,
+            style::INTER,
+            style::TEXT_3,
+        ))
+        .padding([6, 8])
         .into()
+    } else {
+        let rows = bibles.iter().fold(Column::new().spacing(2), |list, bible| {
+            let is_selected = selected.is_some_and(|selected| selected.id == bible.id);
+
+            list.push(
+                button(
+                    row![
+                        label(&bible.abbreviation, 12.0, style::SEMIBOLD, style::TEXT).width(48),
+                        label(&bible.title, 12.0, style::INTER, style::TEXT_2).width(Fill),
+                    ]
+                    .push(is_selected.then(|| icon::view(icon::CHECK, 13.0, style::TEXT)))
+                    .spacing(8)
+                    .align_y(Center),
+                )
+                .width(Fill)
+                .padding([7, 8])
+                .on_press(Message::Bible(bible_tab::Message::BibleSelected(bible.id)))
+                .style(style::pressable(
+                    if is_selected {
+                        Tone::Selected
+                    } else {
+                        Tone::Row
+                    },
+                    6.0,
+                )),
+            )
+        });
+
+        ui::scroll(rows).into()
+    };
+
+    column![
+        container(ui::eyebrow(t().library.translations_heading)).padding([0, 6]),
+        list,
+    ]
+    .spacing(8)
+    .height(Fill)
+    .into()
+}
+
+fn media_sidebar() -> Element<'static, Message> {
+    let rows = [
+        (icon::LAYOUT_GRID, t().library.media_all),
+        (icon::MONITOR, t().library.media_images),
+        (icon::PLAY, t().library.media_videos),
+    ]
+    .into_iter()
+    .fold(Column::new().spacing(2), |list, (glyph, caption)| {
+        list.push(
+            container(
+                row![
+                    icon::view(glyph, 13.0, style::fade(style::TEXT_3, false)),
+                    label(
+                        caption,
+                        12.5,
+                        style::MEDIUM,
+                        style::fade(style::TEXT_2, false)
+                    ),
+                ]
+                .spacing(8)
+                .align_y(Center),
+            )
+            .width(Fill)
+            .padding([7, 8]),
+        )
+    });
+
+    column![
+        container(ui::eyebrow(t().library.media_heading)).padding([0, 6]),
+        rows,
+    ]
+    .spacing(8)
+    .into()
 }
 
 fn search(app: &App, enabled: bool) -> Element<'_, Message> {
@@ -159,12 +332,7 @@ fn search(app: &App, enabled: bool) -> Element<'_, Message> {
 
 fn songs(app: &App) -> Element<'_, Message> {
     if app.library_unavailable.is_some() {
-        return placeholder(ui::empty(
-            icon::DATABASE,
-            false,
-            t().library.unavailable_title,
-            Some(t().library.unavailable_body),
-        ));
+        return unavailable();
     }
 
     let is_searching = !app.search.trim().is_empty();
@@ -288,75 +456,18 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
     hover(base, container(actions).align_right(Fill).center_y(40))
 }
 
-fn translations(app: &App, enabled: bool) -> Element<'_, Message> {
-    let selected = app.bible.selected();
-    let has_bibles = enabled && !app.bible.bibles().is_empty();
-
-    let anchor = button(
-        row![
-            label(
-                selected.map_or(t().bible.no_translation, |bible| &bible.abbreviation),
-                13.0,
-                style::SEMIBOLD,
-                style::fade(style::TEXT, has_bibles),
-            ),
-            icon::view(icon::CHEVRON_DOWN, 14.0, style::TEXT_3),
-        ]
-        .spacing(8)
-        .height(Fill)
-        .align_y(Center),
-    )
-    .height(32)
-    .padding([0, 10])
-    .on_press_maybe(has_bibles.then_some(Message::MenuToggled(Menu::Translations)))
-    .style(style::pressable(Tone::Secondary, 8.0));
-
-    let menu = (app.menu == Some(Menu::Translations)).then(|| {
-        let items = app
-            .bible
-            .bibles()
-            .iter()
-            .fold(Column::new().spacing(2), |list, bible| {
-                let is_selected = selected.is_some_and(|selected| selected.id == bible.id);
-
-                list.push(
-                    button(
-                        row![
-                            label(&bible.abbreviation, 13.0, style::SEMIBOLD, style::TEXT)
-                                .width(56),
-                            label(&bible.title, 13.0, style::INTER, style::TEXT_2).width(Fill),
-                        ]
-                        .push(is_selected.then(|| icon::view(icon::CHECK, 14.0, style::TEXT)))
-                        .spacing(10)
-                        .align_y(Center),
-                    )
-                    .width(Fill)
-                    .padding([8, 10])
-                    .on_press(Message::Bible(bible_tab::Message::BibleSelected(bible.id)))
-                    .style(style::pressable(
-                        if is_selected {
-                            Tone::Selected
-                        } else {
-                            Tone::Row
-                        },
-                        6.0,
-                    )),
-                )
-            });
-
-        container(items)
-            .width(300)
-            .padding(6)
-            .style(style::menu)
-            .into()
-    });
-
-    popover(anchor, menu, Align::Start, Message::MenuDismissed).into()
+fn unavailable<'a>() -> Element<'a, Message> {
+    placeholder(ui::empty(
+        icon::DATABASE,
+        false,
+        t().library.unavailable_title,
+        Some(t().library.unavailable_body),
+    ))
 }
 
 fn placeholder(content: Element<'_, Message>) -> Element<'_, Message> {
     container(content)
-        .padding(Padding::ZERO.bottom(24))
+        .padding(Padding::ZERO.bottom(12))
         .center(Fill)
         .into()
 }

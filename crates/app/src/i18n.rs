@@ -119,6 +119,7 @@ impl Label for LibraryTab {
         match self {
             Self::Songs => t().library.songs,
             Self::Scripture => t().common.bible,
+            Self::Media => t().library.media,
         }
     }
 }

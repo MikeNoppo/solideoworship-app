@@ -236,7 +236,7 @@ fn step(step: Step<'_>, is_first: bool, is_last: bool) -> Element<'_, Message> {
     let background = (step.state == State::Current).then(|| Background::from(tint(style::SURFACE)));
 
     container(row![symbol, text, trailing].spacing(16).align_y(Center))
-        .padding([18, 20])
+        .padding([14, 18])
         .width(Fill)
         .style(move |_theme| container::Style {
             background,

@@ -1,4 +1,4 @@
-use iced::widget::{center, column, container, opaque, row, stack};
+use iced::widget::{Space, center, column, container, mouse_area, opaque, row, stack};
 use iced::{Center, Element, Fill, FillPortion, Padding};
 
 use crate::i18n::t;
@@ -11,67 +11,68 @@ use crate::{App, Modal, Toast, icon};
 pub fn view(app: &App) -> Element<'_, Message> {
     let shows_preview = app.schedule.preview().is_some() || welcome::is_complete(app);
     let preview_padding = Padding {
-        top: 16.0,
+        top: 14.0,
         right: preview::PADDING,
-        bottom: 20.0,
+        bottom: 16.0,
         left: preview::PADDING,
     };
 
-    let top: Element<'_, Message> = match app.schedule.preview() {
+    let center_pane: Element<'_, Message> = match app.schedule.preview() {
         Some(presentation) => container(preview::view(app, presentation))
             .padding(preview_padding)
-            .height(FillPortion(11))
+            .width(Fill)
+            .height(Fill)
             .into(),
         None if shows_preview => container(preview::empty())
             .padding(preview_padding)
-            .height(FillPortion(11))
+            .width(Fill)
+            .height(Fill)
             .into(),
-        None => container(welcome::view(app))
-            .padding(Padding {
-                top: 16.0,
-                right: 20.0,
-                bottom: 20.0,
-                left: 20.0,
-            })
-            .into(),
+        None => container(ui::scroll(
+            container(welcome::view(app)).padding(Padding::ZERO.right(ui::SCROLL_GUTTER)),
+        ))
+        .padding(Padding {
+            top: 14.0,
+            right: 12.0,
+            bottom: 14.0,
+            left: 20.0,
+        })
+        .width(Fill)
+        .height(Fill)
+        .into(),
     };
 
-    let library_height = if shows_preview { FillPortion(9) } else { Fill };
+    let (top_portion, bottom_portion) = app.split_portions();
 
-    let middle = column![
-        top,
-        ui::hrule(style::BORDER),
-        container(library::view(app))
-            .padding(Padding {
-                top: 14.0,
-                right: 20.0,
-                bottom: 12.0,
-                left: 20.0,
-            })
-            .height(library_height),
+    let top_row = row![
+        schedule::view(app),
+        ui::line(style::BORDER),
+        center_pane,
+        ui::line(style::BORDER),
+        live::view(app),
     ]
-    .width(Fill);
+    .height(FillPortion(top_portion));
 
-    let middle: Element<'_, Message> = match &app.toast {
+    let body = column![
+        top_row,
+        splitter(app),
+        container(library::view(app))
+            .width(Fill)
+            .height(FillPortion(bottom_portion)),
+    ]
+    .height(Fill);
+
+    let body: Element<'_, Message> = match &app.toast {
         Some(toast) => stack![
-            middle,
+            body,
             container(self::toast(toast))
-                .padding(Padding::ZERO.bottom(40))
+                .padding(Padding::ZERO.bottom(16))
                 .align_bottom(Fill)
                 .center_x(Fill),
         ]
         .into(),
-        None => middle.into(),
+        None => body.into(),
     };
-
-    let body = row![
-        schedule::view(app),
-        ui::line(style::BORDER),
-        middle,
-        ui::line(style::BORDER),
-        live::view(app),
-    ]
-    .height(Fill);
 
     let layout = column![toolbar::view(app), ui::hrule(style::BORDER)]
         .extend(notices(app))
@@ -99,6 +100,42 @@ pub fn view(app: &App) -> Element<'_, Message> {
         opaque(center(dialog).padding(32).style(style::backdrop)),
     ]
     .into()
+}
+
+fn splitter<'a>(app: &'a App) -> Element<'a, Message> {
+    let active = app.splitter_drag.is_some() || app.split_hovered;
+    let line_color = if active {
+        style::BORDER_STRONG
+    } else {
+        style::BORDER
+    };
+    let grip_color = if app.splitter_drag.is_some() {
+        style::TEXT_2
+    } else if app.split_hovered {
+        style::TEXT_3
+    } else {
+        style::BORDER_STRONG
+    };
+
+    let bar = stack![
+        container(ui::hrule(line_color)).center_y(Fill),
+        container(
+            container(Space::new())
+                .width(36)
+                .height(3)
+                .style(style::rounded(grip_color, 1.5)),
+        )
+        .center(Fill),
+    ]
+    .width(Fill)
+    .height(7);
+
+    mouse_area(bar)
+        .on_press(Message::SplitStarted)
+        .on_enter(Message::SplitHovered(true))
+        .on_exit(Message::SplitHovered(false))
+        .interaction(iced::mouse::Interaction::ResizingVertically)
+        .into()
 }
 
 fn notices(app: &App) -> Vec<Element<'_, Message>> {

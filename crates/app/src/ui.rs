@@ -86,38 +86,6 @@ pub fn action<'a, M: 'a>(
         .style(style::pressable(tone, 8.0))
 }
 
-pub fn wide_action<'a, M: 'a>(
-    tone: Tone,
-    glyph: Option<&'static str>,
-    caption: &'a str,
-    trailing: Option<&'static str>,
-    on_press: Option<M>,
-) -> Button<'a, M> {
-    let enabled = on_press.is_some();
-    let color = match tone {
-        Tone::Primary => style::ON_INVERSE,
-        _ => style::TEXT,
-    };
-    let font = match tone {
-        Tone::Primary => style::SEMIBOLD,
-        _ => style::MEDIUM,
-    };
-
-    let content = row![]
-        .push(glyph.map(|glyph| icon::view(glyph, 14.0, style::fade(style::TEXT_2, enabled))))
-        .push(label(caption, 13.0, font, style::fade(color, enabled)))
-        .push(trailing.map(|glyph| icon::view(glyph, 14.0, style::fade(color, enabled))))
-        .spacing(8)
-        .align_y(Center);
-
-    button(container(content).center(Fill))
-        .width(Fill)
-        .height(40)
-        .padding(0)
-        .on_press_maybe(on_press)
-        .style(style::pressable(tone, 8.0))
-}
-
 pub fn icon_button<'a, M: 'a>(
     glyph: &'static str,
     color: Color,
@@ -146,17 +114,43 @@ pub fn scroll<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Scrollable<'a, M
         .style(style::scrollbar)
 }
 
+pub fn scroll_x<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Scrollable<'a, M> {
+    scrollable(content)
+        .direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::new().width(0).scroller_width(0),
+        ))
+        .width(Fill)
+        .style(style::scrollbar)
+}
+
 pub fn hint<'a, M: 'a>(content: impl Into<Element<'a, M>>, caption: &'a str) -> Element<'a, M> {
-    tooltip(
-        content,
-        container(label(caption, 12.0, style::INTER, style::TEXT)).padding([4, 8]),
-        tooltip::Position::Bottom,
-    )
-    .gap(6)
-    .padding(0)
-    .delay(HINT_DELAY)
-    .style(style::tooltip)
-    .into()
+    hint_with_key(content, caption, None)
+}
+
+pub fn hint_with_key<'a, M: 'a>(
+    content: impl Into<Element<'a, M>>,
+    caption: &'a str,
+    key: Option<&'a str>,
+) -> Element<'a, M> {
+    let tip = match key {
+        Some(key) => container(
+            row![
+                label(caption, 12.0, style::INTER, style::TEXT),
+                kbd(key, 17.0, 10.0, true),
+            ]
+            .spacing(6)
+            .align_y(Center),
+        ),
+        None => container(label(caption, 12.0, style::INTER, style::TEXT)),
+    }
+    .padding([4, 8]);
+
+    tooltip(content, tip, tooltip::Position::Bottom)
+        .gap(6)
+        .padding(0)
+        .delay(HINT_DELAY)
+        .style(style::tooltip)
+        .into()
 }
 
 pub fn kbd<'a, M: 'a>(key: &'a str, height: f32, size: f32, enabled: bool) -> Element<'a, M> {

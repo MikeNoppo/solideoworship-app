@@ -4,7 +4,7 @@ use std::time::{Instant, SystemTime};
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
 use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
-use sdw_library::{BibleId, BibleSummary, ImportReport, SongId, SongSummary};
+use sdw_library::{BibleBook, BibleId, BibleSummary, ImportReport, SongId, SongSummary};
 
 use crate::display::Display;
 use crate::files::{SaveFailure, SaveTarget};
@@ -32,10 +32,11 @@ pub enum LibraryTab {
     #[default]
     Songs,
     Scripture,
+    Media,
 }
 
 impl LibraryTab {
-    pub const ALL: [Self; 2] = [Self::Songs, Self::Scripture];
+    pub const ALL: [Self; 3] = [Self::Songs, Self::Scripture, Self::Media];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +53,6 @@ pub enum Notice {
 pub enum Menu {
     Schedule,
     Screens,
-    Translations,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +94,10 @@ pub enum Message {
     WindowCloseRequested(window::Id),
     WindowClosed(window::Id),
     WindowResized(window::Id, iced::Size),
+    SplitHovered(bool),
+    SplitStarted,
+    SplitMoved(window::Id, f32),
+    SplitEnded,
 
     SelectedRemoved,
     ScheduleRemoved(usize),
@@ -146,6 +150,7 @@ pub enum Message {
     Unsaved(UnsavedChoice),
     Bible(bible_tab::Message),
     BiblesLoaded(Outcome<Vec<BibleSummary>>),
+    BibleIndexLoaded(BibleId, Outcome<Vec<BibleBook>>),
     PassageFound(BibleId, Reference, Outcome<Option<Passage>>),
     BibleManagerRequested,
     BibleManager(bible_manager::Message),
@@ -158,6 +163,11 @@ impl Message {
             Self::AnimationFrame(..)
             | Self::WindowCloseRequested(..)
             | Self::WindowResized(..)
+            | Self::SplitHovered(..)
+            | Self::SplitStarted
+            | Self::SplitMoved(..)
+            | Self::SplitEnded
+            | Self::BibleIndexLoaded(..)
             | Self::RowHovered(..)
             | Self::DragOver(..)
             | Self::ToastDismissed

@@ -1,18 +1,18 @@
 use iced::widget::{Column, Space, button, column, container, row, stack};
-use iced::{Border, Bottom, Center, Element, Fill, Padding};
+use iced::{Border, Center, Element, Fill, Padding};
 use sdw_core::OutputState;
 
 use crate::App;
-use crate::i18n::{Label, t};
+use crate::i18n::t;
 use crate::icon;
 use crate::logo;
 use crate::message::{Message, Step};
 use crate::panes::{columns, label_chip, label_rule};
 use crate::render::transition;
 use crate::style::{self, Tone};
-use crate::ui::{self, label, wide_action};
+use crate::ui::{self, label};
 
-const PADDING: f32 = 16.0;
+const PADDING: f32 = 14.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let width = columns(app.control_width).live;
@@ -23,7 +23,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     } else {
         app.settings.styles.song.theme.layout
     };
-    let frame_height = ((width - PADDING * 2.0) / layout.ratio()).round();
+    let thumb_width = if width < 330.0 { 116.0 } else { 136.0 };
+    let thumb_height = (thumb_width / layout.ratio()).round();
 
     let (badge, badge_fill, badge_color) = match (is_open, live.is_some()) {
         (true, true) => (t().slides.live, style::LIVE_SOFT, style::LIVE),
@@ -65,84 +66,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .spacing(10)
     .align_y(Center);
 
-    let show_stage = live.is_some()
-        || (is_open && (app.output_state == OutputState::Logo || app.has_animation()));
-
-    let frame: Element<'_, Message> = if show_stage {
-        container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
-            .width(Fill)
-            .height(frame_height)
-            .padding(2)
-            .style(move |_theme| iced::widget::container::Style {
-                background: Some(style::SLIDE_BG.into()),
-                border: Border {
-                    color: if is_open {
-                        style::LIVE.scale_alpha(0.5)
-                    } else {
-                        style::BORDER_STRONG
-                    },
-                    width: if is_open { 1.5 } else { 1.0 },
-                    radius: 8.0.into(),
-                },
-                ..iced::widget::container::Style::default()
-            })
-            .into()
-    } else {
-        let (title, body) = if is_open {
-            (t().slides.ready_title, t().slides.ready_body)
-        } else if app.disconnected.is_some() {
-            (t().slides.closed_title, &*app.captions.disconnected_frame)
-        } else if app.displays.is_empty() {
-            (t().slides.closed_title, t().slides.no_screen_body)
-        } else {
-            (t().slides.closed_title, &*app.captions.closed_body)
-        };
-
-        container(
-            column![
-                label(title, 13.0, style::MEDIUM, style::TEXT_3),
-                label(body, 11.0, style::INTER, style::SLIDE_HINT),
-            ]
-            .spacing(10)
-            .align_x(Center),
-        )
-        .padding(20)
-        .center_x(Fill)
-        .center_y(frame_height)
-        .style(style::boxed(
-            Some(style::SLIDE_BG),
-            style::BORDER_STRONG,
-            8.0,
-        ))
-        .into()
-    };
-
-    let compact = width < 380.0;
-    let modes = [
-        (OutputState::Show, None, None),
-        (OutputState::Black, Some(icon::SQUARE), Some("B")),
-        (OutputState::Clear, Some(icon::ERASER), Some("C")),
-        (OutputState::Logo, None, Some("L")),
-    ]
-    .into_iter()
-    .fold(row![].spacing(3), |list, (state, glyph, key)| {
-        let glyph = match (state, glyph) {
-            (OutputState::Show, _) => Some(icon::EYE),
-            (_, glyph) => glyph,
-        };
-        list.push(mode(app, state, glyph, key, compact))
-    });
-
-    let modes = container(modes).height(40).padding(3).style(style::boxed(
-        Some(style::fade(style::BG, is_open)),
-        style::fade(style::BORDER, is_open),
-        9.0,
-    ));
-
     let slides_header = row![ui::eyebrow(t().slides.heading).width(Fill)]
         .push(live.map(|_| label(t().slides.jump_hint, 11.0, style::INTER, style::TEXT_3)))
         .padding(Padding {
-            top: 6.0,
+            top: 2.0,
             right: 4.0,
             bottom: 0.0,
             left: 4.0,
@@ -178,32 +105,125 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into(),
     };
 
+    let show_stage = live.is_some()
+        || (is_open && (app.output_state == OutputState::Logo || app.has_animation()));
+
+    let thumbnail: Element<'_, Message> = if show_stage {
+        container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
+            .width(thumb_width)
+            .height(thumb_height)
+            .padding(2)
+            .style(move |_theme| iced::widget::container::Style {
+                background: Some(style::SLIDE_BG.into()),
+                border: Border {
+                    color: if is_open {
+                        style::LIVE.scale_alpha(0.5)
+                    } else {
+                        style::BORDER_STRONG
+                    },
+                    width: if is_open { 1.5 } else { 1.0 },
+                    radius: 6.0.into(),
+                },
+                ..iced::widget::container::Style::default()
+            })
+            .into()
+    } else {
+        let glyph = if app.disconnected.is_some() || app.displays.is_empty() {
+            icon::MONITOR_X
+        } else {
+            icon::MONITOR_OFF
+        };
+
+        container(icon::view(glyph, 18.0, style::TEXT_3))
+            .center_x(thumb_width)
+            .center_y(thumb_height)
+            .style(style::boxed(
+                Some(style::SLIDE_BG),
+                style::BORDER_STRONG,
+                6.0,
+            ))
+            .into()
+    };
+
+    let (output_title, output_detail): (&str, &str) =
+        if is_open && app.output_state != OutputState::Show {
+            (
+                live.map_or(t().slides.ready_title, |live| &*live.deck().title),
+                &app.captions.mode_hint,
+            )
+        } else if let Some(live) = live {
+            (&live.deck().title, &app.captions.live_position)
+        } else if is_open {
+            (t().slides.ready_title, t().slides.ready_body)
+        } else if app.disconnected.is_some() {
+            (t().slides.closed_title, &app.captions.disconnected_frame)
+        } else if app.displays.is_empty() {
+            (t().slides.closed_title, t().slides.no_screen_body)
+        } else {
+            (t().slides.closed_title, &app.captions.closed_body)
+        };
+
     let can_previous = live.is_some_and(|live| live.position() > 1);
     let can_next = live.is_some_and(|live| live.position() < live.len());
 
     let transport = row![
-        wide_action(
-            Tone::Secondary,
-            Some(icon::ARROW_LEFT),
+        ui::hint(
+            step_button(
+                icon::ARROW_LEFT,
+                can_previous.then_some(Message::LiveMoved(Step::Previous)),
+            ),
             t().slides.previous,
-            None,
-            can_previous.then_some(Message::LiveMoved(Step::Previous)),
         ),
-        wide_action(
-            Tone::Primary,
-            None,
+        ui::hint(
+            step_button(
+                icon::ARROW_RIGHT,
+                can_next.then_some(Message::LiveMoved(Step::Next)),
+            ),
             t().slides.next,
-            Some(icon::ARROW_RIGHT),
-            can_next.then_some(Message::LiveMoved(Step::Next)),
         ),
     ]
-    .spacing(8);
+    .spacing(6);
 
-    container(column![header, frame, modes, slides_header, list, transport].spacing(14))
-        .width(width)
-        .height(Fill)
-        .padding(PADDING)
-        .style(style::fill(style::SURFACE))
+    let output_footer = column![
+        ui::hrule(style::BORDER),
+        row![
+            thumbnail,
+            column![
+                row![ui::eyebrow(t().slides.live_output).width(Fill), transport,]
+                    .spacing(6)
+                    .align_y(Center),
+                label(output_title, 12.5, style::SEMIBOLD, style::TEXT),
+                label(output_detail, 11.0, style::INTER, style::TEXT_3).line_height(1.35),
+            ]
+            .spacing(4)
+            .width(Fill),
+        ]
+        .spacing(12)
+        .align_y(Center),
+    ]
+    .spacing(12);
+
+    container(
+        column![header, slides_header, list, output_footer]
+            .spacing(10)
+            .height(Fill),
+    )
+    .width(width)
+    .height(Fill)
+    .padding(PADDING)
+    .style(style::fill(style::SURFACE))
+    .into()
+}
+
+fn step_button<'a>(glyph: &'static str, on_press: Option<Message>) -> Element<'a, Message> {
+    let enabled = on_press.is_some();
+
+    button(container(icon::view(glyph, 13.0, style::fade(style::TEXT, enabled))).center(Fill))
+        .width(30)
+        .height(26)
+        .padding(0)
+        .on_press_maybe(on_press)
+        .style(style::pressable(Tone::Secondary, 6.0))
         .into()
 }
 
@@ -211,119 +231,29 @@ fn mode_notice(app: &App) -> Option<Element<'_, Message>> {
     let (chip_icon, chip): (Element<'_, Message>, &'static str) = match app.output_state {
         OutputState::Show => return None,
         OutputState::Black => (
-            icon::view(icon::SQUARE, 12.0, style::TEXT_2).into(),
+            icon::view(icon::SQUARE, 10.0, style::TEXT_2).into(),
             t().slides.black_chip,
         ),
         OutputState::Clear => (
-            icon::view(icon::ERASER, 12.0, style::TEXT_2).into(),
+            icon::view(icon::ERASER, 10.0, style::TEXT_2).into(),
             t().slides.clear_chip,
         ),
         OutputState::Logo => (
-            logo::mark_colored(&logo::SMALL, 12.0, style::TEXT_2),
+            logo::mark_colored(&logo::SMALL, 10.0, style::TEXT_2),
             t().slides.logo_chip,
         ),
     };
 
     let chip = container(
-        row![chip_icon, label(chip, 10.0, style::SEMIBOLD, style::TEXT_2)]
-            .spacing(6)
+        row![chip_icon, label(chip, 9.5, style::SEMIBOLD, style::TEXT_2)]
+            .spacing(4)
             .align_y(Center),
     )
-    .padding([0, 8])
-    .center_y(22)
-    .style(style::rounded(style::INVERSE.scale_alpha(0.08), 5.0));
+    .padding([0, 6])
+    .center_y(18)
+    .style(style::rounded(style::SURFACE.scale_alpha(0.9), 4.0));
 
-    if app.output_state == OutputState::Logo {
-        return Some(
-            container(
-                container(
-                    row![
-                        chip,
-                        label(&app.captions.mode_hint, 10.5, style::INTER, style::TEXT_2),
-                    ]
-                    .spacing(8)
-                    .align_y(Center),
-                )
-                .padding([4, 8])
-                .style(style::boxed(
-                    Some(style::SURFACE.scale_alpha(0.92)),
-                    style::BORDER_STRONG,
-                    6.0,
-                )),
-            )
-            .padding(6)
-            .width(Fill)
-            .height(Fill)
-            .align_x(Center)
-            .align_y(Bottom)
-            .into(),
-        );
-    }
-
-    Some(
-        container(
-            column![
-                chip,
-                label(&app.captions.mode_hint, 11.0, style::INTER, style::TEXT_3).center(),
-            ]
-            .spacing(10)
-            .align_x(Center),
-        )
-        .padding(20)
-        .center(Fill)
-        .into(),
-    )
-}
-
-fn mode<'a>(
-    app: &'a App,
-    state: OutputState,
-    glyph: Option<&'static str>,
-    key: Option<&'static str>,
-    compact: bool,
-) -> Element<'a, Message> {
-    let is_open = app.output.is_some();
-    let is_active = app.output_state == state;
-
-    let (glyph_color, caption_color, font) = if is_active {
-        (style::TEXT, style::TEXT, style::SEMIBOLD)
-    } else {
-        (style::TEXT_3, style::TEXT_2, style::MEDIUM)
-    };
-
-    let glyph: Element<'a, Message> = match glyph {
-        Some(glyph) => icon::view(glyph, 13.0, style::fade(glyph_color, is_open)).into(),
-        None => logo::mark_colored(&logo::SMALL, 13.0, style::fade(glyph_color, is_open)),
-    };
-
-    let content = row![
-        glyph,
-        label(
-            state.label(),
-            if compact { 12.0 } else { 12.5 },
-            font,
-            style::fade(caption_color, is_open)
-        ),
-    ]
-    .push(
-        (!compact)
-            .then_some(key)
-            .flatten()
-            .map(|key| ui::kbd(key, 18.0, 10.5, is_open)),
-    )
-    .spacing(if compact { 5 } else { 6 })
-    .align_y(Center);
-
-    button(container(content).center(Fill))
-        .width(Fill)
-        .height(Fill)
-        .padding(0)
-        .on_press_maybe(is_open.then_some(Message::OutputStateChanged(state)))
-        .style(style::pressable(
-            if is_active { Tone::Toggled } else { Tone::Row },
-            6.0,
-        ))
-        .into()
+    Some(container(chip).padding(4).center(Fill).into())
 }
 
 fn slide_row<'a>(

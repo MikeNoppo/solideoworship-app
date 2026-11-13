@@ -20,7 +20,6 @@ pub const ON_INVERSE: Color = BG;
 pub const LIVE: Color = Color::from_rgb8(0xE5, 0x48, 0x4D);
 pub const LIVE_SOFT: Color = Color::from_rgba8(0xE5, 0x48, 0x4D, 0.14);
 pub const SLIDE_BG: Color = Color::from_rgb8(0x14, 0x14, 0x16);
-pub const SLIDE_HINT: Color = Color::from_rgb8(0x5C, 0x5C, 0x64);
 
 pub const DISABLED: f32 = 0.4;
 pub const MUTED: f32 = 0.45;

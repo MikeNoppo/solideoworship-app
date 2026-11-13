@@ -1,9 +1,11 @@
+mod navigator;
+
 use iced::widget::{Column, Space, button, column, container, row, stack, text_input};
 use iced::{Center, Element, Fill, FillPortion, Padding, Pixels, Shrink};
-use sdw_core::bible::{Passage, Reference, ReferenceError};
+use sdw_core::bible::{Book, Passage, Reference, ReferenceError};
 use sdw_core::compile;
 use sdw_core::theme::ScriptureStyle;
-use sdw_library::{BibleId, BibleSummary};
+use sdw_library::{BibleBook, BibleId, BibleSummary};
 
 use crate::i18n::{Localize, count, fill, grouped, t};
 use crate::icon;
@@ -12,12 +14,18 @@ use crate::ui::{self, action, label};
 use crate::work::Outcome;
 
 const PREVIEW_LIMIT: usize = 30;
+const RECENT_LIMIT: usize = 6;
 const EXAMPLES: [&str; 4] = ["Yoh 3:16", "Mzm 23", "Rm 8:28-39", "1 Kor 13"];
 
 pub struct BibleTab {
     bibles: Vec<BibleSummary>,
     selected: Option<BibleId>,
     is_automatic: bool,
+    index_for: Option<BibleId>,
+    index: Vec<BibleBook>,
+    browse_book: Option<Book>,
+    browse_chapter: Option<u16>,
+    recent: Vec<Box<str>>,
     input: String,
     reference: Result<Reference, ReferenceError>,
     parsed: Box<str>,
@@ -54,6 +62,11 @@ pub enum Message {
     BibleSelected(BibleId),
     InputChanged(String),
     Example(&'static str),
+    RecentSelected(usize),
+    BookSelected(Book),
+    ChapterSelected(u16),
+    VerseSelected(Option<u16>),
+    RangeExtended(i8),
     Submitted,
 }
 
@@ -70,6 +83,11 @@ impl Default for BibleTab {
             bibles: Vec::new(),
             selected: None,
             is_automatic: false,
+            index_for: None,
+            index: Vec::new(),
+            browse_book: None,
+            browse_chapter: None,
+            recent: Vec::new(),
             input: String::new(),
             reference: Err(ReferenceError::Empty),
             parsed: Box::default(),
@@ -92,10 +110,40 @@ impl BibleTab {
         if !still_there {
             self.selected = bibles.first().map(|bible| bible.id);
             self.is_automatic = self.selected.is_some();
+            self.index_for = None;
+            self.index.clear();
+            if self.selected.is_none() {
+                self.browse_book = None;
+                self.browse_chapter = None;
+            }
         }
 
         self.bibles = bibles;
         self.lookup()
+    }
+
+    pub fn index_target(&self) -> Option<BibleId> {
+        self.selected.filter(|&id| self.index_for != Some(id))
+    }
+
+    pub fn set_index(&mut self, bible: BibleId, index: Vec<BibleBook>) {
+        if self.selected != Some(bible) {
+            return;
+        }
+        self.index_for = Some(bible);
+        self.index = index;
+        let has_book = self
+            .browse_book
+            .is_some_and(|book| self.index.iter().any(|entry| entry.book == book));
+        if !has_book {
+            if let Some(first) = self.index.first() {
+                self.browse_book = Some(first.book);
+                self.browse_chapter = first.chapters.first().map(|&(chapter, _)| chapter);
+            } else {
+                self.browse_book = None;
+                self.browse_chapter = None;
+            }
+        }
     }
 
     pub fn bibles(&self) -> &[BibleSummary] {
@@ -110,6 +158,10 @@ impl BibleTab {
     pub fn update(&mut self, message: Message) -> Action {
         match message {
             Message::BibleSelected(bible) => {
+                if self.selected != Some(bible) {
+                    self.index_for = None;
+                    self.index.clear();
+                }
                 self.selected = Some(bible);
                 self.is_automatic = false;
                 self.lookup()
@@ -121,6 +173,10 @@ impl BibleTab {
                     .as_ref()
                     .map(|reference| reference.to_string().into_boxed_str())
                     .unwrap_or_default();
+                if let Ok(reference) = &self.reference {
+                    self.browse_book = Some(reference.book());
+                    self.browse_chapter = Some(reference.chapter());
+                }
                 self.invalid = match &self.reference {
                     Err(ReferenceError::Empty) | Ok(_) => None,
                     Err(error) => Some(invalid(error)),
@@ -130,11 +186,70 @@ impl BibleTab {
                 self.lookup()
             }
             Message::Example(example) => self.update(Message::InputChanged(example.to_owned())),
+            Message::RecentSelected(index) => match self.recent.get(index).cloned() {
+                Some(text) => self.update(Message::InputChanged(text.into_string())),
+                None => Action::None,
+            },
+            Message::BookSelected(book) => {
+                let chapter = self
+                    .chapters_for(book)
+                    .first()
+                    .map_or(1, |&(chapter, _)| chapter);
+                self.browse_book = Some(book);
+                self.browse_chapter = Some(chapter);
+                self.update(Message::InputChanged(format!("{} {chapter}", book.name())))
+            }
+            Message::ChapterSelected(chapter) => {
+                let Some(book) = self.active_book() else {
+                    return Action::None;
+                };
+                self.browse_book = Some(book);
+                self.browse_chapter = Some(chapter);
+                self.update(Message::InputChanged(format!("{} {chapter}", book.name())))
+            }
+            Message::VerseSelected(verse) => {
+                let (Some(book), Some(chapter)) = (self.active_book(), self.active_chapter())
+                else {
+                    return Action::None;
+                };
+                let text = match verse {
+                    Some(verse) => format!("{} {chapter}:{verse}", book.name()),
+                    None => format!("{} {chapter}", book.name()),
+                };
+                self.update(Message::InputChanged(text))
+            }
+            Message::RangeExtended(delta) => {
+                let Ok(reference) = &self.reference else {
+                    return Action::None;
+                };
+                let Some((start, end)) = reference.verses() else {
+                    return Action::None;
+                };
+                let book = reference.book();
+                let chapter = reference.chapter();
+                let max_verse = self.max_verse_for(book, chapter).unwrap_or(u16::MAX);
+                let next_end = if delta > 0 {
+                    end.saturating_add(1).min(max_verse)
+                } else {
+                    end.saturating_sub(1).max(start)
+                };
+                if next_end == end {
+                    return Action::None;
+                }
+                let text = if next_end == start {
+                    format!("{} {chapter}:{start}", book.name())
+                } else {
+                    format!("{} {chapter}:{start}-{next_end}", book.name())
+                };
+                self.update(Message::InputChanged(text))
+            }
             Message::Submitted if self.added => Action::None,
             Message::Submitted => match &self.found {
                 Some(found) => {
                     self.added = true;
-                    Action::Add(found.passage.clone())
+                    let passage = found.passage.clone();
+                    self.record_recent(passage.reference().to_string().into_boxed_str());
+                    Action::Add(passage)
                 }
                 None => {
                     self.add_when_found = self.reference.is_ok() && self.missing.is_none();
@@ -142,6 +257,51 @@ impl BibleTab {
                 }
             },
         }
+    }
+
+    fn record_recent(&mut self, reference: Box<str>) {
+        self.recent.retain(|item| *item != reference);
+        self.recent.insert(0, reference);
+        self.recent.truncate(RECENT_LIMIT);
+    }
+
+    fn active_book(&self) -> Option<Book> {
+        self.reference
+            .as_ref()
+            .ok()
+            .map(Reference::book)
+            .or(self.browse_book)
+            .or_else(|| self.index.first().map(|entry| entry.book))
+    }
+
+    fn active_chapter(&self) -> Option<u16> {
+        let book = self.active_book()?;
+        if let Ok(reference) = &self.reference
+            && reference.book() == book
+        {
+            return Some(reference.chapter());
+        }
+        let chapters = self.chapters_for(book);
+        if let Some(chapter) = self.browse_chapter
+            && (chapters.is_empty() || chapters.iter().any(|&(entry, _)| entry == chapter))
+        {
+            return Some(chapter);
+        }
+        chapters.first().map(|&(chapter, _)| chapter)
+    }
+
+    fn chapters_for(&self, book: Book) -> &[(u16, u16)] {
+        self.index
+            .iter()
+            .find(|entry| entry.book == book)
+            .map_or(&[], |entry| entry.chapters.as_slice())
+    }
+
+    fn max_verse_for(&self, book: Book, chapter: u16) -> Option<u16> {
+        self.chapters_for(book)
+            .iter()
+            .find(|&&(entry, _)| entry == chapter)
+            .map(|&(_, max_verse)| max_verse)
     }
 
     pub fn found_with_style(
@@ -325,7 +485,7 @@ impl BibleTab {
             .into()
     }
 
-    pub fn body(&self) -> Element<'_, Message> {
+    pub fn body(&self, control_width: f32) -> Element<'_, Message> {
         if self.bibles.is_empty() {
             return centered(ui::empty(
                 icon::BOOK_X,
@@ -335,15 +495,13 @@ impl BibleTab {
             ));
         }
 
-        if let Some(invalid) = &self.invalid {
-            return centered(ui::empty_with(
+        let detail: Element<'_, Message> = if let Some(invalid) = &self.invalid {
+            centered(ui::empty_with(
                 icon::view(icon::CIRCLE_ALERT, 20.0, style::LIVE),
                 &invalid.title,
                 Some(invalid.body),
-            ));
-        }
-
-        if self.reference.is_err() {
+            ))
+        } else if self.reference.is_err() {
             let examples = EXAMPLES.iter().fold(row![].spacing(6), |list, &example| {
                 list.push(
                     button(label(example, 12.0, style::MEDIUM, style::TEXT_2))
@@ -353,7 +511,7 @@ impl BibleTab {
                 )
             });
 
-            return centered(
+            centered(
                 column![
                     ui::empty(
                         icon::BOOK_OPEN,
@@ -365,27 +523,97 @@ impl BibleTab {
                 ]
                 .spacing(14)
                 .align_x(Center),
-            );
-        }
+            )
+        } else {
+            match (&self.found, &self.missing) {
+                (Some(found), _) => self.passage(found),
+                (None, Some(Missing::NotFound(body))) => centered(ui::empty(
+                    icon::SEARCH_X,
+                    false,
+                    t().bible.not_found_title,
+                    Some(body),
+                )),
+                (None, Some(Missing::Failed(error))) => centered(ui::empty_with(
+                    icon::view(icon::CIRCLE_ALERT, 20.0, style::LIVE),
+                    t().bible.lookup_failed,
+                    Some(error),
+                )),
+                (None, None) => self.loading(),
+            }
+        };
 
-        match (&self.found, &self.missing) {
-            (Some(found), _) => self.passage(found),
-            (None, Some(Missing::NotFound(body))) => centered(ui::empty(
-                icon::SEARCH_X,
-                false,
-                t().bible.not_found_title,
-                Some(body),
-            )),
-            (None, Some(Missing::Failed(error))) => centered(ui::empty_with(
-                icon::view(icon::CIRCLE_ALERT, 20.0, style::LIVE),
-                t().bible.lookup_failed,
-                Some(error),
-            )),
-            (None, None) => self.loading(),
-        }
+        let recent = (!self.recent.is_empty()).then(|| self.recent_bar());
+
+        column![]
+            .push(recent)
+            .push(
+                row![
+                    navigator::view(self, control_width),
+                    container(detail).width(Fill).height(Fill),
+                ]
+                .spacing(12)
+                .height(Fill),
+            )
+            .spacing(8)
+            .height(Fill)
+            .into()
+    }
+
+    fn recent_bar(&self) -> Element<'_, Message> {
+        let chips =
+            self.recent
+                .iter()
+                .enumerate()
+                .fold(row![].spacing(6), |list, (index, item)| {
+                    list.push(
+                        button(label(item, 11.5, style::MEDIUM, style::TEXT_2))
+                            .padding([2, 8])
+                            .on_press(Message::RecentSelected(index))
+                            .style(style::pressable(Tone::Outline, 6.0)),
+                    )
+                });
+
+        row![ui::eyebrow(t().bible.recent), ui::scroll_x(chips)]
+            .spacing(8)
+            .align_y(Center)
+            .into()
     }
 
     fn passage<'a>(&'a self, found: &'a Found) -> Element<'a, Message> {
+        let range_stepper = self
+            .reference
+            .as_ref()
+            .ok()
+            .and_then(Reference::verses)
+            .map(|(start, end)| {
+                let max_verse = self
+                    .reference
+                    .as_ref()
+                    .ok()
+                    .and_then(|reference| self.max_verse_for(reference.book(), reference.chapter()))
+                    .unwrap_or(u16::MAX);
+                let can_shrink = end > start;
+                let can_extend = end < max_verse;
+
+                row![
+                    ui::hint(
+                        navigator::stepper_button(
+                            icon::MINUS,
+                            can_shrink.then_some(Message::RangeExtended(-1)),
+                        ),
+                        t().bible.shrink_range,
+                    ),
+                    ui::hint(
+                        navigator::stepper_button(
+                            icon::PLUS,
+                            can_extend.then_some(Message::RangeExtended(1)),
+                        ),
+                        t().bible.extend_range,
+                    ),
+                ]
+                .spacing(4)
+            });
+
         let add = if self.added {
             action(
                 Tone::Secondary,
@@ -412,16 +640,17 @@ impl BibleTab {
                 ]
                 .spacing(2)
                 .width(Fill),
-                add,
             ]
-            .spacing(12)
+            .push(range_stepper)
+            .push(add)
+            .spacing(8)
             .align_y(Center),
         )
         .padding(Padding {
-            top: 10.0,
+            top: 8.0,
             right: 12.0,
-            bottom: 10.0,
-            left: 16.0,
+            bottom: 8.0,
+            left: 14.0,
         });
 
         let verses =
@@ -442,19 +671,19 @@ impl BibleTab {
                                 )
                                 .width(22),
                                 label(&verse.text, 13.0, style::INTER, style::TEXT_2)
-                                    .line_height(1.5)
+                                    .line_height(1.45)
                                     .width(Fill),
                             ]
                             .spacing(12),
                         )
-                        .padding([10, 16]),
+                        .padding([8, 14]),
                     )
                 });
 
         let note = found.long_note.as_deref().map(|note| {
             column![
                 ui::hrule(style::BORDER),
-                container(ui::note(icon::INFO, note, style::TEXT_3)).padding([10, 16]),
+                container(ui::note(icon::INFO, note, style::TEXT_3)).padding([8, 14]),
             ]
         });
 
@@ -581,7 +810,7 @@ fn centered<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
 
 #[cfg(test)]
 mod tests {
-    use sdw_core::bible::{Passage, Reference, Verse};
+    use sdw_core::bible::{Book, Passage, Reference, Verse};
     use sdw_library::{BibleId, BibleSummary, Library};
 
     use super::{Action, BibleTab, Message};
@@ -930,5 +1159,113 @@ mod tests {
 
         assert_eq!(reference.to_string(), "Mazmur 23");
         assert_eq!(tab.input, "Mzm 23");
+    }
+
+    #[test]
+    fn book_chapter_verse_navigator_builds_and_extends_references() {
+        let mut tab = tab_with(&["TB"]);
+        let bible = tab.selected.unwrap();
+        let john = Book::from_number(43).unwrap();
+        tab.set_index(
+            bible,
+            vec![sdw_library::BibleBook {
+                book: john,
+                chapters: vec![(3, 18), (4, 10)],
+            }],
+        );
+
+        let (_, reference) = lookup(tab.update(Message::BookSelected(john)));
+        assert_eq!(reference.to_string(), "Yohanes 3");
+
+        let (_, reference) = lookup(tab.update(Message::ChapterSelected(4)));
+        assert_eq!(reference.to_string(), "Yohanes 4");
+
+        let (_, reference) = lookup(tab.update(Message::ChapterSelected(3)));
+        assert_eq!(reference.to_string(), "Yohanes 3");
+
+        let (_, reference) = lookup(tab.update(Message::VerseSelected(Some(16))));
+        assert_eq!(reference.to_string(), "Yohanes 3:16");
+
+        let (_, reference) = lookup(tab.update(Message::RangeExtended(1)));
+        assert_eq!(reference.to_string(), "Yohanes 3:16-17");
+
+        let (_, reference) = lookup(tab.update(Message::RangeExtended(1)));
+        assert_eq!(reference.to_string(), "Yohanes 3:16-18");
+
+        assert_eq!(tab.update(Message::RangeExtended(1)), Action::None);
+
+        let (_, reference) = lookup(tab.update(Message::RangeExtended(-1)));
+        assert_eq!(reference.to_string(), "Yohanes 3:16-17");
+
+        let (_, reference) = lookup(tab.update(Message::VerseSelected(None)));
+        assert_eq!(reference.to_string(), "Yohanes 3");
+    }
+
+    #[test]
+    fn added_passages_record_deduplicated_recent_history() {
+        let mut tab = tab_with(&["TB"]);
+
+        for query in ["Yoh 3:16", "Yoh 3", "Yoh 3:16"] {
+            let (bible, reference) = lookup(tab.update(Message::InputChanged(query.into())));
+            let _ = tab.found_with_style(
+                bible,
+                &reference,
+                Ok(Some(passage(&reference))),
+                &sdw_core::Styles::default().scripture,
+            );
+            assert!(matches!(tab.update(Message::Submitted), Action::Add(_)));
+        }
+
+        assert_eq!(tab.recent.len(), 2);
+        assert_eq!(&*tab.recent[0], "Yohanes 3:16");
+        assert_eq!(&*tab.recent[1], "Yohanes 3");
+
+        let (_, reference) = lookup(tab.update(Message::RecentSelected(1)));
+        assert_eq!(reference.to_string(), "Yohanes 3");
+    }
+
+    #[test]
+    fn set_index_ignores_unselected_bible_and_resets_missing_browse_book() {
+        let mut tab = tab_with(&["OT", "NT"]);
+        let bibles: Vec<_> = tab.bibles().iter().map(|bible| bible.id).collect();
+        let ot = bibles[0];
+        let nt = bibles[1];
+        let genesis = Book::from_number(1).unwrap();
+        let matthew = Book::from_number(40).unwrap();
+
+        tab.set_index(
+            nt,
+            vec![sdw_library::BibleBook {
+                book: matthew,
+                chapters: vec![(1, 25)],
+            }],
+        );
+        assert_eq!(tab.index_target(), Some(ot));
+        assert_eq!(tab.active_book(), None);
+
+        tab.set_index(
+            ot,
+            vec![sdw_library::BibleBook {
+                book: genesis,
+                chapters: vec![(1, 31)],
+            }],
+        );
+        assert_eq!(tab.index_target(), None);
+        assert_eq!(tab.active_book(), Some(genesis));
+        assert_eq!(tab.active_chapter(), Some(1));
+
+        let _ = tab.update(Message::BibleSelected(nt));
+        assert_eq!(tab.index_target(), Some(nt));
+
+        tab.set_index(
+            nt,
+            vec![sdw_library::BibleBook {
+                book: matthew,
+                chapters: vec![(5, 48)],
+            }],
+        );
+        assert_eq!(tab.active_book(), Some(matthew));
+        assert_eq!(tab.active_chapter(), Some(5));
+        let _ = tab.body(1120.0);
     }
 }
