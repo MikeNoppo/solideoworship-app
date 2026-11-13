@@ -52,8 +52,7 @@ impl Captions {
 
         self.preview_meta = app
             .schedule
-            .selected()
-            .and_then(|index| app.schedule.entries().get(index))
+            .preview_entry()
             .map(|entry| {
                 let theme = match entry.deck().kind {
                     ContentKind::Song => t().slides.song_theme,
@@ -224,10 +223,7 @@ fn status(app: &App, screen_name: &str, screen_title: &str) -> String {
         }
 
         let on_air = fill(status.on_air, &[("screen", &screen_name)]);
-        let preview = app
-            .schedule
-            .selected()
-            .and_then(|index| app.schedule.entries().get(index));
+        let preview = app.schedule.preview_entry();
 
         return match &app.live {
             Some(live) => match preview.filter(|entry| !app.is_live(entry)) {

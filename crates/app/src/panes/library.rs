@@ -408,6 +408,8 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
             .then(|| label(t().library.in_schedule, 12.0, style::INTER, style::TEXT_3).into())
     };
 
+    let is_previewed = app.schedule.previewed_song() == Some(song.id);
+
     let base = button(
         row![
             icon::view(icon::MUSIC, 14.0, style::TEXT_3),
@@ -421,9 +423,15 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
     .width(Fill)
     .height(40)
     .padding([0, 10])
-    .on_press(Message::SongPicked(song.id))
+    .on_press(Message::SongPreviewed(song.id))
     .style(style::pressable(
-        if is_top { Tone::Highlighted } else { Tone::Row },
+        if is_previewed {
+            Tone::Selected
+        } else if is_top {
+            Tone::Highlighted
+        } else {
+            Tone::Row
+        },
         6.0,
     ));
     let actions = container(

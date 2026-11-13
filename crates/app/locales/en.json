@@ -237,7 +237,7 @@
     "media_title": "Media library is planned after MVP",
     "media_body": "Images, videos, and motion backgrounds will appear here once media playback is added.",
     "search": "Search songs by title or lyrics",
-    "song_hint": "Click a song to add it to the schedule.",
+    "song_hint": "Click a song to preview it, or double-click to add it to the schedule.",
     "edit": "Edit",
     "truncated": "Only the top results are shown. Type more of the title or a lyric line to see other songs.",
     "empty_title": "Your song library is empty",

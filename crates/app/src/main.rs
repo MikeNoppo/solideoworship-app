@@ -66,6 +66,7 @@ const TOAST_TIME: Duration = Duration::from_secs(6);
 const IMPORT_BUFFER: usize = 64 * 1024;
 
 const QUIT_FLUSH: Duration = Duration::from_secs(2);
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 const DEFAULT_SPLIT: f32 = 0.55;
 const MIN_SPLIT: f32 = 0.32;
@@ -185,6 +186,8 @@ struct App {
     song_results_query: Box<str>,
     songs_truncated: bool,
     pick_first_song: bool,
+    song_click: Option<(SongId, Instant)>,
+    preview_ticket: u64,
     modal: Option<Modal>,
     toast: Option<Toast>,
     toast_serial: u64,
@@ -473,6 +476,7 @@ impl App {
                 Task::none()
             }
             Message::DragStarted(index) => {
+                self.preview_ticket += 1;
                 self.schedule.select(index);
                 self.drag = Some(Drag {
                     from: index,
@@ -569,11 +573,7 @@ impl App {
                         .collect();
                     self.live_generation = self.live_generation.wrapping_add(1);
                     self.live = live;
-                    self.live_entry = self
-                        .schedule
-                        .selected()
-                        .and_then(|index| self.schedule.entries().get(index))
-                        .map(Entry::key);
+                    self.live_entry = self.schedule.preview_entry().map(Entry::key);
                     if self.live.is_some()
                         && self.settings.general.advance_after_go_live
                         && let Some(index) = self.schedule.selected()
@@ -644,10 +644,45 @@ impl App {
                 self.library_error = None;
                 Task::none()
             }
-            Message::SongPicked(id) => self.store.run(
-                move |library| library.song(id),
-                move |result| Message::SongLoaded(id, result),
-            ),
+            Message::SongPreviewed(id) => {
+                let is_double = self
+                    .song_click
+                    .is_some_and(|(last, when)| last == id && when.elapsed() <= DOUBLE_CLICK);
+                if is_double {
+                    self.song_click = None;
+                    return self.update(Message::SongPicked(id));
+                }
+                self.song_click = Some((id, Instant::now()));
+                self.preview_ticket += 1;
+                let ticket = self.preview_ticket;
+                self.store.run(
+                    move |library| library.song(id),
+                    move |result| Message::SongPreviewLoaded(ticket, id, result),
+                )
+            }
+            Message::SongPreviewLoaded(ticket, id, result) => {
+                if ticket != self.preview_ticket {
+                    return Task::none();
+                }
+                match result {
+                    Ok(song) => {
+                        self.schedule.preview_item(
+                            ScheduleItem::Song(song),
+                            Some(id),
+                            &self.settings.styles,
+                        );
+                    }
+                    Err(error) => self.library_error = Some(error),
+                }
+                Task::none()
+            }
+            Message::SongPicked(id) => {
+                self.preview_ticket += 1;
+                self.store.run(
+                    move |library| library.song(id),
+                    move |result| Message::SongLoaded(id, result),
+                )
+            }
             Message::SongLoaded(id, result) => {
                 match result {
                     Ok(song) => {
@@ -1201,6 +1236,7 @@ impl App {
     }
 
     fn remove_entry(&mut self, index: usize) {
+        self.preview_ticket += 1;
         let Some(entry) = self.schedule.remove(index) else {
             return;
         };
@@ -3468,6 +3504,56 @@ mod tests {
 
         let _ = app.update(Message::SplitEnded);
         assert!(app.splitter_drag.is_none());
+    }
+
+    #[test]
+    fn single_click_previews_song_without_adding_to_schedule() {
+        let mut app = App::default();
+        let (id, song) = library_song();
+
+        let _ = app.update(Message::SongPreviewed(id));
+        let ticket = app.preview_ticket;
+        assert!(app.song_click.is_some());
+
+        let _ = app.update(Message::SongPreviewLoaded(
+            ticket.saturating_sub(1),
+            id,
+            Ok(Song::new("Stale", "ignored", None)),
+        ));
+        assert!(app.schedule.preview().is_none());
+
+        let _ = app.update(Message::SongPreviewLoaded(ticket, id, Ok(song)));
+        assert!(app.schedule.is_empty());
+        assert!(!app.schedule.is_dirty());
+        assert_eq!(app.schedule.previewed_song(), Some(id));
+        assert_eq!(
+            app.schedule.preview().map(|preview| &*preview.deck().title),
+            Some("A")
+        );
+
+        let _ = crate::panes::control::view(&app);
+        let _ = app.update(Message::GoLive);
+        assert!(app.schedule.is_empty());
+        assert_eq!(app.live.as_ref().map(|live| &*live.deck().title), Some("A"));
+    }
+
+    #[test]
+    fn double_click_within_window_triggers_add_and_resets_click() {
+        let mut app = App::default();
+        let mut library = Library::open_in_memory().unwrap();
+        let first = library.insert_song(&Song::new("A", "one", None)).unwrap();
+        let second = library.insert_song(&Song::new("B", "two", None)).unwrap();
+
+        let _ = app.update(Message::SongPreviewed(first));
+        let first_ticket = app.preview_ticket;
+
+        let _ = app.update(Message::SongPreviewed(second));
+        assert_eq!(app.song_click.map(|(id, _)| id), Some(second));
+        assert_eq!(app.preview_ticket, first_ticket + 1);
+
+        let _ = app.update(Message::SongPreviewed(second));
+        assert!(app.song_click.is_none());
+        assert_eq!(app.preview_ticket, first_ticket + 2);
     }
 }
 

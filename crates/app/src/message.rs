@@ -119,6 +119,8 @@ pub enum Message {
     SongsCounted(Outcome<usize>),
     SongsFound(Box<str>, Outcome<Vec<SongSummary>>),
     LibraryErrorDismissed,
+    SongPreviewed(SongId),
+    SongPreviewLoaded(u64, SongId, Outcome<Song>),
     SongPicked(SongId),
     SongLoaded(SongId, Outcome<Song>),
     SongCreateRequested,
@@ -213,6 +215,8 @@ impl Message {
             | Self::SongsCounted(..)
             | Self::SongsFound(..)
             | Self::LibraryErrorDismissed
+            | Self::SongPreviewed(..)
+            | Self::SongPreviewLoaded(..)
             | Self::SongPicked(..)
             | Self::SongLoaded(..)
             | Self::SongCreateRequested

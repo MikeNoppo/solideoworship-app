@@ -17,10 +17,7 @@ const MIN_WIDTH: f32 = 96.0;
 pub const PADDING: f32 = 20.0;
 
 pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message> {
-    let entry = app
-        .schedule
-        .selected()
-        .and_then(|index| app.schedule.entries().get(index));
+    let entry = app.schedule.preview_entry();
 
     let edit = entry.and_then(|entry| entry.origin()).map(|id| {
         action(

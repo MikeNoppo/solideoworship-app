@@ -34,6 +34,13 @@ impl Entry {
         (self.deck, self.meta) = compile(&self.item, styles);
     }
 
+    fn replace(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
+        *self = Self {
+            key: self.key,
+            ..Self::new(item, origin, styles)
+        };
+    }
+
     pub fn origin(&self) -> Option<SongId> {
         self.origin
     }
@@ -77,6 +84,7 @@ fn compile(item: &ScheduleItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>) {
 pub struct Schedule {
     entries: Vec<Entry>,
     selected: Option<usize>,
+    standalone: Option<Entry>,
     preview: Option<Presentation>,
     path: Option<PathBuf>,
     revision: u64,
@@ -177,10 +185,25 @@ impl Schedule {
         self.preview.as_mut()
     }
 
-    pub fn selected_item(&self) -> Option<&ScheduleItem> {
+    pub fn preview_entry(&self) -> Option<&Entry> {
         self.selected
             .and_then(|index| self.entries.get(index))
-            .map(Entry::item)
+            .or(self.standalone.as_ref())
+    }
+
+    pub fn previewed_song(&self) -> Option<SongId> {
+        self.preview_entry().and_then(Entry::origin)
+    }
+
+    pub fn selected_item(&self) -> Option<&ScheduleItem> {
+        self.preview_entry().map(Entry::item)
+    }
+
+    pub fn preview_item(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
+        let entry = Entry::new(item, origin, styles);
+        self.selected = None;
+        self.preview = Presentation::new(Arc::clone(&entry.deck));
+        self.standalone = Some(entry);
     }
 
     pub fn push(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
@@ -194,13 +217,17 @@ impl Schedule {
 
         for (index, entry) in self.entries.iter_mut().enumerate() {
             if entry.origin == Some(id) {
-                *entry = Entry {
-                    key: entry.key,
-                    ..Entry::new(ScheduleItem::Song(song.clone()), Some(id), styles)
-                };
+                entry.replace(ScheduleItem::Song(song.clone()), Some(id), styles);
                 selected_changed |= self.selected == Some(index);
                 self.revision += 1;
             }
+        }
+
+        if let Some(entry) = &mut self.standalone
+            && entry.origin == Some(id)
+        {
+            entry.replace(ScheduleItem::Song(song.clone()), Some(id), styles);
+            selected_changed = true;
         }
 
         if selected_changed {
@@ -210,6 +237,10 @@ impl Schedule {
 
     pub fn recompile(&mut self, styles: &Styles) {
         for entry in &mut self.entries {
+            entry.compile(styles);
+        }
+
+        if let Some(entry) = &mut self.standalone {
             entry.compile(styles);
         }
 
@@ -226,6 +257,12 @@ impl Schedule {
                 entry.origin = None;
             }
         }
+
+        if let Some(entry) = &mut self.standalone
+            && entry.origin == Some(id)
+        {
+            entry.origin = None;
+        }
     }
 
     pub fn select(&mut self, index: usize) {
@@ -234,6 +271,7 @@ impl Schedule {
         };
 
         self.selected = Some(index);
+        self.standalone = None;
         self.preview = Presentation::new(Arc::clone(&entry.deck));
     }
 
@@ -292,8 +330,7 @@ impl Schedule {
         let position = self.preview.as_ref().map_or(0, Presentation::index);
 
         self.preview = self
-            .selected
-            .and_then(|index| self.entries.get(index))
+            .preview_entry()
             .and_then(|entry| Presentation::new(Arc::clone(&entry.deck)));
 
         if let Some(preview) = &mut self.preview {
@@ -723,5 +760,28 @@ mod tests {
         assert_eq!(titles, ["B", "C", "A"]);
         assert_eq!(schedule.selected(), Some(1));
         assert!(schedule.is_dirty());
+    }
+
+    #[test]
+    fn preview_item_previews_without_modifying_entries_or_revision() {
+        let mut schedule = schedule(&["InSchedule"]);
+        schedule.mark_saved(PathBuf::from("service.sdw"), schedule.revision());
+        let saved_revision = schedule.revision();
+        let id = song_ids(1)[0];
+
+        schedule.preview_item(song("LibrarySong"), Some(id), &Styles::default());
+
+        assert_eq!(schedule.entries().len(), 1);
+        assert_eq!(schedule.selected(), None);
+        assert_eq!(schedule.revision(), saved_revision);
+        assert!(!schedule.is_dirty());
+        assert_eq!(preview_title(&schedule), Some("LibrarySong"));
+        assert_eq!(schedule.previewed_song(), Some(id));
+        assert_eq!(schedule.selected_item(), Some(&song("LibrarySong")));
+
+        schedule.select(0);
+        assert_eq!(schedule.selected(), Some(0));
+        assert_eq!(preview_title(&schedule), Some("InSchedule"));
+        assert_eq!(schedule.previewed_song(), None);
     }
 }
