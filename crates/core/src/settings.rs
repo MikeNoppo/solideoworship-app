@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use crate::labels::LabelSettings;
 use crate::theme::{
@@ -18,6 +19,7 @@ pub struct Settings {
 impl Settings {
     pub fn clamped(mut self) -> Self {
         self.styles = self.styles.clamped();
+        self.general = self.general.clamped();
         self.labels = self.labels.clamped();
         self.transitions = self.transitions.clamped();
         self.output.layout = self.output.layout.clamped();
@@ -58,6 +60,7 @@ impl Settings {
             .is_some_and(|monitor| !monitor.is_valid())
             || !self.output.logo_background.is_valid()
             || !valid_themes
+            || !UI_SCALE.contains(&self.general.ui_scale)
             || !MAX_LINES.contains(&self.styles.song.max_lines)
             || !MAX_CHARS.contains(&self.styles.scripture.max_chars)
             || ![margins.left, margins.right, margins.top, margins.bottom]
@@ -107,11 +110,38 @@ impl fmt::Display for SettingsError {
 
 impl std::error::Error for SettingsError {}
 
+pub const UI_SCALE: RangeInclusive<u16> = 75..=150;
+pub const UI_SCALE_DEFAULT: u16 = 100;
+const UI_SCALE_STEPS: [u16; 9] = [75, 80, 90, 100, 110, 120, 130, 140, 150];
+
+pub fn step_ui_scale(current: u16, larger: bool) -> u16 {
+    if larger {
+        UI_SCALE_STEPS
+            .into_iter()
+            .find(|&step| step > current)
+            .unwrap_or(*UI_SCALE.end())
+    } else {
+        UI_SCALE_STEPS
+            .into_iter()
+            .rev()
+            .find(|&step| step < current)
+            .unwrap_or(*UI_SCALE.start())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneralSettings {
     pub open_output_on_startup: bool,
     pub advance_after_go_live: bool,
     pub shadows: bool,
+    pub ui_scale: u16,
+}
+
+impl GeneralSettings {
+    pub fn clamped(mut self) -> Self {
+        self.ui_scale = self.ui_scale.clamp(*UI_SCALE.start(), *UI_SCALE.end());
+        self
+    }
 }
 
 impl Default for GeneralSettings {
@@ -120,6 +150,7 @@ impl Default for GeneralSettings {
             open_output_on_startup: false,
             advance_after_go_live: false,
             shadows: true,
+            ui_scale: UI_SCALE_DEFAULT,
         }
     }
 }
@@ -262,4 +293,35 @@ pub enum FontWeight {
     Medium,
     Semibold,
     Bold,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ui_scale_steps_cover_bounds_and_return_to_default() {
+        let mut scale = UI_SCALE_DEFAULT;
+        for expected in [110, 120, 130, 140, 150, 150] {
+            scale = step_ui_scale(scale, true);
+            assert_eq!(scale, expected);
+        }
+        for expected in [140, 130, 120, 110, 100, 90, 80, 75, 75] {
+            scale = step_ui_scale(scale, false);
+            assert_eq!(scale, expected);
+        }
+        assert_eq!(step_ui_scale(scale, true), 80);
+    }
+
+    #[test]
+    fn settings_clamp_and_validate_ui_scale() {
+        let mut settings = Settings::default();
+        settings.general.ui_scale = 25;
+        assert_eq!(settings.validate(), Err(SettingsError::InvalidValues));
+        assert_eq!(settings.clone().clamped().general.ui_scale, 75);
+
+        settings.general.ui_scale = 200;
+        assert_eq!(settings.validate(), Err(SettingsError::InvalidValues));
+        assert_eq!(settings.clamped().general.ui_scale, 150);
+    }
 }
