@@ -201,7 +201,8 @@
     "live_unchanged": "Live unchanged",
     "not_saved": "Not saved",
     "name_taken": "that file name is already taken",
-    "unsaved_changes": "{name} has unsaved changes"
+    "unsaved_changes": "{name} has unsaved changes",
+    "zoom": "Zoom {percent}%"
   },
   "unsaved": {
     "title": "Save changes to “{name}”?",

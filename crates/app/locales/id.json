@@ -201,7 +201,8 @@
     "live_unchanged": "Live tidak berubah",
     "not_saved": "Tidak disimpan",
     "name_taken": "nama file itu sudah dipakai",
-    "unsaved_changes": "{name} punya perubahan yang belum disimpan"
+    "unsaved_changes": "{name} punya perubahan yang belum disimpan",
+    "zoom": "Zoom {percent}%"
   },
   "unsaved": {
     "title": "Simpan perubahan pada “{name}”?",

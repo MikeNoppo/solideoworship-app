@@ -13,6 +13,13 @@ use crate::work::Outcome;
 use crate::{bible_manager, bible_tab, editor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Zoom {
+    In,
+    Out,
+    Reset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Next,
     Previous,
@@ -151,6 +158,9 @@ pub enum Message {
     SettingsSaved(u64, bool, Outcome<Box<Settings>>),
     SettingsDisplaysLoaded(u64, Result<Vec<Display>, Box<str>>),
     MonitorSaved(Outcome<()>),
+    UiZoom(Zoom),
+    ZoomSaveDue(u64),
+    UiScaleSaved(Outcome<()>),
     SaveShortcut,
     ScheduleNewRequested,
     ScheduleOpenRequested,
@@ -195,12 +205,15 @@ impl Message {
             | Self::ModalSubmitted
             | Self::Editor(..)
             | Self::Theme(..)
+            | Self::ZoomSaveDue(..)
+            | Self::UiScaleSaved(..)
             | Self::SaveShortcut
             | Self::BibleManager(..) => false,
             Self::SplashOpened
             | Self::SplashElapsed
             | Self::ControlOpened
             | Self::LibraryOpened(..)
+            | Self::UiZoom(..)
             | Self::FlashExpired(..)
             | Self::MenuToggled(..)
             | Self::MenuDismissed

@@ -577,7 +577,12 @@ impl ThemeDialog {
                         self.draft.labels = defaults.labels;
                         self.sync_labels();
                     }
-                    Category::General => self.draft.general = defaults.general,
+                    Category::General => {
+                        self.draft.general = sdw_core::settings::GeneralSettings {
+                            ui_scale: self.draft.general.ui_scale,
+                            ..defaults.general
+                        };
+                    }
                     Category::Output => {
                         self.draft.output = defaults.output;
                         self.sync_margins();
@@ -640,6 +645,10 @@ impl ThemeDialog {
         self.recompile();
         self.describe();
         Action::None
+    }
+
+    pub fn sync_ui_scale(&mut self, ui_scale: u16) {
+        self.draft.general.ui_scale = ui_scale;
     }
 
     pub fn saved(&mut self, settings: &Settings) {

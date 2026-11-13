@@ -35,6 +35,7 @@ use std::time::{Duration, Instant, SystemTime};
 use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
+use sdw_core::settings::{UI_SCALE_DEFAULT, step_ui_scale};
 use sdw_core::theme::SlideTheme;
 use sdw_core::transition::TransitionSpec;
 use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
@@ -47,7 +48,7 @@ use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
-use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice};
+use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice, Zoom};
 use crate::recovery::Recovery;
 use crate::render::transition::{Frame, Playback, Scene};
 use crate::schedule::{Entry, Schedule};
@@ -67,6 +68,7 @@ const TOAST_TIME: Duration = Duration::from_secs(6);
 const IMPORT_BUFFER: usize = 64 * 1024;
 
 const QUIT_FLUSH: Duration = Duration::from_secs(2);
+const ZOOM_SAVE_DELAY: Duration = Duration::from_millis(350);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 const DEFAULT_SPLIT: f32 = 0.55;
@@ -90,6 +92,7 @@ fn main() -> ExitCode {
             .default_font(style::INTER)
             .title(App::title)
             .theme(App::theme)
+            .scale_factor(App::scale_factor)
             .subscription(App::subscription)
             .run()
     })
@@ -210,6 +213,8 @@ struct App {
     toast_serial: u64,
     flash: Option<Box<str>>,
     flash_serial: u64,
+    zoom_save_serial: u64,
+    zoom_save_pending: Option<u16>,
     hovered_row: Option<usize>,
     drag: Option<Drag>,
     split_ratio: f32,
@@ -278,6 +283,18 @@ impl App {
 
     fn theme(&self, _window: window::Id) -> Theme {
         style::THEME.clone()
+    }
+
+    fn scale_factor(&self, window: window::Id) -> f32 {
+        if self.control == Some(window) {
+            self.ui_scale_factor()
+        } else {
+            1.0
+        }
+    }
+
+    fn ui_scale_factor(&self) -> f32 {
+        f32::from(self.settings.general.ui_scale) / 100.0
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -956,7 +973,8 @@ impl App {
             }
             Message::SettingsSaved(ticket, close_after_save, result) => {
                 match result {
-                    Ok(settings) => {
+                    Ok(mut settings) => {
+                        settings.general.ui_scale = self.settings.general.ui_scale;
                         let task = self.apply_settings(*settings);
                         let settings = &self.settings;
                         if ticket == self.modal_ticket {
@@ -992,9 +1010,44 @@ impl App {
                 }
                 self.update(Message::DisplaysLoaded(result))
             }
-            Message::MonitorSaved(result) => {
+            Message::MonitorSaved(result) | Message::UiScaleSaved(result) => {
                 if let Err(error) = result {
                     self.library_error = Some(error);
+                }
+                Task::none()
+            }
+            Message::UiZoom(zoom) => {
+                let previous = self.settings.general.ui_scale;
+                let next = match zoom {
+                    Zoom::In => step_ui_scale(previous, true),
+                    Zoom::Out => step_ui_scale(previous, false),
+                    Zoom::Reset => UI_SCALE_DEFAULT,
+                };
+                self.flash(fill(t().status.zoom, &[("percent", &next)]));
+                if next == previous {
+                    return Task::none();
+                }
+
+                self.settings.general.ui_scale = next;
+                let ratio = f32::from(previous) / f32::from(next);
+                self.control_width *= ratio;
+                self.control_height *= ratio;
+                if let Some(Modal::Theme(dialog)) = &mut self.modal {
+                    dialog.sync_ui_scale(next);
+                }
+                self.zoom_save_serial = self.zoom_save_serial.wrapping_add(1);
+                self.zoom_save_pending = Some(next);
+
+                match self.control {
+                    Some(id) => window::size(id).map(move |size| Message::WindowResized(id, size)),
+                    None => Task::none(),
+                }
+            }
+            Message::ZoomSaveDue(serial) => {
+                if serial == self.zoom_save_serial
+                    && let Some(scale) = self.zoom_save_pending.take()
+                {
+                    return self.save_ui_scale(scale);
                 }
                 Task::none()
             }
@@ -1260,19 +1313,8 @@ impl App {
                 .push(iced::time::every(SPLASH_MINIMUM).map(|_| Message::SplashElapsed)),
             Phase::Splash => {}
             Phase::Operator if self.modal.is_some() => {
-                subscriptions.push(event::listen_with(|event, status, _window| match event {
-                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                        key, modifiers, ..
-                    }) if modifiers.command() => save_shortcut(key),
-                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                        key: keyboard::Key::Named(Named::Escape),
-                        ..
-                    }) => Some(Message::ModalDismissed),
-                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                        key: keyboard::Key::Named(Named::Enter),
-                        ..
-                    }) if status == event::Status::Ignored => Some(Message::ModalSubmitted),
-                    _ => None,
+                subscriptions.push(event::listen_with(|event, status, _window| {
+                    modal_shortcut(event, status)
                 }));
             }
             Phase::Operator => subscriptions.push(event::listen_with(operator_shortcut)),
@@ -1333,6 +1375,14 @@ impl App {
             );
         }
 
+        if self.zoom_save_pending.is_some() {
+            subscriptions.push(
+                iced::time::every(ZOOM_SAVE_DELAY)
+                    .with(self.zoom_save_serial)
+                    .map(|(serial, _)| Message::ZoomSaveDue(serial)),
+            );
+        }
+
         Subscription::batch(subscriptions)
     }
 
@@ -1357,10 +1407,11 @@ impl App {
 
         self.phase = Phase::Operator;
 
-        let (id, opened) = window::open(windows::control());
+        let scale = self.ui_scale_factor();
+        let (id, opened) = window::open(windows::control(scale));
         self.control = Some(id);
-        self.control_width = windows::CONTROL_SIZE.width;
-        self.control_height = windows::CONTROL_SIZE.height;
+        self.control_width = windows::CONTROL_SIZE.width / scale;
+        self.control_height = windows::CONTROL_SIZE.height / scale;
 
         // The splash closes only after the control window has actually opened, so there
         // is never a gap with no window at all.
@@ -1447,6 +1498,9 @@ impl App {
                 None => Task::none(),
             },
             Pending::Quit => {
+                if let Some(scale) = self.zoom_save_pending.take() {
+                    let _ = self.save_ui_scale(scale);
+                }
                 self.sync_recovery();
                 self.store.flush(QUIT_FLUSH);
 
@@ -1480,6 +1534,17 @@ impl App {
                 result.unwrap_or_else(|error| Err(SaveFailure::Failed(error))),
             )
         })
+    }
+
+    fn save_ui_scale(&self, scale: u16) -> Task<Message> {
+        self.store.run(
+            move |library| {
+                let mut settings = library.settings()?;
+                settings.general.ui_scale = scale;
+                library.save_settings(&settings)
+            },
+            Message::UiScaleSaved,
+        )
     }
 
     fn save_settings(
@@ -1984,10 +2049,16 @@ fn operator_shortcut(
             }
             _ => None,
         },
-        (iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }), _)
-            if modifiers.command() =>
-        {
-            command_shortcut(key)
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modified_key,
+                modifiers,
+                ..
+            }),
+            _,
+        ) if modifiers.command() => {
+            zoom_shortcut(&key, &modified_key, modifiers).or_else(|| command_shortcut(key))
         }
         (
             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
@@ -1996,6 +2067,51 @@ fn operator_shortcut(
             // Cmd+C/Ctrl+C also arrives as Character("c"). Without this check,
             // copying text would clear the projector screen.
         ) if modifiers.is_empty() => shortcut(key),
+        _ => None,
+    }
+}
+
+fn modal_shortcut(event: iced::Event, status: event::Status) -> Option<Message> {
+    match event {
+        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key,
+            modified_key,
+            modifiers,
+            ..
+        }) if modifiers.command() => {
+            zoom_shortcut(&key, &modified_key, modifiers).or_else(|| save_shortcut(key))
+        }
+        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(Named::Escape),
+            ..
+        }) => Some(Message::ModalDismissed),
+        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(Named::Enter),
+            ..
+        }) if status == event::Status::Ignored => Some(Message::ModalSubmitted),
+        _ => None,
+    }
+}
+
+fn zoom_shortcut(
+    key: &keyboard::Key,
+    modified_key: &keyboard::Key,
+    modifiers: keyboard::Modifiers,
+) -> Option<Message> {
+    if !modifiers.command() || modifiers.alt() {
+        return None;
+    }
+
+    match (key.as_ref(), modified_key.as_ref()) {
+        (keyboard::Key::Character("=" | "+"), _) | (_, keyboard::Key::Character("+")) => {
+            Some(Message::UiZoom(Zoom::In))
+        }
+        (keyboard::Key::Character("-" | "_"), _) | (_, keyboard::Key::Character("-" | "_")) => {
+            Some(Message::UiZoom(Zoom::Out))
+        }
+        (keyboard::Key::Character("0"), _) | (_, keyboard::Key::Character("0")) => {
+            Some(Message::UiZoom(Zoom::Reset))
+        }
         _ => None,
     }
 }
@@ -3929,6 +4045,197 @@ mod tests {
         let _ = app.update(Message::MenuToggled(crate::Menu::Schedule));
         assert!(app.schedule_menu.is_none());
         assert_eq!(app.menu, Some(crate::Menu::Schedule));
+    }
+
+    #[test]
+    fn zoom_shortcuts_handle_layouts_and_ignore_alt() {
+        use iced::event::Status;
+        use iced::keyboard::{Event, Key, Location, Modifiers, key::Physical};
+
+        use crate::Zoom;
+
+        let window = window::Id::unique();
+        let press = |key: &str, modified: &str, modifiers: Modifiers| {
+            iced::Event::Keyboard(Event::KeyPressed {
+                key: Key::Character(key.into()),
+                modified_key: Key::Character(modified.into()),
+                physical_key: Physical::Code(iced::keyboard::key::Code::Equal),
+                location: Location::Standard,
+                modifiers,
+                text: None,
+                repeat: false,
+            })
+        };
+
+        assert!(matches!(
+            super::operator_shortcut(
+                press("=", "+", Modifiers::CTRL | Modifiers::SHIFT),
+                Status::Captured,
+                window
+            ),
+            Some(Message::UiZoom(Zoom::In))
+        ));
+        assert!(matches!(
+            super::operator_shortcut(press("=", "=", Modifiers::COMMAND), Status::Ignored, window),
+            Some(Message::UiZoom(Zoom::In))
+        ));
+        assert!(matches!(
+            super::operator_shortcut(
+                press("-", "-", Modifiers::COMMAND),
+                Status::Captured,
+                window
+            ),
+            Some(Message::UiZoom(Zoom::Out))
+        ));
+        assert!(matches!(
+            super::operator_shortcut(press("0", "0", Modifiers::COMMAND), Status::Ignored, window),
+            Some(Message::UiZoom(Zoom::Reset))
+        ));
+        assert!(
+            super::operator_shortcut(
+                press("=", "+", Modifiers::CTRL | Modifiers::ALT),
+                Status::Ignored,
+                window
+            )
+            .is_none()
+        );
+        assert!(matches!(
+            super::modal_shortcut(
+                press("=", "+", Modifiers::CTRL | Modifiers::SHIFT),
+                Status::Captured
+            ),
+            Some(Message::UiZoom(Zoom::In))
+        ));
+        assert!(matches!(
+            super::modal_shortcut(press("s", "s", Modifiers::COMMAND), Status::Captured),
+            Some(Message::SaveShortcut)
+        ));
+    }
+
+    #[test]
+    fn ui_zoom_scales_only_control_window_and_debounces_save() {
+        use crate::Zoom;
+
+        let mut app = App::default();
+        let control = window::Id::unique();
+        let output = window::Id::unique();
+        let splash = window::Id::unique();
+        app.control = Some(control);
+        app.control_width = 1480.0;
+        app.control_height = 920.0;
+        app.output = Some(output);
+        app.splash = Some(splash);
+
+        assert_eq!(app.scale_factor(control), 1.0);
+        assert_eq!(app.scale_factor(output), 1.0);
+        assert_eq!(app.scale_factor(splash), 1.0);
+
+        let _ = app.update(Message::UiZoom(Zoom::In));
+        assert_eq!(app.settings.general.ui_scale, 110);
+        assert!((app.scale_factor(control) - 1.1).abs() < 0.001);
+        assert!((app.control_width - 1480.0 / 1.1).abs() < 0.05);
+        assert!((app.control_height - 920.0 / 1.1).abs() < 0.05);
+        assert_eq!(app.scale_factor(output), 1.0);
+        assert_eq!(app.scale_factor(splash), 1.0);
+        assert_eq!(app.zoom_save_pending, Some(110));
+        let stale_serial = app.zoom_save_serial;
+        assert!(app.captions.status.contains("110"));
+
+        let _ = app.update(Message::UiZoom(Zoom::In));
+        assert_eq!(app.settings.general.ui_scale, 120);
+        assert!((app.control_width - 1480.0 / 1.2).abs() < 0.05);
+        assert!((app.control_height - 920.0 / 1.2).abs() < 0.05);
+        assert_eq!(app.zoom_save_pending, Some(120));
+        assert_ne!(app.zoom_save_serial, stale_serial);
+
+        let _ = app.update(Message::ZoomSaveDue(stale_serial));
+        assert_eq!(app.zoom_save_pending, Some(120));
+
+        let _ = app.update(Message::ZoomSaveDue(app.zoom_save_serial));
+        assert_eq!(app.zoom_save_pending, None);
+
+        let _ = app.update(Message::UiZoom(Zoom::Reset));
+        assert_eq!(app.settings.general.ui_scale, 100);
+        assert_eq!(app.scale_factor(control), 1.0);
+        assert_eq!(app.zoom_save_pending, Some(100));
+
+        let _ = app.update(Message::ZoomSaveDue(app.zoom_save_serial));
+        assert_eq!(app.zoom_save_pending, None);
+        let serial_before_noop = app.zoom_save_serial;
+        let _ = app.update(Message::UiZoom(Zoom::Reset));
+        assert_eq!(app.zoom_save_pending, None);
+        assert_eq!(app.zoom_save_serial, serial_before_noop);
+    }
+
+    #[test]
+    fn quitting_flushes_pending_ui_zoom_to_store() {
+        use crate::{Store, Zoom};
+        use std::fs;
+
+        let dir = std::env::temp_dir().join(format!("sdw-quit-zoom-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("library.db");
+
+        let mut app = App {
+            store: Store::spawn(db.clone()),
+            ..App::default()
+        };
+        let control = window::Id::unique();
+        app.control = Some(control);
+
+        let _ = app.update(Message::UiZoom(Zoom::In));
+        assert_eq!(app.zoom_save_pending, Some(110));
+
+        let _ = app.update(Message::WindowCloseRequested(control));
+        assert_eq!(app.zoom_save_pending, None);
+
+        let library = Library::open(&db).unwrap();
+        assert_eq!(library.settings().unwrap().general.ui_scale, 110);
+        drop(library);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_saved_preserves_newer_pending_zoom_and_syncs_theme_dialog() {
+        use crate::{ThemeDialog, Zoom, theme_dialog};
+
+        let mut app = App::default();
+        app.open_modal(Modal::Theme(Box::new(ThemeDialog::settings(
+            &app.settings,
+            None,
+            &app.displays,
+        ))));
+        let inflight = Box::new(app.settings.clone());
+
+        let _ = app.update(Message::UiZoom(Zoom::In));
+        assert_eq!(app.settings.general.ui_scale, 110);
+        assert_eq!(app.zoom_save_pending, Some(110));
+
+        let _ = app.update(Message::ZoomSaveDue(app.zoom_save_serial));
+        assert_eq!(app.zoom_save_pending, None);
+
+        let _ = app.update(Message::SettingsSaved(
+            app.modal_ticket,
+            false,
+            Ok(inflight),
+        ));
+        assert_eq!(app.settings.general.ui_scale, 110);
+        let Some(Modal::Theme(dialog)) = &mut app.modal else {
+            panic!("expected settings dialog");
+        };
+        assert_eq!(
+            dialog.update(theme_dialog::Message::CategorySelected(
+                theme_dialog::Category::General,
+            )),
+            theme_dialog::Action::None
+        );
+        let theme_dialog::Action::SaveSettings(saved, false) =
+            dialog.update(theme_dialog::Message::Apply)
+        else {
+            panic!("expected SaveSettings");
+        };
+        assert_eq!(saved.general.ui_scale, 110);
     }
 }
 

@@ -19,12 +19,23 @@ pub fn splash() -> Settings {
 }
 
 pub const CONTROL_SIZE: Size = Size::new(1480.0, 920.0);
+const CONTROL_MIN_SIZE: Size = Size::new(1120.0, 720.0);
 
-pub fn control() -> Settings {
+pub fn control(scale: f32) -> Settings {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
     Settings {
-        size: CONTROL_SIZE,
-        min_size: Some(Size::new(1120.0, 720.0)),
-        position: Position::Centered,
+        size: Size::new(CONTROL_SIZE.width / scale, CONTROL_SIZE.height / scale),
+        min_size: Some(CONTROL_MIN_SIZE),
+        position: Position::SpecificWith(|_size, screen| {
+            iced::Point::new(
+                ((screen.width - CONTROL_SIZE.width) / 2.0).max(0.0),
+                ((screen.height - CONTROL_SIZE.height) / 2.0).max(0.0),
+            )
+        }),
         ..base()
     }
 }
@@ -69,4 +80,17 @@ fn base() -> Settings {
 // window is already fullscreen.
 pub fn go_fullscreen<T>(id: window::Id) -> iced::Task<T> {
     window::set_mode(id, window::Mode::Fullscreen)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_window_compensates_for_scale_factor() {
+        let settings = control(1.25);
+        assert!((settings.size.width * 1.25 - CONTROL_SIZE.width).abs() < 0.01);
+        assert!((settings.size.height * 1.25 - CONTROL_SIZE.height).abs() < 0.01);
+        assert_eq!(settings.min_size, Some(CONTROL_MIN_SIZE));
+    }
 }
