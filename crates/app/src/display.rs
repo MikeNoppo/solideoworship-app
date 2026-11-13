@@ -1,10 +1,14 @@
 use iced::{Point, Size};
+use sdw_core::settings::MonitorPreference;
 
 use crate::i18n::t;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Display {
     pub id: u32,
+    pub backend_name: Box<str>,
+    pub physical_width: u32,
+    pub physical_height: u32,
     pub name: Box<str>,
     pub title: Box<str>,
     pub resolution: Box<str>,
@@ -15,6 +19,43 @@ pub struct Display {
     pub is_builtin: bool,
 }
 
+impl Display {
+    pub fn preference(&self) -> MonitorPreference {
+        MonitorPreference {
+            backend_name: self.backend_name.clone(),
+            friendly_name: self.name.clone(),
+            width: self.physical_width,
+            height: self.physical_height,
+        }
+    }
+}
+
+pub fn matching(preference: &MonitorPreference, displays: &[Display]) -> Option<u32> {
+    let unique = |matches: Vec<&Display>| (matches.len() == 1).then(|| matches[0].id);
+    let same_resolution = |display: &&Display| {
+        display.physical_width == preference.width && display.physical_height == preference.height
+    };
+    let exact: Vec<_> = displays
+        .iter()
+        .filter(same_resolution)
+        .filter(|display| {
+            !preference.backend_name.is_empty()
+                && display.backend_name == preference.backend_name
+                && (preference.friendly_name.is_empty() || display.name == preference.friendly_name)
+        })
+        .collect();
+    if !exact.is_empty() {
+        return unique(exact);
+    }
+    unique(
+        displays
+            .iter()
+            .filter(same_resolution)
+            .filter(|display| display.name == preference.friendly_name)
+            .collect(),
+    )
+}
+
 pub fn all() -> Result<Vec<Display>, Box<str>> {
     let mut displays: Vec<Display> = display_info::DisplayInfo::all()
         .map_err(|error| error.to_string().into_boxed_str())?
@@ -22,7 +63,7 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
         .map(|info| {
             let divisor = coordinate_divisor(info.scale_factor);
             let name = if info.friendly_name.is_empty() {
-                info.name
+                info.name.clone()
             } else {
                 info.friendly_name
             };
@@ -40,6 +81,9 @@ pub fn all() -> Result<Vec<Display>, Box<str>> {
 
             Display {
                 id: info.id,
+                backend_name: info.name.into_boxed_str(),
+                physical_width: info.width,
+                physical_height: info.height,
                 title: format!("{name} ({note})").into_boxed_str(),
                 detail: if info.is_primary {
                     format!("{resolution} · {kind}, {}", toolbar.primary)
@@ -85,4 +129,59 @@ fn coordinate_divisor(scale_factor: f32) -> f32 {
 #[cfg(not(windows))]
 fn coordinate_divisor(_scale_factor: f32) -> f32 {
     1.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Display, matching};
+    use iced::{Point, Size};
+
+    pub fn screen(id: u32, backend: &str, name: &str) -> Display {
+        Display {
+            id,
+            backend_name: backend.into(),
+            physical_width: 1920,
+            physical_height: 1080,
+            name: name.into(),
+            title: name.into(),
+            resolution: "1920×1080".into(),
+            detail: "1920×1080".into(),
+            origin: Point::ORIGIN,
+            size: Size::new(1920.0, 1080.0),
+            is_primary: false,
+            is_builtin: false,
+        }
+    }
+
+    #[test]
+    fn reused_connector_does_not_select_a_different_monitor() {
+        let remembered = screen(1, "HDMI-1", "Projector").preference();
+        let replacement = screen(2, "HDMI-1", "Operator screen");
+        assert_eq!(matching(&remembered, &[replacement]), None);
+
+        let mut remembered = remembered;
+        remembered.backend_name = "".into();
+        let projector = screen(3, "HDMI-2", "Projector");
+        let other = screen(4, "", "Operator screen");
+        assert_eq!(matching(&remembered, &[other, projector]), Some(3));
+    }
+
+    #[test]
+    fn remembered_monitor_uses_a_unique_descriptor_or_friendly_fallback() {
+        let remembered = screen(1, "HDMI-1", "Projector").preference();
+        let moved = screen(10, "HDMI-1", "Projector");
+        let fallback = screen(20, "HDMI-2", "Projector");
+
+        assert_eq!(
+            matching(&remembered, std::slice::from_ref(&moved)),
+            Some(10)
+        );
+        assert_eq!(
+            matching(&remembered, std::slice::from_ref(&fallback)),
+            Some(20)
+        );
+        assert_eq!(matching(&remembered, &[moved.clone(), moved]), None);
+        assert_eq!(matching(&remembered, &[fallback.clone(), fallback]), None);
+        assert_eq!(matching(&remembered, &[]), None);
+    }
 }

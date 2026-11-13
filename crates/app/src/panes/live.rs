@@ -6,8 +6,8 @@ use crate::App;
 use crate::i18n::{Label, t};
 use crate::icon;
 use crate::message::{Message, Step};
-use crate::panes::columns;
-use crate::render::slide::{self, Visibility};
+use crate::panes::{columns, label_chip, label_rule};
+use crate::render::transition;
 use crate::style::{self, Tone};
 use crate::ui::{self, label, wide_action};
 
@@ -15,9 +15,14 @@ const PADDING: f32 = 16.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let width = columns(app.control_width).live;
-    let frame_height = ((width - PADDING * 2.0) * 9.0 / 16.0).round();
     let is_open = app.output.is_some();
     let live = app.live.as_ref();
+    let layout = if live.is_some() {
+        app.live_theme.layout
+    } else {
+        app.settings.styles.song.theme.layout
+    };
+    let frame_height = ((width - PADDING * 2.0) / layout.ratio()).round();
 
     let (badge, badge_fill, badge_color) = match (is_open, live.is_some()) {
         (true, true) => (t().slides.live, style::LIVE_SOFT, style::LIVE),
@@ -60,34 +65,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .align_y(Center);
 
     let frame: Element<'_, Message> = match live {
-        Some(live) => container(
-            stack![slide::stage(
-                Some(live.current()),
-                &app.live_theme,
-                Visibility {
-                    background: app.output_state.shows_background(),
-                    body: app.output_state.shows_content(),
+        Some(_) => container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
+            .width(Fill)
+            .height(frame_height)
+            .padding(2)
+            .style(move |_theme| iced::widget::container::Style {
+                background: Some(style::SLIDE_BG.into()),
+                border: Border {
+                    color: if is_open {
+                        style::LIVE.scale_alpha(0.5)
+                    } else {
+                        style::BORDER_STRONG
+                    },
+                    width: if is_open { 1.5 } else { 1.0 },
+                    radius: 8.0.into(),
                 },
-            )]
-            .push(mode_notice(app)),
-        )
-        .width(Fill)
-        .height(frame_height)
-        .padding(2)
-        .style(move |_theme| iced::widget::container::Style {
-            background: Some(style::SLIDE_BG.into()),
-            border: Border {
-                color: if is_open {
-                    style::LIVE.scale_alpha(0.5)
-                } else {
-                    style::BORDER_STRONG
-                },
-                width: if is_open { 1.5 } else { 1.0 },
-                radius: 8.0.into(),
-            },
-            ..iced::widget::container::Style::default()
-        })
-        .into(),
+                ..iced::widget::container::Style::default()
+            })
+            .into(),
         None => {
             let (title, body) = if is_open {
                 (t().slides.ready_title, t().slides.ready_body)
@@ -300,7 +295,15 @@ fn slide_row<'a>(
             },
         ),
         column![
-            label(section, 10.0, style::SEMIBOLD, style::TEXT_3),
+            label_chip(
+                section,
+                10.0,
+                app.live.as_ref().and_then(|live| label_rule(
+                    live.deck(),
+                    index,
+                    &app.settings.labels
+                )),
+            ),
             label(
                 first_line,
                 13.0,

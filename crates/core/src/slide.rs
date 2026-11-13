@@ -11,6 +11,12 @@ pub enum ContentKind {
     Scripture,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlideSection {
+    pub name: Box<str>,
+    pub start: usize,
+}
+
 // Songs and scripture both compile into this shape. The live engine and the renderer
 // only ever know SlideDeck, never where its contents came from — adding a new content
 // kind means adding one compiler, not touching either of them.
@@ -19,9 +25,20 @@ pub struct SlideDeck {
     pub title: Box<str>,
     pub kind: ContentKind,
     pub slides: Vec<Slide>,
+    pub sections: Vec<SlideSection>,
 }
 
 impl SlideDeck {
+    pub fn section_at(&self, index: usize) -> Option<&SlideSection> {
+        if index >= self.len() {
+            return None;
+        }
+        let end = self
+            .sections
+            .partition_point(|section| section.start <= index);
+        end.checked_sub(1).map(|index| &self.sections[index])
+    }
+
     pub fn len(&self) -> usize {
         self.slides.len()
     }

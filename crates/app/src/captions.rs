@@ -131,7 +131,7 @@ impl Captions {
         };
         self.no_match = fill(t().library.no_match_title, &[("query", &query)]).into_boxed_str();
 
-        let lines = usize::from(app.styles.song.max_lines);
+        let lines = usize::from(app.settings.styles.song.max_lines);
         self.song_body = count(
             lines,
             t().welcome.song_body_one,

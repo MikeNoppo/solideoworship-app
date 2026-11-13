@@ -1,15 +1,38 @@
 use crate::bible::{Passage, Verse};
-use crate::slide::{ContentKind, Slide, SlideDeck};
+use crate::slide::{ContentKind, Slide, SlideDeck, SlideSection};
 use crate::song::Song;
+use crate::theme::{ScriptureStyle, SongStyle};
 
 pub fn song(song: &Song, max_lines: usize) -> SlideDeck {
+    song_with_footer(song, max_lines, song.copyright())
+}
+
+pub fn song_with_style(song: &Song, style: &SongStyle) -> SlideDeck {
+    let footer = style.show_copyright.then(|| {
+        [song.copyright(), Some(style.license.trim())]
+            .into_iter()
+            .flatten()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    });
+
+    song_with_footer(
+        song,
+        usize::from(style.max_lines),
+        footer.as_deref().filter(|text| !text.is_empty()),
+    )
+}
+
+fn song_with_footer(song: &Song, max_lines: usize, footer: Option<&str>) -> SlideDeck {
     let max_lines = max_lines.max(1);
     let mut slides = SongSlides {
-        footer: song.copyright(),
+        footer,
         label: None,
         part: 0,
         lines: Vec::with_capacity(max_lines),
         slides: Vec::new(),
+        sections: Vec::new(),
     };
 
     for line in song.lyrics().lines().map(str::trim) {
@@ -34,6 +57,7 @@ pub fn song(song: &Song, max_lines: usize) -> SlideDeck {
         title: song.title().into(),
         kind: ContentKind::Song,
         slides: slides.slides,
+        sections: slides.sections,
     }
 }
 
@@ -49,12 +73,22 @@ struct SongSlides<'a> {
     part: usize,
     lines: Vec<&'a str>,
     slides: Vec<Slide>,
+    sections: Vec<SlideSection>,
 }
 
 impl SongSlides<'_> {
     fn flush(&mut self) {
         if self.lines.is_empty() {
             return;
+        }
+
+        if self.part == 0
+            && let Some(label) = self.label
+        {
+            self.sections.push(SlideSection {
+                name: label.into(),
+                start: self.slides.len(),
+            });
         }
 
         self.part += 1;
@@ -79,25 +113,55 @@ impl SongSlides<'_> {
 }
 
 pub fn scripture(passage: &Passage, max_chars: usize) -> SlideDeck {
+    scripture_deck(passage, max_chars, None)
+}
+
+pub fn scripture_with_style(passage: &Passage, style: &ScriptureStyle) -> SlideDeck {
+    scripture_deck(passage, usize::from(style.max_chars), Some(style))
+}
+
+fn scripture_deck(
+    passage: &Passage,
+    max_chars: usize,
+    style: Option<&ScriptureStyle>,
+) -> SlideDeck {
     let reference = passage.reference();
     let translation = passage.translation();
     let book_chapter = format!("{} {}", reference.book().name(), reference.chapter());
-    let slides = verse_groups(passage.verses(), max_chars)
-        .map(|group| verse_slide(&book_chapter, translation, group))
-        .collect();
+    let slides = verse_groups(
+        passage.verses(),
+        max_chars,
+        style.is_some_and(|style| style.one_verse_per_slide),
+    )
+    .map(|group| verse_slide(&book_chapter, translation, group, style))
+    .collect();
 
     SlideDeck {
         title: format!("{reference} ({translation})").into_boxed_str(),
         kind: ContentKind::Scripture,
         slides,
+        sections: Vec::new(),
     }
 }
 
 pub fn scripture_len(passage: &Passage, max_chars: usize) -> usize {
-    verse_groups(passage.verses(), max_chars).count()
+    verse_groups(passage.verses(), max_chars, false).count()
 }
 
-fn verse_groups(verses: &[Verse], max_chars: usize) -> impl Iterator<Item = &[Verse]> {
+pub fn scripture_len_with_style(passage: &Passage, style: &ScriptureStyle) -> usize {
+    verse_groups(
+        passage.verses(),
+        usize::from(style.max_chars),
+        style.one_verse_per_slide,
+    )
+    .count()
+}
+
+fn verse_groups(
+    verses: &[Verse],
+    max_chars: usize,
+    one_verse_per_slide: bool,
+) -> impl Iterator<Item = &[Verse]> {
     let max_chars = max_chars.max(1);
     let mut rest = verses;
 
@@ -114,7 +178,7 @@ fn verse_groups(verses: &[Verse], max_chars: usize) -> impl Iterator<Item = &[Ve
 
             // A verse is never split in the middle; the character limit only decides how many
             // whole verses fit on one slide.
-            if index > 0 && length + chars > max_chars {
+            if index > 0 && (one_verse_per_slide || length + chars > max_chars) {
                 break;
             }
 
@@ -128,10 +192,21 @@ fn verse_groups(verses: &[Verse], max_chars: usize) -> impl Iterator<Item = &[Ve
     })
 }
 
-fn verse_slide(book_chapter: &str, translation: &str, group: &[Verse]) -> Slide {
+fn verse_slide(
+    book_chapter: &str,
+    translation: &str,
+    group: &[Verse],
+    style: Option<&ScriptureStyle>,
+) -> Slide {
     let body = group
         .iter()
-        .map(|verse| format!("{} {}", verse.number, verse.text))
+        .map(|verse| {
+            if style.is_none_or(|style| style.show_verse_numbers) {
+                format!("{} {}", verse.number, verse.text)
+            } else {
+                verse.text.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ");
 
@@ -144,18 +219,32 @@ fn verse_slide(book_chapter: &str, translation: &str, group: &[Verse]) -> Slide 
         format!("{book_chapter}:{first}-{last}")
     };
 
+    let footer = match (
+        style.is_none_or(|style| style.show_reference),
+        style.is_none_or(|style| style.show_translation),
+    ) {
+        (true, true) => Some(format!("{reference} ({translation})").into_boxed_str()),
+        (true, false) => Some(reference.clone().into_boxed_str()),
+        (false, true) => Some(format!("({translation})").into_boxed_str()),
+        (false, false) => None,
+    };
+
     Slide {
         body: body.into_boxed_str(),
-        label: Some(reference.clone().into_boxed_str()),
-        footer: Some(format!("{reference} ({translation})").into_boxed_str()),
+        label: Some(reference.into_boxed_str()),
+        footer,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{scripture, scripture_len, song};
+    use super::{
+        scripture, scripture_len, scripture_len_with_style, scripture_with_style, song,
+        song_with_style,
+    };
     use crate::bible::{Book, Passage, Reference, Verse};
     use crate::song::Song;
+    use crate::theme::Styles;
 
     fn labels(lyrics: &str, max_lines: usize) -> Vec<Option<String>> {
         song(&Song::new("Test", lyrics, None), max_lines)
@@ -276,6 +365,21 @@ mod tests {
     }
 
     #[test]
+    fn license_can_stand_alone_without_an_empty_footer() {
+        let source = Song::new("Test", "one", None);
+        let mut style = Styles::default().song;
+        style.license = " CCLI 123 ".into();
+
+        assert_eq!(
+            song_with_style(&source, &style).slides[0].footer.as_deref(),
+            Some("CCLI 123")
+        );
+
+        style.license = " \n ".into();
+        assert!(song_with_style(&source, &style).slides[0].footer.is_none());
+    }
+
+    #[test]
     fn empty_lyrics_produce_empty_deck() {
         assert!(song(&Song::new("Test", "\n\n[Reff]\n", None), 4).is_empty());
     }
@@ -348,6 +452,49 @@ mod tests {
             deck.slides[0].footer.as_deref(),
             Some("Yohanes 3:16-18 (TB)")
         );
+    }
+
+    #[test]
+    fn scripture_footer_parts_are_independently_visible() {
+        let source = passage(43, 3, &[(16, "Kasih Allah")]);
+        let mut style = Styles::default().scripture;
+
+        for (reference, translation, expected) in [
+            (true, true, Some("Yohanes 3:16 (TB)")),
+            (true, false, Some("Yohanes 3:16")),
+            (false, true, Some("(TB)")),
+            (false, false, None),
+        ] {
+            style.show_reference = reference;
+            style.show_translation = translation;
+            let deck = scripture_with_style(&source, &style);
+
+            assert_eq!(deck.slides[0].footer.as_deref(), expected);
+            assert_eq!(deck.slides[0].label.as_deref(), Some("Yohanes 3:16"));
+            assert_eq!(&*deck.slides[0].body, "16 Kasih Allah");
+        }
+    }
+
+    #[test]
+    fn grouping_counts_unicode_characters_and_keeps_long_verses_whole() {
+        let source = passage(19, 23, &[(1, "ééé"), (2, "愛愛"), (3, "a long verse")]);
+        let mut style = Styles::default().scripture;
+        style.max_chars = 5;
+        style.show_verse_numbers = false;
+
+        let deck = scripture_with_style(&source, &style);
+        assert_eq!(deck.len(), 2);
+        assert_eq!(&*deck.slides[0].body, "ééé 愛愛");
+        assert_eq!(&*deck.slides[1].body, "a long verse");
+        assert_eq!(scripture_len_with_style(&source, &style), 2);
+
+        style.one_verse_per_slide = true;
+        let deck = scripture_with_style(&source, &style);
+        assert_eq!(deck.len(), 3);
+        assert_eq!(&*deck.slides[0].body, "ééé");
+        assert_eq!(&*deck.slides[1].body, "愛愛");
+        assert_eq!(&*deck.slides[2].body, "a long verse");
+        assert_eq!(scripture_len_with_style(&source, &style), 3);
     }
 
     #[test]

@@ -1,9 +1,9 @@
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
-use sdw_core::{OutputState, Presentation, ScheduleItem, Song, Styles};
+use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
 use sdw_library::{BibleId, BibleSummary, ImportReport, SongId, SongSummary};
 
 use crate::display::Display;
@@ -19,10 +19,10 @@ pub enum Step {
 }
 
 impl Step {
-    pub fn apply(self, show: &mut Presentation) -> bool {
+    pub fn target_index(self, show: &Presentation) -> Option<usize> {
         match self {
-            Self::Next => show.advance(),
-            Self::Previous => show.rewind(),
+            Self::Next => show.index().checked_add(1),
+            Self::Previous => show.index().checked_sub(1),
         }
     }
 }
@@ -71,10 +71,11 @@ pub enum UnsavedChoice {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    AnimationFrame(Instant),
     SplashOpened,
     SplashElapsed,
     ControlOpened,
-    LibraryOpened(Outcome<(Styles, bool)>),
+    LibraryOpened(Outcome<Box<Settings>>),
     RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
 
     DisplaysRequested,
@@ -103,6 +104,8 @@ pub enum Message {
     PreviewSlideSelected(usize),
     LiveSlideSelected(usize),
     LiveMoved(Step),
+    SectionShortcutRequested(window::Id, char),
+    SectionShortcutChecked(char, u64, u64, bool),
     GoLive,
 
     LibraryTabSelected(LibraryTab),
@@ -128,7 +131,9 @@ pub enum Message {
     Editor(editor::Message),
     ThemeRequested,
     Theme(theme_dialog::Message),
-    StylesSaved(u64, Outcome<(Styles, bool)>),
+    SettingsSaved(u64, bool, Outcome<Box<Settings>>),
+    SettingsDisplaysLoaded(u64, Result<Vec<Display>, Box<str>>),
+    MonitorSaved(Outcome<()>),
     SaveShortcut,
     ScheduleNewRequested,
     ScheduleOpenRequested,
@@ -150,7 +155,8 @@ pub enum Message {
 impl Message {
     pub fn refreshes_captions(&self) -> bool {
         match self {
-            Self::WindowCloseRequested(..)
+            Self::AnimationFrame(..)
+            | Self::WindowCloseRequested(..)
             | Self::WindowResized(..)
             | Self::RowHovered(..)
             | Self::DragOver(..)
@@ -187,6 +193,8 @@ impl Message {
             | Self::PreviewSlideSelected(..)
             | Self::LiveSlideSelected(..)
             | Self::LiveMoved(..)
+            | Self::SectionShortcutRequested(..)
+            | Self::SectionShortcutChecked(..)
             | Self::GoLive
             | Self::LibraryTabSelected(..)
             | Self::SearchChanged(..)
@@ -204,7 +212,9 @@ impl Message {
             | Self::SongDeleted(..)
             | Self::ToastAccepted
             | Self::ThemeRequested
-            | Self::StylesSaved(..)
+            | Self::SettingsSaved(..)
+            | Self::SettingsDisplaysLoaded(..)
+            | Self::MonitorSaved(..)
             | Self::ScheduleNewRequested
             | Self::ScheduleOpenRequested
             | Self::ScheduleFilePicked(..)

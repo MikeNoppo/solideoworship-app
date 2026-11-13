@@ -85,7 +85,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .style(style::fill(style::BG));
 
     let dialog = match &app.modal {
-        Some(Modal::Editor(editor)) => editor.view(&app.styles.song.theme).map(Message::Editor),
+        Some(Modal::Editor(editor)) => editor
+            .view(&app.settings.styles.song.theme, &app.settings.labels)
+            .map(Message::Editor),
         Some(Modal::Theme(dialog)) => dialog.view(app.control_width).map(Message::Theme),
         Some(Modal::Unsaved(_)) => unsaved::view(app),
         Some(Modal::Bibles(manager)) => manager.view().map(Message::BibleManager),

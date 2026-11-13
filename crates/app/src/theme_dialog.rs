@@ -1,26 +1,45 @@
+mod form;
+mod labels;
+mod transitions;
+mod view;
+
+use std::sync::Arc;
+use std::time::Instant;
+
 use iced::widget::{
-    Column, Row, button, column, container, row, slider, space, stack, text_input, toggler,
+    Column, Row, button, container, row, slider, space, stack, text_input, toggler,
 };
 use iced::{Center, Element, Fill, Padding, Pixels};
+use labels::{LabelDraft, LabelField};
 use sdw_core::bible::{Book, Passage, Reference, Verse};
+use sdw_core::labels::{LabelRule, LabelSettings, MAX_RULES};
+use sdw_core::settings::{CanvasFormat, FontSpec, FontWeight, ScreenMargins};
 use sdw_core::slide::{ContentKind, SlideDeck};
 use sdw_core::theme::{
     BODY_SIZE, FOOTER_SIZE, LINE_HEIGHT, MARGIN, MAX_CHARS, MAX_LINES, Rgb, SlideTheme, TextAlign,
 };
-use sdw_core::{ScheduleItem, Song, Styles};
+use sdw_core::transition::{TransitionMode, TransitionSettings};
+use sdw_core::{ScheduleItem, Settings, Song};
+pub use transitions::TransitionTarget;
 
-use crate::i18n::{Label, fill, t};
+use crate::display::Display;
+
+use crate::i18n::{Label, Localize, fill, t};
 use crate::icon;
 use crate::panes::{Card, slide_card};
+use crate::render::fonts;
 use crate::render::slide::{self, Visibility, color};
+use crate::render::transition::{self, Playback, Scene};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
+use sdw_core::{OutputState, Presentation};
 
-const WIDTH: f32 = 1120.0;
+const WIDTH: f32 = 1220.0;
+const SIDEBAR_WIDTH: f32 = 148.0;
 const HEIGHT: f32 = 800.0;
-const FORM_WIDTH: f32 = 420.0;
+const FORM_WIDTH: f32 = 360.0;
 const PADDING: f32 = 24.0;
-const COLUMNS: usize = 4;
+const COLUMNS: usize = 3;
 const GAP: f32 = 12.0;
 const CHARS_STEP: u16 = 10;
 
@@ -72,6 +91,112 @@ impl ColorSlot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    General,
+    Output,
+    Song,
+    Scripture,
+    Labels,
+    Transitions,
+}
+
+impl Category {
+    const ALL: [Self; 6] = [
+        Self::General,
+        Self::Output,
+        Self::Song,
+        Self::Scripture,
+        Self::Labels,
+        Self::Transitions,
+    ];
+
+    fn kind(self) -> Option<ContentKind> {
+        match self {
+            Self::Song => Some(ContentKind::Song),
+            Self::Scripture => Some(ContentKind::Scripture),
+            _ => None,
+        }
+    }
+
+    fn for_kind(kind: ContentKind) -> Self {
+        match kind {
+            ContentKind::Song => Self::Song,
+            ContentKind::Scripture => Self::Scripture,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarginSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl MarginSide {
+    const ALL: [Self; 4] = [Self::Left, Self::Right, Self::Top, Self::Bottom];
+
+    fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+            Self::Top => 2,
+            Self::Bottom => 3,
+        }
+    }
+
+    fn value(self, margins: &ScreenMargins) -> f32 {
+        match self {
+            Self::Left => margins.left,
+            Self::Right => margins.right,
+            Self::Top => margins.top,
+            Self::Bottom => margins.bottom,
+        }
+    }
+
+    fn set(self, margins: &mut ScreenMargins, value: f32) {
+        match self {
+            Self::Left => margins.left = value,
+            Self::Right => margins.right = value,
+            Self::Top => margins.top = value,
+            Self::Bottom => margins.bottom = value,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontSlot {
+    Body,
+    Footer,
+}
+
+impl FontSlot {
+    const ALL: [Self; 2] = [Self::Body, Self::Footer];
+
+    fn index(self) -> usize {
+        match self {
+            Self::Body => 0,
+            Self::Footer => 1,
+        }
+    }
+
+    fn get(self, theme: &SlideTheme) -> &FontSpec {
+        match self {
+            Self::Body => &theme.body_font,
+            Self::Footer => &theme.footer_font,
+        }
+    }
+
+    fn get_mut(self, theme: &mut SlideTheme) -> &mut FontSpec {
+        match self {
+            Self::Body => &mut theme.body_font,
+            Self::Footer => &mut theme.footer_font,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Captions {
     body_size: Box<str>,
@@ -84,10 +209,26 @@ struct Captions {
 }
 
 pub struct ThemeDialog {
-    draft: Styles,
-    shadows: bool,
+    draft: Settings,
+    labels: Vec<LabelDraft>,
+    durations: [String; 3],
+    demo: Option<Playback>,
+    demo_deck: Arc<SlideDeck>,
+    preview_settings: Settings,
+    overflow: bool,
+    guides: bool,
+    displays: Vec<Display>,
+    refreshing: bool,
+    applied: bool,
+    refresh_error: Option<Box<str>>,
     kind: ContentKind,
-    hex: [String; 3],
+    category: Category,
+    margins: [String; 4],
+    font_queries: [String; 2],
+    font_matches: [Vec<&'static str>; 2],
+    font_missing: [bool; 2],
+    font_picker: Option<FontSlot>,
+    hex: [[String; 3]; 2],
     song: ScheduleItem,
     scripture: ScheduleItem,
     deck: SlideDeck,
@@ -100,6 +241,25 @@ pub struct ThemeDialog {
 #[derive(Debug, Clone)]
 pub enum Message {
     KindSelected(ContentKind),
+    CategorySelected(Category),
+    FontPicker(FontSlot),
+    ShowHeading(bool),
+    ShowCopyright(bool),
+    LicenseChanged(String),
+    VerseNumbers(bool),
+    Reference(bool),
+    Translation(bool),
+    OneVerse(bool),
+    FontSearch(FontSlot, String),
+    FontSelected(FontSlot, &'static str),
+    FontWeight(FontSlot, FontWeight),
+    MonitorSelected(Option<u32>),
+    Guides(bool),
+    OpenAtStartup(bool),
+    AdvanceAfterGoLive(bool),
+    CanvasFormat(CanvasFormat),
+    SafeMargin(MarginSide, String),
+    RefreshDisplays,
     HexChanged(ColorSlot, String),
     ColorPicked(ColorSlot, Rgb),
     BodySize(f32),
@@ -111,20 +271,32 @@ pub enum Message {
     MaxChars(u16),
     Shadows(bool),
     SlideSelected(usize),
+    PreviewTransition(TransitionTarget),
+    TransitionMode(TransitionTarget, TransitionMode),
+    TransitionDuration(TransitionTarget, String),
+    LabelChanged(usize, LabelField, String),
+    AddLabel,
+    DeleteLabel(usize),
     Reset,
     Save,
+    Apply,
     Cancel,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
     None,
-    Save(Styles, bool),
+    SaveSettings(Box<Settings>, bool),
+    RefreshDisplays,
     Close,
 }
 
 impl ThemeDialog {
-    pub fn new(styles: &Styles, shadows: bool, current: Option<&ScheduleItem>) -> Self {
+    pub fn settings(
+        settings: &Settings,
+        current: Option<&ScheduleItem>,
+        displays: &[Display],
+    ) -> Self {
         let (song, scripture) = match current {
             Some(item @ ScheduleItem::Song(_)) => (item.clone(), sample_passage()),
             Some(item @ ScheduleItem::Passage(_)) => (sample_song(), item.clone()),
@@ -135,12 +307,28 @@ impl ThemeDialog {
             ContentKind::Song => &song,
             ContentKind::Scripture => &scripture,
         }
-        .compile(styles);
+        .compile(&settings.styles);
 
         let mut dialog = Self {
-            draft: styles.clone(),
-            shadows,
+            draft: settings.clone(),
+            labels: Vec::new(),
+            durations: Default::default(),
+            demo: None,
+            demo_deck: Arc::new(sample_song().compile(&settings.styles)),
+            preview_settings: settings.clone().clamped(),
+            overflow: false,
+            guides: true,
+            displays: Vec::new(),
+            refreshing: false,
+            applied: false,
+            refresh_error: None,
             kind,
+            category: Category::General,
+            margins: Default::default(),
+            font_queries: Default::default(),
+            font_matches: Default::default(),
+            font_missing: [false; 2],
+            font_picker: None,
             hex: Default::default(),
             song,
             scripture,
@@ -150,31 +338,177 @@ impl ThemeDialog {
             error: None,
             captions: Captions::default(),
         };
-        dialog.sync_hex();
-        dialog.describe();
+        dialog.saved(settings);
+        dialog.set_displays(displays);
+        dialog.applied = false;
         dialog
     }
 
-    pub fn kind(&self) -> ContentKind {
-        self.kind
-    }
-
     pub fn update(&mut self, message: Message) -> Action {
+        if self.busy {
+            return Action::None;
+        }
+
+        if matches!(
+            message,
+            Message::Reset
+                | Message::Save
+                | Message::Apply
+                | Message::Cancel
+                | Message::CategorySelected(_)
+                | Message::KindSelected(_)
+                | Message::TransitionMode(_, _)
+                | Message::TransitionDuration(_, _)
+        ) {
+            self.demo = None;
+        }
+
+        if !matches!(
+            message,
+            Message::Save
+                | Message::Apply
+                | Message::Cancel
+                | Message::RefreshDisplays
+                | Message::Guides(_)
+                | Message::SlideSelected(_)
+                | Message::KindSelected(_)
+                | Message::CategorySelected(_)
+                | Message::PreviewTransition(_)
+        ) {
+            self.applied = false;
+            self.error = None;
+        }
         match message {
+            Message::PreviewTransition(target) => {
+                self.preview_transition(target, Instant::now());
+                return Action::None;
+            }
+            Message::TransitionMode(target, mode) => {
+                target.get_mut(&mut self.draft.transitions).mode = mode;
+                return Action::None;
+            }
+            Message::TransitionDuration(target, value) => {
+                if let Ok(duration) = value.parse() {
+                    target.get_mut(&mut self.draft.transitions).duration_ms = duration;
+                }
+                self.durations[target.index()] = value;
+                return Action::None;
+            }
+            Message::LabelChanged(index, field, value) => {
+                if let Some(label) = self.labels.get_mut(index) {
+                    field.set(label, value);
+                }
+                self.update_label_preview();
+                return Action::None;
+            }
+            Message::AddLabel => {
+                if self.labels.len() < MAX_RULES {
+                    self.labels.push(LabelDraft::empty());
+                }
+                self.update_label_preview();
+                return Action::None;
+            }
+            Message::DeleteLabel(index) => {
+                if index < self.labels.len() {
+                    self.labels.remove(index);
+                }
+                self.update_label_preview();
+                return Action::None;
+            }
+            Message::RefreshDisplays => {
+                if self.refreshing {
+                    return Action::None;
+                }
+                self.refreshing = true;
+                self.error = None;
+                return Action::RefreshDisplays;
+            }
+            Message::ShowHeading(value) => self.draft.styles.song.theme.show_label = value,
+            Message::ShowCopyright(value) => self.draft.styles.song.show_copyright = value,
+            Message::LicenseChanged(value) => {
+                self.draft.styles.song.license = value.into_boxed_str()
+            }
+            Message::VerseNumbers(value) => self.draft.styles.scripture.show_verse_numbers = value,
+            Message::Reference(value) => self.draft.styles.scripture.show_reference = value,
+            Message::Translation(value) => self.draft.styles.scripture.show_translation = value,
+            Message::OneVerse(value) => self.draft.styles.scripture.one_verse_per_slide = value,
+            Message::FontPicker(slot) => {
+                self.font_picker = if self.font_picker == Some(slot) {
+                    None
+                } else {
+                    Some(slot)
+                };
+                self.font_queries[slot.index()].clear();
+                self.font_matches[slot.index()] = fonts::search("", 6);
+                return Action::None;
+            }
+            Message::FontSearch(slot, query) => {
+                self.font_matches[slot.index()] = fonts::search(&query, 6);
+                self.font_queries[slot.index()] = query;
+                self.font_picker = Some(slot);
+                return Action::None;
+            }
+            Message::FontSelected(slot, family) => {
+                slot.get_mut(self.theme_mut()).family = family.into();
+                self.font_picker = None;
+            }
+            Message::FontWeight(slot, weight) => slot.get_mut(self.theme_mut()).weight = weight,
+            Message::Guides(value) => {
+                self.guides = value;
+                return Action::None;
+            }
+            Message::MonitorSelected(id) => {
+                match id {
+                    Some(id) => {
+                        if let Some(display) = self.displays.iter().find(|display| display.id == id)
+                        {
+                            self.draft.output.monitor = Some(display.preference());
+                        }
+                    }
+                    None => self.draft.output.monitor = None,
+                }
+                return Action::None;
+            }
+            Message::OpenAtStartup(value) => {
+                self.draft.general.open_output_on_startup = value;
+                return Action::None;
+            }
+            Message::AdvanceAfterGoLive(value) => {
+                self.draft.general.advance_after_go_live = value;
+                return Action::None;
+            }
+            Message::CanvasFormat(value) => self.draft.output.layout.format = value,
+            Message::SafeMargin(side, value) => {
+                if let Ok(number) = value.parse() {
+                    side.set(&mut self.draft.output.layout.margins, number);
+                }
+                self.margins[side.index()] = value;
+            }
+            Message::CategorySelected(category) => {
+                self.font_picker = None;
+                self.category = category;
+                if let Some(kind) = category.kind() {
+                    self.kind = kind;
+                    self.selected = 0;
+                }
+            }
             Message::KindSelected(kind) => {
+                self.font_picker = None;
+                if self.category.kind().is_some() {
+                    self.category = Category::for_kind(kind);
+                }
                 self.kind = kind;
                 self.selected = 0;
-                self.sync_hex();
             }
             Message::HexChanged(slot, value) => {
                 if let Some(rgb) = Rgb::from_hex(&value) {
                     *slot.get_mut(self.theme_mut()) = rgb;
                 }
-                self.hex[slot.index()] = value;
+                self.hex[kind_index(self.kind)][slot.index()] = value;
             }
             Message::ColorPicked(slot, rgb) => {
                 *slot.get_mut(self.theme_mut()) = rgb;
-                self.hex[slot.index()] = rgb.to_hex();
+                self.hex[kind_index(self.kind)][slot.index()] = rgb.to_hex();
             }
             Message::BodySize(size) => self.theme_mut().body_size = size,
             Message::FooterSize(size) => self.theme_mut().footer_size = size,
@@ -182,40 +516,90 @@ impl ThemeDialog {
             Message::Margin(margin) => self.theme_mut().margin = margin,
             Message::Align(align) => self.theme_mut().align = align,
             Message::MaxLines(lines) => {
-                self.draft.song.max_lines = lines.clamp(*MAX_LINES.start(), *MAX_LINES.end());
+                self.draft.styles.song.max_lines =
+                    lines.clamp(*MAX_LINES.start(), *MAX_LINES.end());
             }
             Message::MaxChars(chars) => {
-                self.draft.scripture.max_chars = chars.clamp(*MAX_CHARS.start(), *MAX_CHARS.end());
+                self.draft.styles.scripture.max_chars =
+                    chars.clamp(*MAX_CHARS.start(), *MAX_CHARS.end());
             }
             Message::Shadows(shadows) => {
-                self.shadows = shadows;
+                self.draft.general.shadows = shadows;
                 return Action::None;
             }
             Message::SlideSelected(index) => {
                 if index < self.deck.len() {
                     self.selected = index;
                 }
+                self.measure();
                 return Action::None;
             }
             Message::Reset => {
-                let defaults = Styles::default();
-
-                match self.kind {
-                    ContentKind::Song => self.draft.song = defaults.song,
-                    ContentKind::Scripture => self.draft.scripture = defaults.scripture,
+                let defaults = Settings::default();
+                match self.category {
+                    Category::Transitions => {
+                        self.draft.transitions = defaults.transitions;
+                        self.sync_transitions();
+                    }
+                    Category::Labels => {
+                        self.draft.labels = defaults.labels;
+                        self.sync_labels();
+                    }
+                    Category::General => self.draft.general = defaults.general,
+                    Category::Output => {
+                        self.draft.output = defaults.output;
+                        self.sync_margins();
+                    }
+                    Category::Song => {
+                        self.draft.styles.song = defaults.styles.song;
+                        self.sync_hex(ContentKind::Song);
+                    }
+                    Category::Scripture => {
+                        self.draft.styles.scripture = defaults.styles.scripture;
+                        self.sync_hex(ContentKind::Scripture);
+                    }
                 }
-                self.sync_hex();
             }
-            Message::Save => {
-                if self.busy {
+            Message::Save | Message::Apply => {
+                if !self.valid_transition_durations() {
+                    self.error = Some(t().settings.invalid_transitions.into());
+                    return Action::None;
+                }
+                match self.validated_labels() {
+                    Ok(labels) => self.draft.labels = labels,
+                    Err(error) => {
+                        self.error = Some(error.localize().into_boxed_str());
+                        return Action::None;
+                    }
+                }
+                if self.margins.iter().any(|value| {
+                    value
+                        .parse::<f32>()
+                        .ok()
+                        .is_none_or(|number| !number.is_finite() || number < 0.0)
+                }) {
+                    self.error = Some(t().settings.invalid_values.into());
+                    return Action::None;
+                }
+                if self
+                    .hex
+                    .iter()
+                    .flatten()
+                    .any(|value| Rgb::from_hex(value).is_none())
+                {
+                    self.error = Some(t().settings.invalid_color.into());
+                    return Action::None;
+                }
+                if let Err(error) = self.draft.validate() {
+                    self.error = Some(error.localize().into_boxed_str());
                     return Action::None;
                 }
 
                 self.busy = true;
                 self.error = None;
-                return Action::Save(self.draft.clone().clamped(), self.shadows);
+                let settings = self.draft.clone().clamped();
+                return Action::SaveSettings(Box::new(settings), matches!(message, Message::Save));
             }
-            Message::Cancel if self.busy => return Action::None,
             Message::Cancel => return Action::Close,
         }
 
@@ -224,469 +608,97 @@ impl ThemeDialog {
         Action::None
     }
 
-    pub fn fail(&mut self, error: &str) {
+    pub fn saved(&mut self, settings: &Settings) {
+        self.demo = None;
+        self.applied = true;
+        self.draft = settings.clone();
         self.busy = false;
-        self.error = Some(
+        self.error = None;
+        self.sync_margins();
+        self.sync_labels();
+        self.sync_transitions();
+        self.sync_hex(ContentKind::Song);
+        self.sync_hex(ContentKind::Scripture);
+        self.recompile();
+        self.describe();
+    }
+
+    pub fn set_displays(&mut self, displays: &[Display]) {
+        self.displays = displays.to_vec();
+        self.refreshing = false;
+        self.refresh_error = None;
+    }
+
+    pub fn refresh_failed(&mut self, error: &str) {
+        self.refreshing = false;
+        self.refresh_error = Some(
             fill(
-                t().theme.save_failed,
+                t().settings.refresh_failed,
                 &[("error", &error.trim_end_matches('.'))],
             )
             .into_boxed_str(),
         );
     }
 
-    pub fn view(&self, window_width: f32) -> Element<'_, Message> {
-        let width = WIDTH.min(window_width - 64.0);
-
-        ui::sheet(
-            column![
-                self.header(),
-                row![self.form(), ui::line(style::BORDER), self.preview(width)].height(Fill),
-                ui::sheet_footer(self.footer()),
-            ],
-            WIDTH,
-            HEIGHT,
-        )
-    }
-
-    fn header(&self) -> Element<'_, Message> {
-        let tabs = [
-            (ContentKind::Song, icon::MUSIC),
-            (ContentKind::Scripture, icon::BOOK_OPEN),
-        ]
-        .into_iter()
-        .fold(row![].spacing(2), |list, (kind, glyph)| {
-            let is_active = self.kind == kind;
-            let color = if is_active {
-                style::TEXT
-            } else {
-                style::TEXT_3
-            };
-
-            list.push(
-                button(
-                    row![
-                        icon::view(glyph, 13.0, color),
-                        label(
-                            kind.label(),
-                            13.0,
-                            if is_active {
-                                style::SEMIBOLD
-                            } else {
-                                style::MEDIUM
-                            },
-                            color,
-                        ),
-                    ]
-                    .spacing(6)
-                    .height(Fill)
-                    .align_y(Center),
-                )
-                .height(Fill)
-                .padding([0, 12])
-                .on_press(Message::KindSelected(kind))
-                .style(style::pressable(
-                    if is_active { Tone::Selected } else { Tone::Row },
-                    6.0,
-                )),
+    pub fn fail(&mut self, error: &str) {
+        if self.refreshing && !self.busy {
+            self.refresh_failed(error);
+            return;
+        }
+        self.busy = false;
+        self.error = Some(
+            fill(
+                t().settings.save_failed,
+                &[("error", &error.trim_end_matches('.'))],
             )
-        });
-
-        column![
-            container(
-                row![
-                    column![
-                        label(t().theme.title, 16.0, style::SEMIBOLD, style::TEXT),
-                        label(t().theme.subtitle, 12.0, style::INTER, style::TEXT_3),
-                    ]
-                    .spacing(3),
-                    container(tabs).height(34).padding(3).style(style::boxed(
-                        Some(style::SURFACE),
-                        style::BORDER,
-                        8.0
-                    )),
-                    space::horizontal(),
-                    ui::icon_button(
-                        icon::X,
-                        style::TEXT_2,
-                        32.0,
-                        (!self.busy).then_some(Message::Cancel)
-                    ),
-                ]
-                .spacing(16)
-                .align_y(Center),
-            )
-            .padding(Padding {
-                top: 0.0,
-                right: 16.0,
-                bottom: 0.0,
-                left: PADDING,
-            })
-            .center_y(64),
-            ui::hrule(style::BORDER),
-        ]
-        .into()
-    }
-
-    fn form(&self) -> Element<'_, Message> {
-        let theme = self.draft.theme(self.kind);
-
-        let colors = ColorSlot::ALL
-            .into_iter()
-            .fold(Column::new().spacing(10), |list, slot| {
-                list.push(field(slot.label(), self.hex_field(slot, slot.get(theme))))
-            });
-
-        let presets = PRESETS.into_iter().fold(row![].spacing(6), |list, preset| {
-            let is_selected = preset == theme.background;
-
-            list.push(
-                button(space::horizontal())
-                    .width(18)
-                    .height(18)
-                    .padding(0)
-                    .on_press(Message::ColorPicked(ColorSlot::Background, preset))
-                    .style(style::swatch(color(preset), is_selected)),
-            )
-        });
-
-        let sliders = column![
-            control(
-                t().theme.font_size,
-                &self.captions.body_size,
-                slider(BODY_SIZE, theme.body_size, Message::BodySize).step(1.0_f32),
-            ),
-            control(
-                t().theme.footer_size,
-                &self.captions.footer_size,
-                slider(FOOTER_SIZE, theme.footer_size, Message::FooterSize).step(1.0_f32),
-            ),
-            control(
-                t().theme.line_height,
-                &self.captions.line_height,
-                slider(LINE_HEIGHT, theme.line_height, Message::LineHeight).step(0.05_f32),
-            ),
-            control(
-                t().theme.margin,
-                &self.captions.margin,
-                slider(MARGIN, theme.margin, Message::Margin).step(5.0_f32),
-            ),
-        ]
-        .spacing(16);
-
-        let align = [
-            (TextAlign::Left, icon::TEXT_ALIGN_START),
-            (TextAlign::Center, icon::TEXT_ALIGN_CENTER),
-            (TextAlign::Right, icon::TEXT_ALIGN_END),
-        ]
-        .into_iter()
-        .fold(row![].spacing(2), |list, (align, glyph)| {
-            let is_active = theme.align == align;
-
-            list.push(ui::hint(
-                button(
-                    container(icon::view(
-                        glyph,
-                        14.0,
-                        if is_active {
-                            style::TEXT
-                        } else {
-                            style::TEXT_3
-                        },
-                    ))
-                    .center(Fill),
-                )
-                .width(Fill)
-                .height(Fill)
-                .padding(0)
-                .on_press(Message::Align(align))
-                .style(style::pressable(
-                    if is_active { Tone::Selected } else { Tone::Row },
-                    6.0,
-                )),
-                align.label(),
-            ))
-        });
-
-        let align = container(align).height(34).padding(3).style(style::boxed(
-            Some(style::SURFACE),
-            style::BORDER,
-            8.0,
-        ));
-
-        let (limit_title, less, more, range) = match self.kind {
-            ContentKind::Song => {
-                let lines = self.draft.song.max_lines;
-
-                (
-                    t().theme.lines_per_slide,
-                    (lines > *MAX_LINES.start()).then(|| Message::MaxLines(lines - 1)),
-                    (lines < *MAX_LINES.end()).then(|| Message::MaxLines(lines + 1)),
-                    None,
-                )
-            }
-            ContentKind::Scripture => {
-                let chars = self.draft.scripture.max_chars;
-
-                (
-                    t().theme.chars_per_slide,
-                    (chars > *MAX_CHARS.start())
-                        .then(|| Message::MaxChars(chars.saturating_sub(CHARS_STEP))),
-                    (chars < *MAX_CHARS.end()).then(|| Message::MaxChars(chars + CHARS_STEP)),
-                    Some(t().theme.chars_range),
-                )
-            }
-        };
-
-        let stepper = container(
-            row![
-                ui::icon_button(icon::MINUS, style::TEXT_2, 28.0, less),
-                container(label(
-                    &self.captions.limit,
-                    13.0,
-                    style::SEMIBOLD,
-                    style::TEXT
-                ))
-                .center_x(Fill),
-                ui::icon_button(icon::PLUS, style::TEXT_2, 28.0, more),
-            ]
-            .align_y(Center),
-        )
-        .height(34)
-        .padding(3)
-        .style(style::boxed(
-            Some(style::SURFACE),
-            style::BORDER_STRONG,
-            8.0,
-        ));
-
-        let layout = row![
-            column![ui::eyebrow(t().theme.alignment), align]
-                .spacing(10)
-                .width(Fill),
-            column![ui::eyebrow(limit_title), stepper]
-                .push(range.map(|range| label(range, 11.0, style::INTER, style::TEXT_3)))
-                .spacing(10)
-                .width(Fill),
-        ]
-        .spacing(16);
-
-        let shadows = row![
-            column![
-                label(t().theme.shadows, 13.0, style::INTER, style::TEXT_2),
-                label(t().theme.shadows_hint, 11.0, style::INTER, style::TEXT_3),
-            ]
-            .spacing(3)
-            .width(Fill),
-            toggler(self.shadows).on_toggle(Message::Shadows).size(18),
-        ]
-        .spacing(12)
-        .align_y(Center);
-
-        container(ui::scroll(
-            column![
-                column![
-                    ui::eyebrow(t().theme.colors),
-                    colors,
-                    field(t().theme.presets, presets),
-                ]
-                .spacing(10),
-                column![ui::eyebrow(t().theme.text_heading), sliders].spacing(12),
-                layout,
-                column![ui::eyebrow(t().theme.interface), shadows].spacing(12),
-            ]
-            .spacing(24)
-            .padding(Padding {
-                top: 20.0,
-                right: PADDING - ui::SCROLL_GUTTER,
-                bottom: 24.0,
-                left: PADDING,
-            }),
-        ))
-        .width(FORM_WIDTH)
-        .height(Fill)
-        .into()
-    }
-
-    fn hex_field(&self, slot: ColorSlot, current: Rgb) -> Element<'_, Message> {
-        stack![
-            text_input("#rrggbb", &self.hex[slot.index()])
-                .on_input(move |value| Message::HexChanged(slot, value))
-                .on_submit(Message::Save)
-                .font(style::MONO)
-                .size(13)
-                .line_height(Pixels(18.0))
-                .padding(Padding {
-                    top: 6.0,
-                    right: 10.0,
-                    bottom: 6.0,
-                    left: 36.0,
-                })
-                .style(style::field),
-            container(
-                container(space::horizontal())
-                    .width(20)
-                    .height(20)
-                    .style(style::sample(color(current)))
-            )
-            .padding(Padding::ZERO.left(8))
-            .center_y(Fill),
-        ]
-        .width(150)
-        .height(32)
-        .into()
-    }
-
-    fn preview(&self, sheet_width: f32) -> Element<'_, Message> {
-        let theme = self.draft.theme(self.kind);
-        let inner = sheet_width - FORM_WIDTH - 1.0 - PADDING * 2.0;
-        let stage_height = (inner * 9.0 / 16.0).floor();
-        let card_width =
-            ((inner - ui::SCROLL_GUTTER - GAP * (COLUMNS - 1) as f32) / COLUMNS as f32).floor();
-
-        let cards = self.deck.slides.chunks(COLUMNS).enumerate().fold(
-            Column::new().spacing(14),
-            |rows, (chunk, slides)| {
-                rows.push(slides.iter().enumerate().fold(
-                    Row::new().spacing(GAP),
-                    |cells, (offset, item)| {
-                        let index = chunk * COLUMNS + offset;
-
-                        cells.push(slide_card(
-                            Card {
-                                slide: item,
-                                theme,
-                                number: ui::number(index + 1),
-                                width: card_width,
-                                is_selected: self.selected == index,
-                                is_live: false,
-                                compact: true,
-                            },
-                            Message::SlideSelected(index),
-                        ))
-                    },
-                ))
-            },
+            .into_boxed_str(),
         );
-
-        container(
-            column![
-                row![
-                    label(t().common.preview, 13.0, style::SEMIBOLD, style::TEXT).width(Fill),
-                    label(&self.captions.sample, 12.0, style::INTER, style::TEXT_3),
-                ]
-                .align_y(Center),
-                container(slide::stage(
-                    self.deck.slides.get(self.selected),
-                    theme,
-                    Visibility::FULL,
-                ))
-                .width(Fill)
-                .height(stage_height)
-                .padding(1)
-                .clip(true)
-                .style(style::boxed(
-                    Some(color(theme.background)),
-                    style::BORDER_STRONG,
-                    8.0
-                )),
-                ui::scroll(cards).height(Fill),
-                container(ui::note(icon::INFO, &self.captions.note, style::TEXT_2))
-                    .padding([10, 14])
-                    .width(Fill)
-                    .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0)),
-            ]
-            .spacing(14),
-        )
-        .padding(Padding {
-            top: 20.0,
-            right: PADDING,
-            bottom: 20.0,
-            left: PADDING,
-        })
-        .width(Fill)
-        .height(Fill)
-        .style(style::fill(style::SURFACE))
-        .into()
-    }
-
-    fn footer(&self) -> Element<'_, Message> {
-        let save = if self.busy {
-            action(
-                Tone::Primary,
-                Some(icon::LOADER_CIRCLE),
-                t().common.saving,
-                None,
-                None,
-            )
-        } else {
-            action(
-                Tone::Primary,
-                Some(icon::CHECK),
-                t().theme.save,
-                Some(ui::SAVE_KEY),
-                Some(Message::Save),
-            )
-        };
-
-        row![
-            action(
-                Tone::Ghost,
-                Some(icon::ROTATE_CCW),
-                t().theme.reset,
-                None,
-                (!self.busy).then_some(Message::Reset),
-            ),
-            container(self.error.as_deref().map(|error| ui::note(
-                icon::CIRCLE_ALERT,
-                error,
-                style::LIVE
-            )))
-            .padding([0, 12])
-            .width(Fill),
-            action(
-                Tone::Ghost,
-                None,
-                t().common.cancel,
-                None,
-                (!self.busy).then_some(Message::Cancel),
-            ),
-            save,
-        ]
-        .spacing(8)
-        .align_y(Center)
-        .into()
     }
 
     fn theme_mut(&mut self) -> &mut SlideTheme {
         match self.kind {
-            ContentKind::Song => &mut self.draft.song.theme,
-            ContentKind::Scripture => &mut self.draft.scripture.theme,
+            ContentKind::Song => &mut self.draft.styles.song.theme,
+            ContentKind::Scripture => &mut self.draft.styles.scripture.theme,
         }
     }
 
-    fn sync_hex(&mut self) {
-        let theme = self.draft.theme(self.kind);
+    fn sync_margins(&mut self) {
+        self.margins =
+            MarginSide::ALL.map(|side| side.value(&self.draft.output.layout.margins).to_string());
+    }
 
-        self.hex = ColorSlot::ALL.map(|slot| slot.get(theme).to_hex());
+    fn sync_hex(&mut self, kind: ContentKind) {
+        let theme = self.draft.styles.theme(kind);
+
+        self.hex[kind_index(kind)] = ColorSlot::ALL.map(|slot| slot.get(theme).to_hex());
     }
 
     fn recompile(&mut self) {
+        self.preview_settings = self.draft.clone().clamped();
         let sample = match self.kind {
             ContentKind::Song => &self.song,
             ContentKind::Scripture => &self.scripture,
         };
 
-        self.deck = sample.compile(&self.draft.clone().clamped());
+        self.deck = sample.compile(&self.preview_settings.styles);
+        self.demo_deck = Arc::new(sample_song().compile(&self.preview_settings.styles));
         self.selected = self.selected.min(self.deck.len().saturating_sub(1));
+        self.measure();
+    }
+
+    fn measure(&mut self) {
+        self.overflow = self.deck.slides.get(self.selected).is_some_and(|item| {
+            slide::overflows(item, self.preview_settings.styles.theme(self.kind))
+        });
     }
 
     fn describe(&mut self) {
-        let theme = self.draft.theme(self.kind);
+        let theme = self.draft.styles.theme(self.kind);
+        self.font_missing = FontSlot::ALL.map(|slot| fonts::missing(slot.get(theme)));
         let pixels = |value: f32| {
             fill(t().theme.pixels, &[("value", &format!("{value:.0}"))]).into_boxed_str()
         };
-        let chars = self.draft.scripture.max_chars;
+        let chars = self.draft.styles.scripture.max_chars;
 
         self.captions = Captions {
             body_size: pixels(theme.body_size),
@@ -694,43 +706,26 @@ impl ThemeDialog {
             line_height: format!("{:.2}", theme.line_height).into_boxed_str(),
             margin: pixels(theme.margin),
             limit: match self.kind {
-                ContentKind::Song => self.draft.song.max_lines.to_string().into_boxed_str(),
+                ContentKind::Song => self
+                    .draft
+                    .styles
+                    .song
+                    .max_lines
+                    .to_string()
+                    .into_boxed_str(),
                 ContentKind::Scripture => chars.to_string().into_boxed_str(),
             },
             sample: fill(t().theme.sample_from, &[("title", &self.deck.title)]).into_boxed_str(),
-            note: match self.kind {
-                ContentKind::Song => t().theme.song_note.into(),
-                ContentKind::Scripture => {
-                    fill(t().theme.bible_note, &[("count", &chars)]).into_boxed_str()
-                }
-            },
+            note: t().settings.saved_detail.into(),
         };
     }
 }
 
-fn field<'a>(caption: &'a str, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    row![
-        label(caption, 13.0, style::INTER, style::TEXT_2).width(Fill),
-        content.into(),
-    ]
-    .align_y(Center)
-    .into()
-}
-
-fn control<'a>(
-    caption: &'a str,
-    value: &'a str,
-    input: impl Into<Element<'a, Message>>,
-) -> Element<'a, Message> {
-    column![
-        row![
-            label(caption, 13.0, style::INTER, style::TEXT_2).width(Fill),
-            label(value, 12.0, style::MEDIUM, style::TEXT_2),
-        ],
-        input.into(),
-    ]
-    .spacing(8)
-    .into()
+fn kind_index(kind: ContentKind) -> usize {
+    match kind {
+        ContentKind::Song => 0,
+        ContentKind::Scripture => 1,
+    }
 }
 
 fn sample_song() -> ScheduleItem {
@@ -766,10 +761,389 @@ mod tests {
     use sdw_core::theme::{MAX_LINES, Rgb, TextAlign};
     use sdw_core::{ScheduleItem, Song, Styles};
 
-    use super::{Action, ColorSlot, Message, ThemeDialog};
+    use super::{Action, Category, ColorSlot, FontSlot, MarginSide, Message, ThemeDialog};
 
     fn dialog() -> ThemeDialog {
-        ThemeDialog::new(&Styles::default(), true, None)
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::CategorySelected(Category::Song));
+        dialog
+    }
+
+    #[test]
+    fn transition_demo_uses_sample_sections_for_a_single_slide_selected_song() {
+        let current = ScheduleItem::Song(Song::new("Selected", "single slide", None));
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), Some(&current), &[]);
+        let _ = dialog.update(Message::TransitionMode(
+            super::TransitionTarget::Slides,
+            sdw_core::transition::TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::PreviewTransition(super::TransitionTarget::Slides));
+        assert!(dialog.has_animation());
+    }
+
+    #[test]
+    fn transition_demo_finishes_and_stops_when_saving_resetting_or_closing() {
+        use super::TransitionTarget;
+        use sdw_core::transition::TransitionMode;
+        use std::time::{Duration, Instant};
+        for stop in [
+            Message::Reset,
+            Message::Cancel,
+            Message::Apply,
+            Message::Save,
+            Message::CategorySelected(Category::Song),
+        ] {
+            let mut dialog = dialog();
+            let _ = dialog.update(Message::CategorySelected(Category::Transitions));
+            let _ = dialog.update(Message::TransitionMode(
+                TransitionTarget::Slides,
+                TransitionMode::Fade,
+            ));
+            assert_eq!(
+                dialog.update(Message::PreviewTransition(TransitionTarget::Slides)),
+                Action::None
+            );
+            assert!(dialog.has_animation());
+            let _ = dialog.update(stop);
+            assert!(!dialog.has_animation());
+        }
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Slides,
+            TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::PreviewTransition(TransitionTarget::Slides));
+        assert!(dialog.advance_animation(Instant::now() + Duration::from_secs(3)));
+        assert!(!dialog.has_animation());
+        assert!(!dialog.advance_animation(Instant::now() + Duration::from_secs(4)));
+    }
+
+    #[test]
+    fn transition_modes_preserve_independent_durations_and_reject_invalid_raw_text() {
+        use super::TransitionTarget;
+        use sdw_core::transition::TransitionMode;
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Slides,
+            TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Slides,
+            "850".into(),
+        ));
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Slides,
+            TransitionMode::Cut,
+        ));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Black,
+            "550x".into(),
+        ));
+        let _ = dialog.update(Message::CategorySelected(Category::General));
+        assert_eq!(dialog.update(Message::Apply), Action::None);
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Black,
+            "650".into(),
+        ));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected independent transition preferences");
+        };
+        assert_eq!(saved.transitions.slides.mode, TransitionMode::Cut);
+        assert_eq!(saved.transitions.slides.duration_ms, 850);
+        assert_eq!(saved.transitions.black.duration_ms, 650);
+        assert_eq!(saved.transitions.clear.duration_ms, 500);
+    }
+
+    #[test]
+    fn label_view_does_not_copy_name_and_alias_buffers() {
+        let mut dialog = dialog();
+        let name = "n".repeat(61);
+        let aliases = std::array::from_fn::<_, 8, _>(|_| "a".repeat(61)).join(", ");
+        for index in 0..8 {
+            let _ = dialog.update(Message::LabelChanged(
+                index,
+                super::LabelField::Name,
+                name.clone(),
+            ));
+            let _ = dialog.update(Message::LabelChanged(
+                index,
+                super::LabelField::Aliases,
+                aliases.clone(),
+            ));
+        }
+        let _ = dialog.update(Message::CategorySelected(Category::Labels));
+        let copies = crate::allocation_probe::measure(|| {
+            std::hint::black_box(dialog.view(1480.0));
+        });
+        eprintln!("label name/alias allocations per redraw: {copies}");
+        assert_eq!(copies, 0);
+    }
+
+    #[test]
+    fn label_table_accepts_at_most_thirty_two_rules() {
+        let mut dialog = dialog();
+        for index in 8..32 {
+            let _ = dialog.update(Message::AddLabel);
+            let name = format!("Custom{}", char::from(b'A' + (index - 8) as u8));
+            let _ = dialog.update(Message::LabelChanged(index, super::LabelField::Name, name));
+        }
+        let _ = dialog.update(Message::AddLabel);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected bounded label table");
+        };
+        assert_eq!(saved.labels.rules.len(), 32);
+    }
+
+    #[test]
+    fn label_conflicts_and_malformed_aliases_or_shortcuts_block_saving() {
+        use super::LabelField;
+        for (field, value) in [
+            (LabelField::Name, "Chorus"),
+            (LabelField::Aliases, "new name, Chorus"),
+            (LabelField::Aliases, "valid,"),
+            (LabelField::Shortcut, "C"),
+            (LabelField::Shortcut, "vv"),
+            (LabelField::Shortcut, "v"),
+            (LabelField::Shortcut, "1"),
+        ] {
+            let mut dialog = dialog();
+            let _ = dialog.update(Message::LabelChanged(0, field, value.into()));
+            assert_eq!(dialog.update(Message::Apply), Action::None);
+        }
+    }
+
+    #[test]
+    fn label_add_delete_and_category_reset_preserve_unrelated_settings() {
+        use super::LabelField;
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::OpenAtStartup(true));
+        let _ = dialog.update(Message::DeleteLabel(0));
+        let _ = dialog.update(Message::AddLabel);
+        let _ = dialog.update(Message::LabelChanged(7, LabelField::Name, "Solo".into()));
+        let _ = dialog.update(Message::LabelChanged(
+            7,
+            LabelField::Aliases,
+            "Instrumental, Soloist".into(),
+        ));
+        let _ = dialog.update(Message::LabelChanged(7, LabelField::Shortcut, "S".into()));
+        let Action::SaveSettings(saved, false) = dialog.update(Message::Apply) else {
+            panic!("expected added label to save");
+        };
+        assert_eq!(saved.labels.rules.len(), 8);
+        assert_eq!(&*saved.labels.rules[7].name, "Solo");
+        assert_eq!(saved.labels.rules[7].shortcut, Some('S'));
+        let _ = dialog.update(Message::DeleteLabel(7));
+        dialog.saved(&saved);
+        let _ = dialog.update(Message::CategorySelected(Category::Labels));
+        let _ = dialog.update(Message::Reset);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected reset label settings");
+        };
+        assert_eq!(saved.labels, sdw_core::labels::LabelSettings::default());
+        assert!(saved.general.open_output_on_startup);
+    }
+
+    #[test]
+    fn transition_reset_restores_only_transitions_and_clears_invalid_duration() {
+        use super::TransitionTarget;
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::LicenseChanged("CCLI 123".into()));
+        let _ = dialog.update(Message::TransitionDuration(
+            TransitionTarget::Slides,
+            "invalid".into(),
+        ));
+        let _ = dialog.update(Message::CategorySelected(Category::Transitions));
+        let _ = dialog.update(Message::Reset);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected reset transition settings");
+        };
+        assert_eq!(
+            saved.transitions,
+            sdw_core::transition::TransitionSettings::default()
+        );
+        assert_eq!(&*saved.styles.song.license, "CCLI 123");
+    }
+
+    #[test]
+    fn invalid_label_draft_blocks_apply_from_another_category() {
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::LabelChanged(
+            0,
+            super::LabelField::Color,
+            "#12".into(),
+        ));
+        let _ = dialog.update(Message::CategorySelected(Category::General));
+        assert_eq!(dialog.update(Message::Apply), Action::None);
+        let _ = dialog.update(Message::LabelChanged(
+            0,
+            super::LabelField::Color,
+            "#123456".into(),
+        ));
+        let Action::SaveSettings(settings, false) = dialog.update(Message::Apply) else {
+            panic!("expected corrected label color to save");
+        };
+        assert_eq!(settings.labels.rules[0].color, Rgb::from_rgb8(18, 52, 86));
+    }
+
+    #[test]
+    fn apply_saves_the_draft_and_reopens_editing_after_success() {
+        let settings = sdw_core::Settings::default();
+        let mut dialog = ThemeDialog::settings(&settings, None, &[]);
+        let _ = dialog.update(Message::BodySize(110.0));
+
+        let Action::SaveSettings(saved, false) = dialog.update(Message::Apply) else {
+            panic!("expected an apply action");
+        };
+        assert_eq!(saved.styles.song.theme.body_size, 110.0);
+        assert_eq!(dialog.update(Message::Cancel), Action::None);
+        let _ = dialog.update(Message::BodySize(150.0));
+        dialog.saved(&saved);
+
+        let Action::SaveSettings(saved, true) = dialog.update(Message::Save) else {
+            panic!("expected an ok action");
+        };
+        assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn stale_monitor_selection_keeps_the_remembered_monitor() {
+        let mut settings = sdw_core::Settings::default();
+        settings.output.monitor = Some(sdw_core::settings::MonitorPreference {
+            backend_name: "HDMI-1".into(),
+            friendly_name: "Projector".into(),
+            width: 1920,
+            height: 1080,
+        });
+        let mut dialog = ThemeDialog::settings(&settings, None, &[]);
+        let _ = dialog.update(Message::MonitorSelected(Some(99)));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected remembered monitor preferences");
+        };
+        assert_eq!(saved.output.monitor, settings.output.monitor);
+    }
+
+    #[test]
+    fn song_and_scripture_options_save_without_changing_the_original_settings() {
+        let original = sdw_core::Settings::default();
+        let mut dialog = ThemeDialog::settings(&original, None, &[]);
+        let _ = dialog.update(Message::CategorySelected(Category::Song));
+        let _ = dialog.update(Message::ShowHeading(true));
+        let _ = dialog.update(Message::ShowCopyright(false));
+        let _ = dialog.update(Message::LicenseChanged("CCLI 12345".into()));
+        let _ = dialog.update(Message::CategorySelected(Category::Scripture));
+        let _ = dialog.update(Message::VerseNumbers(false));
+        let _ = dialog.update(Message::Reference(false));
+        let _ = dialog.update(Message::Translation(false));
+        let _ = dialog.update(Message::OneVerse(true));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected content preferences");
+        };
+        assert!(saved.styles.song.theme.show_label);
+        assert!(!saved.styles.song.show_copyright);
+        assert_eq!(&*saved.styles.song.license, "CCLI 12345");
+        assert!(!saved.styles.scripture.show_verse_numbers);
+        assert!(!saved.styles.scripture.show_reference);
+        assert!(!saved.styles.scripture.show_translation);
+        assert!(saved.styles.scripture.one_verse_per_slide);
+        assert_eq!(original, sdw_core::Settings::default());
+    }
+
+    #[test]
+    fn body_and_footer_fonts_are_independent_and_search_does_not_select() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::FontSelected(FontSlot::Body, "JetBrains Mono"));
+        let _ = dialog.update(Message::FontWeight(
+            FontSlot::Body,
+            sdw_core::settings::FontWeight::Bold,
+        ));
+        let _ = dialog.update(Message::FontWeight(
+            FontSlot::Footer,
+            sdw_core::settings::FontWeight::Medium,
+        ));
+        let _ = dialog.update(Message::FontSearch(FontSlot::Footer, "Mono".into()));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected font preferences");
+        };
+        assert_eq!(&*saved.styles.song.theme.body_font.family, "JetBrains Mono");
+        assert_eq!(
+            saved.styles.song.theme.body_font.weight,
+            sdw_core::settings::FontWeight::Bold
+        );
+        assert_eq!(&*saved.styles.song.theme.footer_font.family, "Inter");
+        assert_eq!(
+            saved.styles.song.theme.footer_font.weight,
+            sdw_core::settings::FontWeight::Medium
+        );
+        assert_eq!(&*saved.styles.scripture.theme.body_font.family, "Inter");
+    }
+
+    #[test]
+    fn invalid_margin_text_and_empty_content_area_block_saving() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::SafeMargin(MarginSide::Left, "abc".into()));
+        assert_eq!(dialog.update(Message::Save), Action::None);
+        let _ = dialog.update(Message::SafeMargin(MarginSide::Left, "1800".into()));
+        assert_eq!(dialog.update(Message::Save), Action::None);
+        let _ = dialog.update(Message::SafeMargin(MarginSide::Left, "80".into()));
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected valid margins to save");
+        };
+        assert_eq!(saved.output.layout.margins.left, 80.0);
+        assert_eq!(saved.styles.song.theme.layout, saved.output.layout);
+        assert_eq!(saved.styles.scripture.theme.layout, saved.output.layout);
+    }
+
+    #[test]
+    fn category_reset_only_restores_the_selected_preferences() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::OpenAtStartup(true));
+        let _ = dialog.update(Message::AdvanceAfterGoLive(true));
+        let _ = dialog.update(Message::CategorySelected(Category::Output));
+        let _ = dialog.update(Message::CanvasFormat(
+            sdw_core::settings::CanvasFormat::Standard,
+        ));
+        let _ = dialog.update(Message::SafeMargin(MarginSide::Left, "80".into()));
+        let _ = dialog.update(Message::Reset);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected settings after resetting output");
+        };
+        assert!(saved.general.open_output_on_startup);
+        assert!(saved.general.advance_after_go_live);
+        assert_eq!(saved.output, sdw_core::settings::OutputSettings::default());
+    }
+
+    #[test]
+    fn refreshing_displays_preserves_the_unsaved_draft() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::BodySize(110.0));
+        assert_eq!(
+            dialog.update(Message::RefreshDisplays),
+            Action::RefreshDisplays
+        );
+        assert_eq!(dialog.update(Message::RefreshDisplays), Action::None);
+        dialog.set_displays(&[]);
+        assert_eq!(
+            dialog.update(Message::RefreshDisplays),
+            Action::RefreshDisplays
+        );
+        dialog.fail("unavailable");
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Save) else {
+            panic!("expected settings after refreshing monitors");
+        };
+        assert_eq!(saved.styles.song.theme.body_size, 110.0);
+    }
+
+    #[test]
+    fn invalid_hex_blocks_saving_until_corrected() {
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+        let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#12".into()));
+
+        assert_eq!(dialog.update(Message::Save), Action::None);
+        let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#ff0000".into()));
+        assert!(matches!(
+            dialog.update(Message::Save),
+            Action::SaveSettings(..)
+        ));
     }
 
     #[test]
@@ -780,7 +1154,7 @@ mod tests {
     #[test]
     fn selected_item_becomes_sample_and_picks_tab() {
         let item = ScheduleItem::Song(Song::new("Selected", "one", None));
-        let dialog = ThemeDialog::new(&Styles::default(), true, Some(&item));
+        let dialog = ThemeDialog::settings(&sdw_core::Settings::default(), Some(&item), &[]);
 
         assert_eq!(dialog.kind, ContentKind::Song);
         assert_eq!(&*dialog.deck.title, "Selected");
@@ -808,12 +1182,12 @@ mod tests {
     #[test]
     fn invalid_hex_does_not_change_color() {
         let mut dialog = dialog();
-        let original = dialog.draft.song.theme.background;
+        let original = dialog.draft.styles.song.theme.background;
 
         let _ = dialog.update(Message::HexChanged(ColorSlot::Background, "#12".into()));
 
-        assert_eq!(dialog.draft.song.theme.background, original);
-        assert_eq!(dialog.hex[0], "#12");
+        assert_eq!(dialog.draft.styles.song.theme.background, original);
+        assert_eq!(dialog.hex[0][0], "#12");
     }
 
     #[test]
@@ -822,7 +1196,10 @@ mod tests {
 
         let _ = dialog.update(Message::HexChanged(ColorSlot::Body, "#ff0000".into()));
 
-        assert_eq!(dialog.draft.song.theme.body, Rgb::from_rgb8(255, 0, 0));
+        assert_eq!(
+            dialog.draft.styles.song.theme.body,
+            Rgb::from_rgb8(255, 0, 0)
+        );
     }
 
     #[test]
@@ -834,7 +1211,7 @@ mod tests {
             Rgb::from_rgb8(0, 0, 0),
         ));
 
-        assert_eq!(dialog.hex[2], "#000000");
+        assert_eq!(dialog.hex[0][2], "#000000");
     }
 
     #[test]
@@ -843,8 +1220,8 @@ mod tests {
 
         let _ = dialog.update(Message::Align(TextAlign::Left));
 
-        assert_eq!(dialog.draft.song.theme.align, TextAlign::Left);
-        assert_eq!(dialog.draft.scripture.theme.align, TextAlign::Center);
+        assert_eq!(dialog.draft.styles.song.theme.align, TextAlign::Left);
+        assert_eq!(dialog.draft.styles.scripture.theme.align, TextAlign::Center);
     }
 
     #[test]
@@ -856,23 +1233,23 @@ mod tests {
 
         let _ = dialog.update(Message::Reset);
 
-        assert_eq!(dialog.draft.song.theme.body_size, 50.0);
+        assert_eq!(dialog.draft.styles.song.theme.body_size, 50.0);
         assert_eq!(
-            dialog.draft.scripture.theme.body_size,
+            dialog.draft.styles.scripture.theme.body_size,
             Styles::default().scripture.theme.body_size
         );
     }
 
     #[test]
-    fn save_sends_clamped_styles_once() {
+    fn save_sends_clamped_settings_once() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::MaxLines(500));
 
-        let Action::Save(styles, _) = dialog.update(Message::Save) else {
+        let Action::SaveSettings(settings, true) = dialog.update(Message::Save) else {
             panic!("expected a save action");
         };
 
-        assert_eq!(styles.song.max_lines, *MAX_LINES.end());
+        assert_eq!(settings.styles.song.max_lines, *MAX_LINES.end());
         assert_eq!(dialog.update(Message::Save), Action::None);
     }
 
@@ -885,18 +1262,21 @@ mod tests {
 
         assert!(dialog.error.as_deref().unwrap().contains("broken"));
         assert!(!dialog.error.as_deref().unwrap().contains("broken.."));
-        assert!(matches!(dialog.update(Message::Save), Action::Save(..)));
+        assert!(matches!(
+            dialog.update(Message::Save),
+            Action::SaveSettings(..)
+        ));
     }
 
     #[test]
-    fn shadows_choice_is_saved_with_the_theme() {
+    fn shadows_choice_is_saved_with_settings() {
         let mut dialog = dialog();
         let _ = dialog.update(Message::Shadows(false));
 
-        assert!(matches!(
-            dialog.update(Message::Save),
-            Action::Save(_, false)
-        ));
+        let Action::SaveSettings(settings, true) = dialog.update(Message::Save) else {
+            panic!("expected a settings save action");
+        };
+        assert!(!settings.general.shadows);
     }
 
     #[test]
@@ -905,9 +1285,9 @@ mod tests {
         let _ = dialog.update(Message::MaxLines(0));
         let _ = dialog.update(Message::MaxChars(5000));
 
-        assert_eq!(dialog.draft.song.max_lines, *MAX_LINES.start());
+        assert_eq!(dialog.draft.styles.song.max_lines, *MAX_LINES.start());
         assert_eq!(
-            dialog.draft.scripture.max_chars,
+            dialog.draft.styles.scripture.max_chars,
             *sdw_core::theme::MAX_CHARS.end()
         );
     }

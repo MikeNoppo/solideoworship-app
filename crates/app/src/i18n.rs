@@ -6,6 +6,7 @@ use std::{env, fs};
 
 use sdw_core::OutputState;
 use sdw_core::bible::ReferenceError;
+use sdw_core::settings::{CanvasFormat, FontWeight, SettingsError};
 use sdw_core::slide::ContentKind;
 use sdw_core::theme::TextAlign;
 use sdw_library::Error;
@@ -13,7 +14,8 @@ use sdw_library::schedule_file::ScheduleFileError;
 
 use crate::message::LibraryTab;
 use crate::report;
-use crate::theme_dialog::ColorSlot;
+use crate::theme_dialog::{Category, ColorSlot, FontSlot, MarginSide, TransitionTarget};
+use sdw_core::transition::TransitionMode;
 
 include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 
@@ -151,8 +153,73 @@ impl Label for ColorSlot {
     }
 }
 
+impl Label for Category {
+    fn label(self) -> &'static str {
+        match self {
+            Self::General => t().settings.general,
+            Self::Output => t().settings.output,
+            Self::Song => t().settings.song,
+            Self::Scripture => t().settings.scripture,
+            Self::Labels => t().settings.labels,
+            Self::Transitions => t().settings.transitions,
+        }
+    }
+}
+
+impl Label for CanvasFormat {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Wide => t().settings.wide,
+            Self::Standard => t().settings.standard,
+        }
+    }
+}
+
+impl Label for FontWeight {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Normal => t().settings.normal,
+            Self::Medium => t().settings.medium,
+            Self::Semibold => t().settings.semibold,
+            Self::Bold => t().settings.bold,
+        }
+    }
+}
+
+impl Label for MarginSide {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Left => t().settings.left,
+            Self::Right => t().settings.right,
+            Self::Top => t().settings.top,
+            Self::Bottom => t().settings.bottom,
+        }
+    }
+}
+
+impl Label for FontSlot {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Body => t().settings.body_font,
+            Self::Footer => t().settings.footer_font,
+        }
+    }
+}
+
 pub trait Localize {
     fn localize(&self) -> String;
+}
+
+impl Localize for SettingsError {
+    fn localize(&self) -> String {
+        match self {
+            Self::InvalidValues => t().settings.invalid_values.into(),
+            Self::InvalidTransitions => t().settings.invalid_transitions.into(),
+            Self::InvalidLabels => t().settings.invalid_labels.into(),
+            Self::ConflictingLabels => t().settings.conflicting_labels.into(),
+            Self::EmptyContentArea => t().settings.empty_area.into(),
+        }
+    }
 }
 
 impl Localize for Error {
@@ -284,6 +351,25 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 
     filled.push_str(rest);
     filled
+}
+
+impl Label for TransitionMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Cut => t().settings.cut,
+            Self::Fade => t().settings.fade,
+        }
+    }
+}
+
+impl Label for TransitionTarget {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Slides => t().settings.transition_slides,
+            Self::Black => t().settings.transition_black,
+            Self::Clear => t().settings.transition_clear,
+        }
+    }
 }
 
 #[cfg(test)]

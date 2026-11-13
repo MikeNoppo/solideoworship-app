@@ -122,7 +122,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .push(action(
                 Tone::Ghost,
                 Some(icon::PALETTE),
-                t().toolbar.theme,
+                t().settings.title,
                 None,
                 Some(Message::ThemeRequested),
             ))

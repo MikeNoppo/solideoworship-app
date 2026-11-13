@@ -6,6 +6,7 @@ mod captions;
 mod display;
 mod editor;
 mod files;
+mod focus;
 mod i18n;
 mod icon;
 mod logo;
@@ -28,13 +29,14 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
-use sdw_core::{ContentKind, OutputState, Presentation, ScheduleItem, Song, Styles};
+use sdw_core::transition::TransitionSpec;
+use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
 use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::bible_manager::BibleManager;
@@ -46,6 +48,7 @@ use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
 use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
+use crate::render::transition::{Frame, Playback, Scene};
 use crate::schedule::{Entry, Schedule};
 use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
@@ -144,6 +147,8 @@ struct App {
     splash_ready: bool,
     control: Option<window::Id>,
     control_width: f32,
+    control_ready: bool,
+    startup_output_done: bool,
     output: Option<window::Id>,
     output_display: Option<u32>,
     reopen_output: bool,
@@ -180,11 +185,13 @@ struct App {
     saved_at: Option<SystemTime>,
     bible: BibleTab,
     schedule: Schedule,
-    styles: Styles,
+    settings: Settings,
     live: Option<Presentation>,
     live_entry: Option<u64>,
+    live_generation: u64,
     live_theme: SlideTheme,
     live_sections: Vec<Box<str>>,
+    playback: Option<Playback>,
 
     output_state: OutputState,
     library_tab: LibraryTab,
@@ -203,7 +210,7 @@ impl App {
             ..Self::default()
         };
         let library_opened = app.store.run(
-            |library| Ok((library.styles()?, library.shadows()?)),
+            |library| library.settings().map(Box::new),
             Message::LibraryOpened,
         );
         let recovery_path = app.recovery.path().to_path_buf();
@@ -257,6 +264,18 @@ impl App {
 
     fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::AnimationFrame(now) => {
+                if let Some(playback) = &mut self.playback {
+                    playback.advance(now);
+                    if !playback.is_active() {
+                        self.playback = None;
+                    }
+                }
+                if let Some(Modal::Theme(dialog)) = &mut self.modal {
+                    dialog.advance_animation(now);
+                }
+                Task::none()
+            }
             Message::SplashOpened => {
                 self.splash_ready = true;
                 Task::none()
@@ -265,19 +284,25 @@ impl App {
                 self.splash_elapsed = true;
                 self.leave_splash()
             }
-            Message::ControlOpened => match self.splash.take() {
-                Some(id) => window::close(id),
-                None => Task::none(),
-            },
+            Message::ControlOpened => {
+                self.control_ready = true;
+                let close_splash = match self.splash.take() {
+                    Some(id) => window::close(id),
+                    None => Task::none(),
+                };
+                Task::batch([close_splash, self.startup_output()])
+            }
 
             Message::LibraryOpened(result) => {
                 self.library_ready = true;
 
                 let search = match result {
-                    Ok((styles, shadows)) => {
-                        self.styles = styles;
-                        style::set_shadows(shadows);
-                        self.schedule.recompile(&self.styles);
+                    Ok(settings) => {
+                        self.settings = *settings;
+                        style::set_shadows(self.settings.general.shadows);
+                        self.schedule.recompile(&self.settings.styles);
+                        self.bible.set_style(&self.settings.styles.scripture);
+                        self.resolve_monitor();
                         Task::batch([self.search_songs(), self.count_songs(), self.load_bibles()])
                     }
                     Err(error) => {
@@ -287,13 +312,13 @@ impl App {
                     }
                 };
 
-                Task::batch([search, self.leave_splash()])
+                Task::batch([search, self.leave_splash(), self.startup_output()])
             }
 
             Message::RecoveryLoaded(result) => {
                 match result {
                     Ok(Some(items)) if self.schedule.is_empty() => {
-                        self.schedule.restore(items, &self.styles);
+                        self.schedule.restore(items, &self.settings.styles);
                         self.schedule.select(0);
                         self.notify(Notice::Recovered);
                     }
@@ -315,7 +340,7 @@ impl App {
                 self.notices.retain(|notice| *notice != Notice::Screens);
                 let task = self.apply_displays(displays);
 
-                Task::batch([task, self.leave_splash()])
+                Task::batch([task, self.leave_splash(), self.startup_output()])
             }
             Message::DisplaysLoaded(Err(error)) => {
                 self.displays_loaded = true;
@@ -324,12 +349,25 @@ impl App {
                 self.screens_error = Some(sentence(t().notice.screens_body, &error));
                 self.notify(Notice::Screens);
 
-                self.leave_splash()
+                Task::batch([self.leave_splash(), self.startup_output()])
             }
             Message::DisplaySelected(id) => {
+                let Some(display) = self.displays.iter().find(|display| display.id == id) else {
+                    return Task::none();
+                };
+                let preference = display.preference();
+                self.settings.output.monitor = Some(preference.clone());
                 self.menu = None;
                 self.reconnected();
-                self.select_display(id)
+                let save = self.store.run(
+                    move |library| {
+                        let mut settings = library.settings()?;
+                        settings.output.monitor = Some(preference);
+                        library.save_settings(&settings)
+                    },
+                    Message::MonitorSaved,
+                );
+                Task::batch([self.select_display(id), save])
             }
             Message::MenuToggled(menu) => {
                 self.menu = (self.menu != Some(menu)).then_some(menu);
@@ -354,13 +392,13 @@ impl App {
             // path and the button path obey the same conditions.
             Message::OutputStateChanged(state) => {
                 if self.output.is_some() {
-                    self.output_state = state;
+                    self.change_output_state(state);
                 }
                 Task::none()
             }
             Message::OutputStateToggled(state) => {
                 if self.output.is_some() {
-                    self.output_state = self.output_state.toggled(state);
+                    self.change_output_state(self.output_state.toggled(state));
                 }
                 Task::none()
             }
@@ -368,7 +406,13 @@ impl App {
             Message::WindowCloseRequested(id) if self.control == Some(id) => {
                 self.guard(Pending::Quit)
             }
-            Message::WindowCloseRequested(id) => window::close(id),
+            Message::WindowCloseRequested(id) => {
+                if self.output == Some(id) {
+                    self.reopen_output = false;
+                    self.playback = None;
+                }
+                window::close(id)
+            }
             Message::WindowClosed(id) => self.window_closed(id),
             Message::WindowResized(id, size) => {
                 if self.control == Some(id) {
@@ -418,18 +462,47 @@ impl App {
                 Task::none()
             }
             Message::LiveSlideSelected(index) => {
-                if let Some(live) = &mut self.live {
-                    let _ = live.go_to(index);
-                }
+                self.navigate_live(index);
                 Task::none()
             }
             Message::LiveMoved(step) => {
-                if let Some(live) = &mut self.live {
-                    let _ = step.apply(live);
+                if let Some(live) = &self.live {
+                    let index = step.target_index(live);
+                    if let Some(index) = index {
+                        self.navigate_live(index);
+                    }
+                }
+                Task::none()
+            }
+            Message::SectionShortcutRequested(window, shortcut) => {
+                if self.modal.is_some() || self.live.is_none() {
+                    return Task::none();
+                }
+                if self.output == Some(window) {
+                    self.navigate_section(shortcut);
+                } else if self.control == Some(window) {
+                    let ticket = self.modal_ticket;
+                    let generation = self.live_generation;
+                    return focus::any_input().map(move |focused| {
+                        Message::SectionShortcutChecked(shortcut, ticket, generation, focused)
+                    });
+                }
+                Task::none()
+            }
+            Message::SectionShortcutChecked(shortcut, ticket, generation, focused) => {
+                if !focused
+                    && self.modal.is_none()
+                    && ticket == self.modal_ticket
+                    && generation == self.live_generation
+                {
+                    self.navigate_section(shortcut);
                 }
                 Task::none()
             }
             Message::GoLive => {
+                if self.schedule.preview().is_some() {
+                    self.prepare_playback();
+                }
                 // The deck is shared through an Arc, so going live copies no slides.
                 if let Some(preview) = self.schedule.preview() {
                     let mut live = Presentation::new(preview.share());
@@ -438,7 +511,7 @@ impl App {
                         let _ = live.go_to(preview.index());
                     }
 
-                    self.live_theme = self.styles.theme(preview.deck().kind).clone();
+                    self.live_theme = self.settings.styles.theme(preview.deck().kind).clone();
                     self.live_sections = preview
                         .slides()
                         .iter()
@@ -451,12 +524,20 @@ impl App {
                                 .into_boxed_str()
                         })
                         .collect();
+                    self.live_generation = self.live_generation.wrapping_add(1);
                     self.live = live;
                     self.live_entry = self
                         .schedule
                         .selected()
                         .and_then(|index| self.schedule.entries().get(index))
                         .map(Entry::key);
+                    if self.live.is_some()
+                        && self.settings.general.advance_after_go_live
+                        && let Some(index) = self.schedule.selected()
+                    {
+                        self.schedule.select(index + 1);
+                    }
+                    self.transition_live(self.settings.transitions.slides);
                 }
                 Task::none()
             }
@@ -527,8 +608,11 @@ impl App {
             Message::SongLoaded(id, result) => {
                 match result {
                     Ok(song) => {
-                        self.schedule
-                            .push(ScheduleItem::Song(song), Some(id), &self.styles);
+                        self.schedule.push(
+                            ScheduleItem::Song(song),
+                            Some(id),
+                            &self.settings.styles,
+                        );
                     }
                     Err(error) => self.library_error = Some(error),
                 }
@@ -587,7 +671,7 @@ impl App {
                         id,
                         text: fill(t().library.saved, &[("title", &song.title())]).into_boxed_str(),
                     });
-                    self.schedule.replace_song(id, &song, &self.styles);
+                    self.schedule.replace_song(id, &song, &self.settings.styles);
                     Task::batch([self.search_songs(), self.count_songs()])
                 }
                 Err(error) => self.editor_failed(ticket, error),
@@ -633,6 +717,7 @@ impl App {
             },
             Message::ModalDismissed => match &self.modal {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Dismiss)),
+                Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Cancel)),
                 Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Cancel)),
                 Some(Modal::Bibles(_)) => {
                     self.update(Message::BibleManager(bible_manager::Message::Close))
@@ -641,10 +726,10 @@ impl App {
             },
             Message::ThemeRequested => {
                 if self.modal.is_none() {
-                    self.open_modal(Modal::Theme(Box::new(ThemeDialog::new(
-                        &self.styles,
-                        style::shadows(),
+                    self.open_modal(Modal::Theme(Box::new(ThemeDialog::settings(
+                        &self.settings,
                         self.schedule.selected_item(),
+                        &self.displays,
                     ))));
                 }
                 Task::none()
@@ -661,38 +746,54 @@ impl App {
                         self.modal = None;
                         Task::none()
                     }
-                    theme_dialog::Action::Save(styles, shadows) => self.store.run(
-                        move |library| {
-                            library.save_styles(&styles)?;
-                            library.save_shadows(shadows)?;
-                            Ok((styles, shadows))
-                        },
-                        move |result| Message::StylesSaved(ticket, result),
-                    ),
+                    theme_dialog::Action::SaveSettings(settings, close_after_save) => {
+                        self.save_settings(ticket, settings, close_after_save)
+                    }
+                    theme_dialog::Action::RefreshDisplays => work::background(display::all)
+                        .map(move |result| Message::SettingsDisplaysLoaded(ticket, result)),
                 }
             }
-            Message::StylesSaved(ticket, result) => {
+            Message::SettingsSaved(ticket, close_after_save, result) => {
                 match result {
-                    Ok((styles, shadows)) => {
-                        let saved = match self.modal_for(ticket) {
-                            Some(Modal::Theme(dialog)) => match dialog.kind() {
-                                ContentKind::Song => t().theme.song_saved,
-                                ContentKind::Scripture => t().theme.bible_saved,
-                            },
-                            _ => t().theme.song_saved,
-                        };
-
-                        self.close_modal(ticket);
-                        self.styles = styles;
-                        style::set_shadows(shadows);
-                        self.schedule.recompile(&self.styles);
-                        self.show_toast(Toast::Done(t().theme.saved.into()));
-                        self.flash(format!("{saved} · {}", t().theme.saved_detail));
+                    Ok(settings) => {
+                        let task = self.apply_settings(*settings);
+                        let settings = &self.settings;
+                        if ticket == self.modal_ticket {
+                            if let Some(Modal::Theme(dialog)) = &mut self.modal {
+                                dialog.saved(settings);
+                            }
+                            if close_after_save {
+                                self.close_modal(ticket);
+                            }
+                        }
+                        self.show_toast(Toast::Done(t().settings.saved.into()));
+                        self.flash(format!(
+                            "{} · {}",
+                            t().settings.saved,
+                            t().settings.saved_detail
+                        ));
+                        return task;
                     }
                     Err(error) => match self.modal_for(ticket) {
                         Some(Modal::Theme(dialog)) => dialog.fail(&error),
                         _ => self.library_error = Some(error),
                     },
+                }
+                Task::none()
+            }
+            Message::SettingsDisplaysLoaded(ticket, result) => {
+                let Some(Modal::Theme(dialog)) = self.modal_for(ticket) else {
+                    return Task::none();
+                };
+                match &result {
+                    Ok(displays) => dialog.set_displays(displays),
+                    Err(error) => dialog.refresh_failed(error),
+                }
+                self.update(Message::DisplaysLoaded(result))
+            }
+            Message::MonitorSaved(result) => {
+                if let Err(error) = result {
+                    self.library_error = Some(error);
                 }
                 Task::none()
             }
@@ -754,7 +855,7 @@ impl App {
                                 &path.file_name().unwrap_or_default().to_string_lossy(),
                             )],
                         );
-                        self.schedule.load(path, items, &self.styles);
+                        self.schedule.load(path, items, &self.settings.styles);
                         self.saved_at = modified;
                         self.notices.retain(|notice| {
                             !matches!(notice, Notice::Recovered | Notice::Taken(_))
@@ -855,11 +956,11 @@ impl App {
                 }
             },
             Message::PassageFound(bible, reference, result) => {
-                let action = self.bible.found(
+                let action = self.bible.found_with_style(
                     bible,
                     &reference,
                     result,
-                    usize::from(self.styles.scripture.max_chars),
+                    &self.settings.styles.scripture,
                 );
                 self.bible_action(action)
             }
@@ -926,11 +1027,7 @@ impl App {
 
     fn view(&self, window: window::Id) -> Element<'_, Message> {
         if self.output == Some(window) {
-            return render::output::view(
-                self.live.as_ref().map(Presentation::current),
-                &self.live_theme,
-                self.output_state,
-            );
+            return render::output::view(self.live_frame());
         }
 
         if self.splash == Some(window) {
@@ -970,26 +1067,11 @@ impl App {
                     _ => None,
                 }));
             }
-            Phase::Operator => subscriptions.push(event::listen_with(|event, status, _window| {
-                match (event, status) {
-                    (
-                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                            key, modifiers, ..
-                        }),
-                        _,
-                    ) if modifiers.command() => command_shortcut(key),
-                    (
-                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                            key, modifiers, ..
-                        }),
-                        event::Status::Ignored,
-                        // WHY: iced fills `key` from key_without_modifiers, so
-                        // Cmd+C/Ctrl+C also arrives as Character("c"). Without this check,
-                        // copying text would clear the projector screen.
-                    ) if modifiers.is_empty() => shortcut(key),
-                    _ => None,
-                }
-            })),
+            Phase::Operator => subscriptions.push(event::listen_with(operator_shortcut)),
+        }
+
+        if self.has_animation() {
+            subscriptions.push(window::frames().map(Message::AnimationFrame));
         }
 
         if self.drag.is_some() {
@@ -1163,11 +1245,142 @@ impl App {
         })
     }
 
+    fn save_settings(
+        &self,
+        ticket: u64,
+        settings: Box<Settings>,
+        close_after_save: bool,
+    ) -> Task<Message> {
+        self.store.run(
+            move |library| {
+                library.save_settings(&settings)?;
+                Ok(settings)
+            },
+            move |result| Message::SettingsSaved(ticket, close_after_save, result),
+        )
+    }
+
+    fn live_frame(&self) -> Frame<'_> {
+        self.playback.as_ref().map_or_else(
+            || {
+                Frame::new(
+                    self.live.as_ref().map(Presentation::current),
+                    self.scene_theme(),
+                    self.output_state,
+                )
+            },
+            Playback::frame,
+        )
+    }
+
+    fn scene_theme(&self) -> &SlideTheme {
+        if self.live.is_some() {
+            &self.live_theme
+        } else {
+            &self.settings.styles.song.theme
+        }
+    }
+
+    fn scene(&self) -> Scene {
+        Scene::new(
+            self.live.clone(),
+            self.scene_theme().clone(),
+            self.output_state,
+        )
+    }
+
+    fn prepare_playback(&mut self) {
+        if self.playback.is_none() {
+            self.playback = Some(Playback::new(self.scene()));
+        }
+    }
+
+    fn transition_live(&mut self, spec: TransitionSpec) {
+        let scene = self.scene();
+        if let Some(playback) = &mut self.playback {
+            playback.retarget(scene, spec, Instant::now());
+            if !playback.is_active() {
+                self.playback = None;
+            }
+        }
+    }
+
+    fn has_animation(&self) -> bool {
+        self.playback.as_ref().is_some_and(Playback::is_active)
+            || matches!(&self.modal, Some(Modal::Theme(dialog)) if dialog.has_animation())
+    }
+
+    fn change_output_state(&mut self, state: OutputState) {
+        if state == self.output_state {
+            return;
+        }
+        self.prepare_playback();
+        let option = if state == OutputState::Show {
+            self.output_state
+        } else {
+            state
+        };
+        let spec = match option {
+            OutputState::Show => self.settings.transitions.slides,
+            OutputState::Black => self.settings.transitions.black,
+            OutputState::Clear => self.settings.transitions.clear,
+        };
+        self.output_state = state;
+        self.transition_live(spec);
+    }
+
+    fn navigate_live(&mut self, index: usize) -> bool {
+        let Some(live) = &self.live else {
+            return false;
+        };
+        if index >= live.len() || index == live.index() {
+            return false;
+        }
+        self.prepare_playback();
+        let changed = self.live.as_mut().is_some_and(|live| live.go_to(index));
+        if changed {
+            self.transition_live(self.settings.transitions.slides);
+        }
+        changed
+    }
+
+    fn navigate_section(&mut self, shortcut: char) -> bool {
+        let Some(rule) = self.settings.labels.rule_for_shortcut(shortcut) else {
+            return false;
+        };
+        let Some(index) = self.live.as_ref().and_then(|live| live.next_section(rule)) else {
+            return false;
+        };
+        self.navigate_live(index)
+    }
+
+    fn apply_settings(&mut self, settings: Settings) -> Task<Message> {
+        if self.settings.styles != settings.styles {
+            self.schedule.recompile(&settings.styles);
+            self.bible.set_style(&settings.styles.scripture);
+        }
+        style::set_shadows(settings.general.shadows);
+        let monitor_changed = self.settings.output.monitor != settings.output.monitor;
+        self.settings = settings;
+        if monitor_changed {
+            self.resolve_monitor();
+            if self.settings.output.monitor.is_none() {
+                self.selected = None;
+                self.reconnected();
+            }
+            if self.output.is_some() {
+                self.reopen_output = self.selected.is_some();
+                return self.close_output();
+            }
+        }
+        Task::none()
+    }
+
     fn open_editor(&mut self, origin: Option<SongId>, song: &Song) -> Task<Message> {
-        self.open_modal(Modal::Editor(Box::new(Editor::new(
+        self.open_modal(Modal::Editor(Box::new(Editor::with_style(
             origin,
             song,
-            self.styles.song.max_lines,
+            &self.settings.styles.song,
         ))));
 
         operation::focus(editor::TITLE_INPUT)
@@ -1249,7 +1462,7 @@ impl App {
             }
             bible_tab::Action::Add(passage) => {
                 self.schedule
-                    .push(ScheduleItem::Passage(passage), None, &self.styles);
+                    .push(ScheduleItem::Passage(passage), None, &self.settings.styles);
                 Task::none()
             }
         }
@@ -1275,28 +1488,23 @@ impl App {
             self.disconnected = lost.clone();
         }
 
-        let returned = self.disconnected.as_ref().and_then(|name| {
-            displays
-                .iter()
-                .find(|display| {
-                    display.name == *name && !self.displays.iter().any(|old| old.id == display.id)
-                })
-                .map(|display| display.id)
-        });
         let kept = self
             .selected
             .and_then(|id| same_screen(&self.displays, &displays, id));
+        self.displays = displays;
 
-        if let Some(id) = returned {
-            self.selected = Some(id);
-            self.reconnected();
+        if self.settings.output.monitor.is_some() {
+            self.selected = kept;
+            if kept.is_some() {
+                self.reconnected();
+            } else {
+                self.resolve_monitor();
+            }
         } else if self.disconnected.is_some() {
             self.selected = None;
         } else {
-            self.selected = kept.or_else(|| displays.first().map(|display| display.id));
+            self.selected = kept.or_else(|| self.displays.first().map(|display| display.id));
         }
-
-        self.displays = displays;
 
         if lost.is_some() {
             self.reopen_output = false;
@@ -1304,6 +1512,36 @@ impl App {
             return self.close_output();
         }
 
+        Task::none()
+    }
+
+    fn resolve_monitor(&mut self) {
+        let Some(preference) = &self.settings.output.monitor else {
+            return;
+        };
+        self.selected = display::matching(preference, &self.displays);
+        if self.selected.is_some() {
+            self.reconnected();
+        } else {
+            self.disconnected = Some(preference.friendly_name.clone());
+        }
+    }
+
+    fn startup_output(&mut self) -> Task<Message> {
+        if self.startup_output_done
+            || !self.control_ready
+            || !self.library_ready
+            || !self.displays_loaded
+        {
+            return Task::none();
+        }
+        self.startup_output_done = true;
+        if self.settings.general.open_output_on_startup
+            && self.settings.output.monitor.is_some()
+            && self.selected.is_some()
+        {
+            return self.open_output();
+        }
         Task::none()
     }
 
@@ -1360,7 +1598,9 @@ impl App {
         };
 
         let display_id = display.id;
-        let (id, opened) = window::open(windows::output(display));
+        let settings = windows::output(display);
+        self.playback = None;
+        let (id, opened) = window::open(settings);
 
         self.output = Some(id);
         self.output_display = Some(display_id);
@@ -1369,6 +1609,7 @@ impl App {
     }
 
     fn close_output(&mut self) -> Task<Message> {
+        self.playback = None;
         match self.output {
             Some(id) => window::close(id),
             None => Task::none(),
@@ -1387,13 +1628,14 @@ impl App {
         }
 
         if self.output == Some(id) {
+            self.playback = None;
             self.output = None;
             self.output_display = None;
-            self.output_state = OutputState::default();
 
-            if std::mem::take(&mut self.reopen_output) {
+            if std::mem::take(&mut self.reopen_output) && self.selected_display().is_some() {
                 return self.open_output();
             }
+            self.output_state = OutputState::default();
         }
 
         Task::none()
@@ -1408,21 +1650,60 @@ fn load_displays() -> Task<Message> {
 }
 
 fn same_screen(old: &[Display], new: &[Display], id: u32) -> Option<u32> {
-    if new.iter().any(|display| display.id == id) {
+    let previous = old.iter().find(|display| display.id == id)?;
+    if new
+        .iter()
+        .any(|display| display.id == id && display.preference() == previous.preference())
+    {
         return Some(id);
     }
 
-    let name = &old.iter().find(|display| display.id == id)?.name;
-
-    new.iter()
-        .find(|display| {
-            display.name == *name && !old.iter().any(|previous| previous.id == display.id)
-        })
-        .map(|display| display.id)
+    display::matching(&previous.preference(), new)
+        .filter(|current| !old.iter().any(|display| display.id == *current))
 }
 
 fn sentence(template: &str, error: &str) -> Box<str> {
     fill(template, &[("error", &error.trim_end_matches('.'))]).into_boxed_str()
+}
+
+fn operator_shortcut(
+    event: iced::Event,
+    status: event::Status,
+    window: window::Id,
+) -> Option<Message> {
+    match (event, status) {
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                repeat: false,
+                ..
+            }),
+            event::Status::Ignored,
+        ) if modifiers == keyboard::Modifiers::ALT => match key.as_ref() {
+            keyboard::Key::Character(letter) => {
+                let mut characters = letter.chars();
+                let character = characters.next()?;
+                (character.is_ascii_alphabetic() && characters.next().is_none()).then_some(
+                    Message::SectionShortcutRequested(window, character.to_ascii_uppercase()),
+                )
+            }
+            _ => None,
+        },
+        (iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }), _)
+            if modifiers.command() =>
+        {
+            command_shortcut(key)
+        }
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
+            event::Status::Ignored,
+            // WHY: iced fills `key` from key_without_modifiers, so
+            // Cmd+C/Ctrl+C also arrives as Character("c"). Without this check,
+            // copying text would clear the projector screen.
+        ) if modifiers.is_empty() => shortcut(key),
+        _ => None,
+    }
 }
 
 fn save_shortcut(key: keyboard::Key) -> Option<Message> {
@@ -1474,14 +1755,13 @@ mod tests {
     use crate::editor;
     use crate::i18n::{fill, t};
     use crate::message::{Message, Pending, UnsavedChoice};
-    use crate::theme_dialog::ThemeDialog;
 
     fn dirty_app() -> App {
         let mut app = App::default();
         app.schedule.push(
             ScheduleItem::Song(Song::new("A", "one", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
         app
     }
@@ -1491,6 +1771,493 @@ mod tests {
             Some(Modal::Unsaved(pending)) => Some(pending),
             _ => None,
         }
+    }
+
+    fn live_song() -> App {
+        let mut app = App::default();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new(
+                "Sections",
+                "[Verse 1]\nfirst\n\ncontinued\n\n[Chorus]\nchorus\n\n[Bait 2]\nsecond",
+                None,
+            )),
+            None,
+            &app.settings.styles,
+        );
+        let _ = app.update(Message::GoLive);
+        app
+    }
+
+    #[test]
+    fn output_section_shortcuts_interrupt_a_fade_and_keep_black_or_clear() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use std::time::{Duration, Instant};
+        for state in [OutputState::Black, OutputState::Clear] {
+            let mut app = live_song();
+            let output = window::Id::unique();
+            app.output = Some(output);
+            let _ = app.update(Message::OutputStateChanged(state));
+            app.settings.transitions.slides = TransitionSpec {
+                mode: TransitionMode::Fade,
+                duration_ms: 1000,
+            };
+            let _ = app.update(Message::LiveMoved(crate::message::Step::Next));
+            let _ = app.update(Message::SectionShortcutRequested(output, 'v'));
+            assert_eq!(app.live.as_ref().unwrap().index(), 3);
+            assert_eq!(app.output_state, state);
+            assert!(app.has_animation());
+            let _ = app.update(Message::AnimationFrame(
+                Instant::now() + Duration::from_secs(2),
+            ));
+            assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "second");
+            assert_eq!(app.live_frame().body_opacity, 0.0);
+            assert!(!app.has_animation());
+        }
+    }
+
+    #[test]
+    fn opening_output_and_native_close_end_an_active_fade_immediately() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        let mut app = live_song();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(1, "HDMI-1")])));
+        let _ = app.update(Message::DisplaySelected(1));
+        app.settings.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::LiveSlideSelected(2));
+        assert!(app.has_animation());
+        let _ = app.update(Message::OutputRequested);
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "chorus");
+        let _ = app.update(Message::LiveSlideSelected(3));
+        assert!(app.has_animation());
+        let output = app.output.unwrap();
+        let _ = app.update(Message::WindowCloseRequested(output));
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "second");
+        let _ = app.update(Message::WindowClosed(output));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+    }
+
+    #[test]
+    fn ready_output_uses_applied_background_after_a_finished_mode_change() {
+        let mut app = app_on_air();
+        let _ = app.update(Message::OutputStateChanged(OutputState::Clear));
+        let mut settings = app.settings.clone();
+        let background = sdw_core::theme::Rgb::new(0.2, 0.3, 0.4);
+        settings.styles.song.theme.background = background;
+        let _ = app.update(Message::SettingsSaved(0, false, Ok(Box::new(settings))));
+        assert_eq!(app.live_frame().background, background);
+        assert!(!app.has_animation());
+    }
+
+    #[test]
+    fn native_frames_advance_live_and_local_demo_then_unsubscribe_without_refreshing_captions() {
+        use crate::theme_dialog::{Message as ThemeMessage, TransitionTarget};
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use std::time::{Duration, Instant};
+
+        let mut app = live_song();
+        app.phase = super::Phase::Operator;
+        let idle_subscriptions = app.subscription().units();
+        app.settings.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let now = Instant::now();
+        let _ = app.update(Message::LiveMoved(crate::message::Step::Next));
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::Theme(ThemeMessage::PreviewTransition(
+            TransitionTarget::Slides,
+        )));
+        assert_eq!(app.subscription().units(), idle_subscriptions + 1);
+        assert!(matches!(&app.modal, Some(Modal::Theme(dialog)) if dialog.has_animation()));
+        app.captions.live_position = "unchanged during animation".into();
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_millis(250)));
+        let opacity = app.live_frame().body_opacity;
+        assert!(opacity > 0.45 && opacity < 0.55);
+        let _ = app.update(Message::AnimationFrame(now));
+        assert_eq!(app.live_frame().body_opacity, opacity);
+        assert_eq!(
+            app.captions.live_position.as_ref(),
+            "unchanged during animation"
+        );
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_secs(3)));
+        assert!(!app.has_animation());
+        assert_eq!(app.subscription().units(), idle_subscriptions);
+        assert!(matches!(&app.modal, Some(Modal::Theme(dialog)) if !dialog.has_animation()));
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "continued");
+        let _ = app.update(Message::Theme(ThemeMessage::PreviewTransition(
+            TransitionTarget::Slides,
+        )));
+        assert!(app.has_animation());
+        let _ = app.update(Message::ModalDismissed);
+        assert!(!app.has_animation());
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+    }
+
+    #[test]
+    fn applied_settings_do_not_change_active_fade_or_live_style_until_next_go_live() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use std::time::{Duration, Instant};
+        let mut app = live_song();
+        let original_theme = app.live_theme.clone();
+        app.settings.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::LiveSlideSelected(2));
+        let mut settings = app.settings.clone();
+        settings.transitions.slides = TransitionSpec::default();
+        settings.styles.song.theme.body = sdw_core::theme::Rgb::new(0.0, 1.0, 0.0);
+        let _ = app.update(Message::SettingsSaved(0, false, Ok(Box::new(settings))));
+        let now = Instant::now();
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_millis(600)));
+        assert!(app.has_animation());
+        assert_eq!(app.live_frame().theme, &original_theme);
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_secs(2)));
+        let _ = app.update(Message::LiveSlideSelected(0));
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().theme, &original_theme);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(
+            app.live_frame().theme.body,
+            sdw_core::theme::Rgb::new(0.0, 1.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn output_lifecycle_cuts_animation_without_changing_the_live_cursor_or_modes_on_move() {
+        for state in [OutputState::Show, OutputState::Black, OutputState::Clear] {
+            let mut app = live_with_two_songs();
+            app.settings.transitions.slides = sdw_core::transition::TransitionSpec {
+                mode: sdw_core::transition::TransitionMode::Fade,
+                duration_ms: 1000,
+            };
+            let _ = app.update(Message::OutputStateChanged(state));
+            let _ = app.update(Message::LiveSlideSelected(1));
+            assert!(app.has_animation());
+            let old_output = app.output.unwrap();
+            let _ = app.update(Message::DisplaySelected(2));
+            assert!(!app.has_animation());
+            assert_eq!(app.live.as_ref().unwrap().index(), 1);
+            assert_eq!(app.output_state, state);
+            let _ = app.update(Message::WindowClosed(old_output));
+            assert_eq!(app.output_state, state);
+            assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "two");
+            let _ = app.update(Message::LiveSlideSelected(0));
+            assert!(app.has_animation());
+            let output = app.output.unwrap();
+            let _ = app.update(Message::OutputDismissed);
+            assert!(!app.has_animation());
+            let _ = app.update(Message::WindowClosed(output));
+            assert_eq!(app.output_state, OutputState::Show);
+            assert_eq!(app.live_frame().body_opacity, 1.0);
+        }
+    }
+
+    #[test]
+    fn modes_use_destination_options_and_show_uses_the_departing_mode_option() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        for (start, destination, toggled) in [
+            (OutputState::Show, OutputState::Black, false),
+            (OutputState::Show, OutputState::Clear, true),
+            (OutputState::Clear, OutputState::Black, true),
+            (OutputState::Black, OutputState::Clear, false),
+            (OutputState::Black, OutputState::Show, true),
+            (OutputState::Clear, OutputState::Show, false),
+        ] {
+            let mut app = live_song();
+            app.output = Some(window::Id::unique());
+            let _ = app.update(Message::OutputStateChanged(start));
+            app.settings.transitions.black = TransitionSpec {
+                mode: TransitionMode::Fade,
+                duration_ms: 1000,
+            };
+            app.settings.transitions.clear = TransitionSpec {
+                mode: TransitionMode::Fade,
+                duration_ms: 2000,
+            };
+            let command = if toggled {
+                Message::OutputStateToggled(if destination == OutputState::Show {
+                    start
+                } else {
+                    destination
+                })
+            } else {
+                Message::OutputStateChanged(destination)
+            };
+            let _ = app.update(command);
+            assert_eq!(app.output_state, destination);
+            assert!(app.has_animation(), "{start:?} to {destination:?}");
+            let now = std::time::Instant::now();
+            let _ = app.update(Message::AnimationFrame(
+                now + std::time::Duration::from_millis(1100),
+            ));
+            let uses_clear = destination == OutputState::Clear
+                || (destination == OutputState::Show && start == OutputState::Clear);
+            assert_eq!(app.has_animation(), uses_clear);
+            let _ = app.update(Message::AnimationFrame(
+                now + std::time::Duration::from_secs(3),
+            ));
+            assert!(!app.has_animation());
+            assert_eq!(
+                app.live_frame().body_opacity,
+                if destination == OutputState::Show {
+                    1.0
+                } else {
+                    0.0
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn go_live_retargets_the_frame_to_the_latest_preview_with_saved_slide_options() {
+        let mut app = live_song();
+        app.settings.transitions.slides = sdw_core::transition::TransitionSpec {
+            mode: sdw_core::transition::TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::PreviewSlideSelected(2));
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live.as_ref().unwrap().index(), 2);
+        assert!(app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "first");
+        let _ = app.update(Message::PreviewSlideSelected(3));
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+        let _ = app.update(Message::AnimationFrame(
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        ));
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "second");
+        assert!(!app.has_animation());
+    }
+
+    #[test]
+    fn live_navigation_samples_a_shared_fade_and_ignores_duplicate_targets() {
+        let mut app = live_song();
+        app.settings.transitions.slides = sdw_core::transition::TransitionSpec {
+            mode: sdw_core::transition::TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::LiveSlideSelected(2));
+        assert_eq!(app.live.as_ref().unwrap().index(), 2);
+        assert!(app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "first");
+        let now = std::time::Instant::now();
+        let _ = app.update(Message::AnimationFrame(
+            now + std::time::Duration::from_millis(250),
+        ));
+        let opacity = app.live_frame().body_opacity;
+        assert!(opacity > 0.45 && opacity < 0.55);
+        let _ = app.update(Message::LiveSlideSelected(2));
+        assert_eq!(app.live_frame().body_opacity, opacity);
+        let _ = app.update(Message::AnimationFrame(
+            now + std::time::Duration::from_secs(2),
+        ));
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "chorus");
+        assert_eq!(app.live_frame().body_opacity, 1.0);
+    }
+
+    #[test]
+    fn confirmed_section_shortcuts_cycle_without_changing_output_or_schedule() {
+        let mut app = live_song();
+        app.output_state = OutputState::Black;
+        let revision = app.schedule.revision();
+        for expected in [3, 0] {
+            let _ = app.update(Message::SectionShortcutChecked(
+                'v',
+                app.modal_ticket,
+                app.live_generation,
+                false,
+            ));
+            assert_eq!(app.live.as_ref().unwrap().index(), expected);
+        }
+        assert_eq!(app.output_state, OutputState::Black);
+        assert!(app.output.is_none());
+        assert_eq!(app.schedule.revision(), revision);
+    }
+
+    #[test]
+    fn section_shortcuts_ignore_focused_inputs_and_stale_focus_results() {
+        let mut app = live_song();
+        for (ticket, generation, focused) in [
+            (app.modal_ticket, app.live_generation, true),
+            (app.modal_ticket.wrapping_add(1), app.live_generation, false),
+            (app.modal_ticket, app.live_generation.wrapping_sub(1), false),
+        ] {
+            let _ = app.update(Message::SectionShortcutChecked(
+                'v', ticket, generation, focused,
+            ));
+            assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        }
+        app.open_modal(Modal::Unsaved(Pending::Quit));
+        let _ = app.update(Message::SectionShortcutChecked(
+            'v',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+    }
+
+    fn alt_key(modifiers: iced::keyboard::Modifiers, repeat: bool) -> iced::Event {
+        let key = iced::keyboard::Key::Character("v".into());
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            modified_key: iced::keyboard::Key::Character("√".into()),
+            key,
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyV),
+            location: iced::keyboard::Location::Standard,
+            modifiers,
+            text: None,
+            repeat,
+        })
+    }
+
+    #[test]
+    fn section_shortcut_events_require_exact_alt_without_repeat_or_capture() {
+        use iced::event::Status;
+        use iced::keyboard::Modifiers;
+        let window = window::Id::unique();
+        for (modifiers, repeat, status) in [
+            (Modifiers::ALT, true, Status::Ignored),
+            (Modifiers::ALT, false, Status::Captured),
+            (Modifiers::ALT | Modifiers::CTRL, false, Status::Ignored),
+            (Modifiers::ALT | Modifiers::SHIFT, false, Status::Ignored),
+            (Modifiers::ALT | Modifiers::LOGO, false, Status::Ignored),
+        ] {
+            assert!(super::operator_shortcut(alt_key(modifiers, repeat), status, window).is_none());
+        }
+        assert!(matches!(
+            super::operator_shortcut(alt_key(Modifiers::ALT, false), Status::Ignored, window),
+            Some(Message::SectionShortcutRequested(id, 'V')) if id == window
+        ));
+    }
+
+    #[test]
+    fn output_section_shortcuts_bypass_control_input_focus_but_respect_modals() {
+        let mut app = live_song();
+        let output = window::Id::unique();
+        app.output = Some(output);
+        app.control = Some(window::Id::unique());
+        let _ = app.update(Message::SectionShortcutRequested(app.control.unwrap(), 'V'));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        let _ = app.update(Message::SectionShortcutRequested(output, 'V'));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+        assert_eq!(&*app.captions.live_position, "4 / 4");
+        app.open_modal(Modal::Unsaved(Pending::Quit));
+        let _ = app.update(Message::SectionShortcutRequested(output, 'V'));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+    }
+
+    #[test]
+    fn applied_labels_refresh_operator_rules_without_recompiling_live_or_source() {
+        let mut app = live_song();
+        let live = app.live.as_ref().unwrap().share();
+        let revision = app.schedule.revision();
+        let original_theme = app.live_theme.clone();
+        let mut settings = app.settings.clone();
+        settings.labels.rules[0].color = sdw_core::theme::Rgb::from_rgb8(250, 230, 30);
+        settings.labels.rules[0].shortcut = Some('Z');
+        let _ = app.apply_settings(settings);
+        for index in [0, 1, 3] {
+            let rule = crate::panes::label_rule(&live, index, &app.settings.labels).unwrap();
+            assert_eq!(rule.color, sdw_core::theme::Rgb::from_rgb8(250, 230, 30));
+        }
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        let _ = app.update(Message::SectionShortcutChecked(
+            'Z',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+        assert!(std::sync::Arc::ptr_eq(
+            &live,
+            &app.live.as_ref().unwrap().share()
+        ));
+        assert_eq!(app.schedule.revision(), revision);
+        assert_eq!(app.live_theme, original_theme);
+    }
+
+    #[test]
+    fn plain_output_keys_and_clipboard_shortcuts_keep_their_behavior() {
+        use iced::event::Status;
+        use iced::keyboard::{Event, Key, Modifiers};
+        let window = window::Id::unique();
+        for (letter, expected) in [("b", OutputState::Black), ("c", OutputState::Clear)] {
+            let mut key = alt_key(Modifiers::empty(), false);
+            let iced::Event::Keyboard(Event::KeyPressed { key: character, .. }) = &mut key else {
+                unreachable!();
+            };
+            *character = Key::Character(letter.into());
+            assert!(matches!(
+                super::operator_shortcut(key.clone(), Status::Ignored, window),
+                Some(Message::OutputStateToggled(state)) if state == expected
+            ));
+            for modifier in [Modifiers::CTRL, Modifiers::LOGO] {
+                let iced::Event::Keyboard(Event::KeyPressed { modifiers, .. }) = &mut key else {
+                    unreachable!();
+                };
+                *modifiers = modifier;
+                assert!(super::operator_shortcut(key.clone(), Status::Ignored, window).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn section_shortcuts_leave_scripture_and_unknown_sections_unchanged() {
+        let mut app = App::default();
+        let mut deck = sdw_core::compile::song(
+            &Song::new("Custom", "[Custom]\none\n[Verse 1]\ntwo", None),
+            4,
+        );
+        assert!(crate::panes::label_rule(&deck, 0, &app.settings.labels).is_none());
+        deck.kind = sdw_core::slide::ContentKind::Scripture;
+        assert!(crate::panes::label_rule(&deck, 1, &app.settings.labels).is_none());
+        assert!(crate::panes::label_rule(&deck, 0, &app.settings.labels).is_none());
+        app.live = sdw_core::Presentation::new(std::sync::Arc::new(deck));
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            app.modal_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+    }
+
+    #[test]
+    fn focus_results_from_previous_live_and_closed_modals_are_discarded() {
+        let mut app = live_song();
+        let old_generation = app.live_generation;
+        let _ = app.update(Message::GoLive);
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            app.modal_ticket,
+            old_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
+        let old_ticket = app.modal_ticket;
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::ModalDismissed);
+        let _ = app.update(Message::SectionShortcutChecked(
+            'V',
+            old_ticket,
+            app.live_generation,
+            false,
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 0);
     }
 
     #[test]
@@ -1646,11 +2413,7 @@ mod tests {
         let mut app = dirty_app();
         let control = window::Id::unique();
         app.control = Some(control);
-        app.modal = Some(Modal::Theme(Box::new(ThemeDialog::new(
-            &app.styles,
-            true,
-            None,
-        ))));
+        let _ = app.update(Message::ThemeRequested);
 
         let _ = app.update(Message::WindowCloseRequested(control));
 
@@ -1775,13 +2538,17 @@ mod tests {
         let old_ticket = app.modal_ticket;
         let _ = app.update(Message::Theme(crate::theme_dialog::Message::Cancel));
         let _ = app.update(Message::ThemeRequested);
-        let mut styles = app.styles.clone();
-        styles.song.max_lines = 7;
+        let mut settings = app.settings.clone();
+        settings.styles.song.max_lines = 7;
 
-        let _ = app.update(Message::StylesSaved(old_ticket, Ok((styles, true))));
+        let _ = app.update(Message::SettingsSaved(
+            old_ticket,
+            true,
+            Ok(Box::new(settings)),
+        ));
 
         assert!(matches!(app.modal, Some(Modal::Theme(_))));
-        assert_eq!(app.styles.song.max_lines, 7);
+        assert_eq!(app.settings.styles.song.max_lines, 7);
     }
 
     #[test]
@@ -1907,6 +2674,9 @@ mod tests {
     fn screen(id: u32, name: &str) -> Display {
         Display {
             id,
+            backend_name: name.into(),
+            physical_width: 1920,
+            physical_height: 1080,
             name: name.into(),
             title: name.into(),
             resolution: "1920×1080".into(),
@@ -1924,6 +2694,7 @@ mod tests {
             screen(1, "HDMI-1"),
             screen(2, "eDP-1"),
         ])));
+        app.settings.output.monitor = Some(screen(1, "HDMI-1").preference());
         app.output = Some(window::Id::unique());
         app.output_display = Some(1);
         app
@@ -1935,7 +2706,7 @@ mod tests {
             app.schedule.push(
                 ScheduleItem::Song(Song::new(title, "one\n\ntwo", None)),
                 None,
-                &app.styles,
+                &app.settings.styles,
             );
         }
         app.schedule.select(0);
@@ -2017,6 +2788,384 @@ mod tests {
     }
 
     #[test]
+    fn missing_or_ambiguous_remembered_monitor_prevents_startup_output() {
+        for displays in [
+            vec![screen(1, "Operator")],
+            vec![screen(1, "Projector"), screen(2, "Projector")],
+        ] {
+            let mut app = App::default();
+            let mut settings = sdw_core::Settings::default();
+            settings.general.open_output_on_startup = true;
+            settings.output.monitor = Some(screen(9, "Projector").preference());
+            let _ = app.update(Message::LibraryOpened(Ok(Box::new(settings))));
+            let _ = app.update(Message::DisplaysLoaded(Ok(displays)));
+            let _ = app.update(Message::ControlOpened);
+            assert_eq!(app.selected, None);
+            assert!(app.output.is_none());
+
+            let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(3, "Projector")])));
+            assert_eq!(app.selected, Some(3));
+            assert!(app.output.is_none());
+        }
+    }
+
+    #[test]
+    fn settings_cancel_discards_draft_and_waits_while_saving() {
+        let mut app = App::default();
+        let settings = app.settings.clone();
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+        let _ = app.update(Message::ModalDismissed);
+        assert!(app.modal.is_none());
+        assert_eq!(app.settings, settings);
+
+        let _ = app.update(Message::ThemeRequested);
+        let ticket = app.modal_ticket;
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::Apply));
+        let _ = app.update(Message::ModalDismissed);
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
+        assert_eq!(app.settings, settings);
+        let _ = app.update(Message::SettingsSaved(
+            ticket,
+            false,
+            Err("disk full".into()),
+        ));
+        let Some(Modal::Theme(dialog)) = &mut app.modal else {
+            panic!("settings dialog stays open after a failed save");
+        };
+        let crate::theme_dialog::Action::SaveSettings(saved, _) =
+            dialog.update(crate::theme_dialog::Message::Apply)
+        else {
+            panic!("failed save permits retry");
+        };
+        assert_eq!(saved.styles.song.max_lines, 7);
+    }
+
+    #[test]
+    fn cancelled_settings_refresh_keeps_runtime_displays_and_output() {
+        for result in [Ok(vec![screen(2, "eDP-1")]), Err("unavailable".into())] {
+            let mut app = app_on_air();
+            let displays = app.displays.clone();
+            let output = app.output;
+            let selected = app.selected;
+            let _ = app.update(Message::ThemeRequested);
+            let ticket = app.modal_ticket;
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::RefreshDisplays,
+            ));
+            let _ = app.update(Message::ModalDismissed);
+
+            let _ = app.update(Message::SettingsDisplaysLoaded(ticket, result));
+
+            assert_eq!(app.displays, displays);
+            assert_eq!(app.selected, selected);
+            assert_eq!(app.output, output);
+            assert_eq!(app.output_display, Some(1));
+            assert!(app.disconnected.is_none());
+            assert!(app.screens_error.is_none());
+            assert!(app.modal.is_none());
+        }
+    }
+
+    #[test]
+    fn stale_settings_refresh_preserves_newer_monitors_output_and_draft() {
+        for result in [
+            Ok(vec![screen(1, "HDMI-1"), screen(2, "eDP-1")]),
+            Err("unavailable".into()),
+        ] {
+            let mut app = live_with_two_songs();
+            let _ = app.update(Message::OutputStateChanged(OutputState::Black));
+            let live = app.live.as_ref().unwrap().share();
+            let theme = app.live_theme.clone();
+            let _ = app.update(Message::ThemeRequested);
+            let old_ticket = app.modal_ticket;
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::RefreshDisplays,
+            ));
+            let _ = app.update(Message::ModalDismissed);
+            let _ = app.update(Message::ThemeRequested);
+            let ticket = app.modal_ticket;
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::RefreshDisplays,
+            ));
+            let displays = vec![
+                screen(1, "HDMI-1"),
+                screen(2, "eDP-1"),
+                screen(3, "Projector"),
+            ];
+            let _ = app.update(Message::SettingsDisplaysLoaded(
+                ticket,
+                Ok(displays.clone()),
+            ));
+            let old_output = app.output.unwrap();
+            let _ = app.update(Message::DisplaySelected(3));
+            let _ = app.update(Message::WindowClosed(old_output));
+            let output = app.output;
+            let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+            let _ = app.update(Message::Theme(
+                crate::theme_dialog::Message::MonitorSelected(Some(3)),
+            ));
+
+            let _ = app.update(Message::SettingsDisplaysLoaded(old_ticket, result));
+
+            assert_eq!(app.displays, displays);
+            assert_eq!(app.selected, Some(3));
+            assert_eq!(app.output, output);
+            assert_eq!(app.output_display, Some(3));
+            assert_eq!(app.output_state, OutputState::Black);
+            assert_eq!(app.live_theme, theme);
+            assert!(std::sync::Arc::ptr_eq(
+                &live,
+                &app.live.as_ref().unwrap().share()
+            ));
+            assert!(app.disconnected.is_none());
+            assert!(app.screens_error.is_none());
+            let Some(Modal::Theme(dialog)) = &mut app.modal else {
+                panic!("stale refresh keeps the newer settings dialog open");
+            };
+            let crate::theme_dialog::Action::SaveSettings(saved, _) =
+                dialog.update(crate::theme_dialog::Message::Apply)
+            else {
+                panic!("newer settings draft remains editable");
+            };
+            assert_eq!(saved.styles.song.max_lines, 7);
+            assert_eq!(
+                saved.output.monitor,
+                Some(screen(3, "Projector").preference())
+            );
+        }
+    }
+
+    #[test]
+    fn stale_settings_refresh_and_save_keep_a_newer_draft() {
+        let mut app = App::default();
+        let _ = app.update(Message::ThemeRequested);
+        let old_ticket = app.modal_ticket;
+        let _ = app.update(Message::Theme(
+            crate::theme_dialog::Message::RefreshDisplays,
+        ));
+        let _ = app.update(Message::ModalDismissed);
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::Theme(crate::theme_dialog::Message::MaxLines(7)));
+        let _ = app.update(Message::SettingsDisplaysLoaded(
+            old_ticket,
+            Err("unavailable".into()),
+        ));
+        let _ = app.update(Message::SettingsSaved(
+            old_ticket,
+            true,
+            Ok(Box::new(app.settings.clone())),
+        ));
+        let Some(Modal::Theme(dialog)) = &mut app.modal else {
+            panic!("stale callbacks keep the newer dialog open");
+        };
+        let crate::theme_dialog::Action::SaveSettings(saved, _) =
+            dialog.update(crate::theme_dialog::Message::Apply)
+        else {
+            panic!("newer settings draft remains editable");
+        };
+        assert_eq!(saved.styles.song.max_lines, 7);
+    }
+
+    #[test]
+    fn settings_monitor_moves_wait_for_close_and_keep_live_state() {
+        let mut app = live_with_two_songs();
+        let old_output = app.output.unwrap();
+        let live = app.live.as_ref().unwrap().share();
+        let theme = app.live_theme.clone();
+        let _ = app.update(Message::OutputStateChanged(OutputState::Black));
+        let mut settings = app.settings.clone();
+        settings.output.monitor = Some(screen(2, "eDP-1").preference());
+        let _ = app.update(Message::SettingsSaved(0, false, Ok(Box::new(settings))));
+        assert_eq!(app.output, Some(old_output));
+        assert_eq!(app.output_display, Some(1));
+        let _ = app.update(Message::WindowClosed(old_output));
+        assert_eq!(app.output_display, Some(2));
+        assert_eq!(app.output_state, OutputState::Black);
+        assert_eq!(app.live_theme, theme);
+        assert!(std::sync::Arc::ptr_eq(
+            &live,
+            &app.live.as_ref().unwrap().share()
+        ));
+    }
+
+    #[test]
+    fn a_missing_move_target_cancels_reopening_output() {
+        let mut app = live_with_two_songs();
+        let old_output = app.output.unwrap();
+        let _ = app.update(Message::DisplaySelected(2));
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(1, "HDMI-1")])));
+        let _ = app.update(Message::WindowClosed(old_output));
+        assert!(app.output.is_none());
+        assert_eq!(app.selected, None);
+        assert!(!app.reopen_output);
+    }
+
+    #[test]
+    fn rapid_monitor_changes_and_explicit_close_do_not_open_two_outputs() {
+        let mut app = app_on_air();
+        let old_output = app.output.unwrap();
+        let _ = app.update(Message::DisplaySelected(2));
+        let _ = app.update(Message::DisplaySelected(1));
+        assert_eq!(app.output, Some(old_output));
+        let _ = app.update(Message::WindowClosed(old_output));
+        assert_eq!(app.output_display, Some(1));
+        let output = app.output.unwrap();
+        let _ = app.update(Message::DisplaySelected(2));
+        let _ = app.update(Message::OutputDismissed);
+        let _ = app.update(Message::WindowClosed(output));
+        assert!(app.output.is_none());
+    }
+
+    #[test]
+    fn unchanged_session_keeps_an_explicit_identical_monitor_selection() {
+        let mut app = App::default();
+        let displays = vec![screen(1, "Projector"), screen(2, "Projector")];
+        let _ = app.update(Message::DisplaysLoaded(Ok(displays.clone())));
+        let _ = app.update(Message::DisplaySelected(2));
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(displays)));
+
+        assert_eq!(app.selected, Some(2));
+        assert!(app.disconnected.is_none());
+    }
+
+    #[test]
+    fn a_reused_display_id_cannot_move_live_to_another_monitor() {
+        let mut app = app_on_air();
+        let output = app.output.unwrap();
+
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![
+            screen(1, "Replacement"),
+            screen(2, "eDP-1"),
+        ])));
+        assert_eq!(app.disconnected.as_deref(), Some("HDMI-1"));
+        let _ = app.update(Message::WindowClosed(output));
+
+        assert_eq!(app.selected, None);
+        assert!(app.output.is_none());
+    }
+
+    #[test]
+    fn advance_after_go_live_copies_the_current_preview_first() {
+        let mut app = live_with_two_songs();
+        app.settings.general.advance_after_go_live = true;
+        let _ = app.update(Message::PreviewSlideSelected(1));
+        let _ = app.update(Message::GoLive);
+
+        assert_eq!(&*app.live.as_ref().unwrap().deck().title, "First");
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+        assert!(app.is_live(&app.schedule.entries()[0]));
+        assert_eq!(app.schedule.selected(), Some(1));
+        let _ = app.update(Message::GoLive);
+        assert_eq!(&*app.live.as_ref().unwrap().deck().title, "Second");
+        assert_eq!(app.schedule.selected(), Some(1));
+    }
+
+    #[test]
+    fn moving_output_preserves_live_and_black_or_clear() {
+        for state in [OutputState::Black, OutputState::Clear] {
+            let mut app = live_with_two_songs();
+            let live = app.live.as_ref().unwrap().share();
+            let theme = app.live_theme.clone();
+            let old_output = app.output.unwrap();
+            let _ = app.update(Message::OutputStateChanged(state));
+
+            let _ = app.update(Message::DisplaySelected(2));
+            assert_eq!(app.output, Some(old_output));
+            assert_eq!(app.output_display, Some(1));
+            assert_eq!(
+                app.settings.output.monitor,
+                Some(screen(2, "eDP-1").preference())
+            );
+            let _ = app.update(Message::WindowClosed(old_output));
+
+            assert_ne!(app.output, Some(old_output));
+            assert_eq!(app.output_display, Some(2));
+            assert_eq!(app.output_state, state);
+            assert_eq!(app.live_theme, theme);
+            assert!(std::sync::Arc::ptr_eq(
+                &live,
+                &app.live.as_ref().unwrap().share()
+            ));
+        }
+    }
+
+    #[test]
+    fn settings_apply_recompiles_preview_and_keeps_live_snapshot() {
+        let mut app = live_with_two_songs();
+        app.schedule
+            .mark_saved(PathBuf::from("service.sdw"), app.schedule.revision());
+        let _ = app.update(Message::LiveSlideSelected(1));
+        let live = app.live.as_ref().unwrap().share();
+        let live_theme = app.live_theme.clone();
+        let source = app.schedule.items();
+        let _ = app.update(Message::ThemeRequested);
+        let ticket = app.modal_ticket;
+        let mut settings = app.settings.clone();
+        settings.styles.song.license = "CCLI 123".into();
+        settings.output.layout.format = sdw_core::settings::CanvasFormat::Standard;
+        let settings = settings.clamped();
+
+        let _ = app.update(Message::SettingsSaved(
+            ticket,
+            false,
+            Ok(Box::new(settings)),
+        ));
+
+        assert!(matches!(app.modal, Some(Modal::Theme(_))));
+        assert_eq!(
+            app.schedule.preview().unwrap().current().footer.as_deref(),
+            Some("CCLI 123")
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &live,
+            &app.live.as_ref().unwrap().share()
+        ));
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+        assert_eq!(app.live_theme, live_theme);
+        assert_eq!(app.schedule.items(), source);
+        assert!(!app.schedule.is_dirty());
+
+        let _ = app.update(Message::ModalDismissed);
+        assert!(app.modal.is_none());
+        assert_eq!(&*app.settings.styles.song.license, "CCLI 123");
+    }
+
+    #[test]
+    fn startup_uses_remembered_monitor_after_both_load_orders() {
+        for preferences_first in [false, true] {
+            let mut app = App::default();
+            let remembered = screen(7, "Projector");
+            let mut settings = sdw_core::Settings::default();
+            settings.output.monitor = Some(remembered.preference());
+            settings.general.open_output_on_startup = true;
+            let preferences = Message::LibraryOpened(Ok(Box::new(settings)));
+            let displays = Message::DisplaysLoaded(Ok(vec![screen(2, "Operator"), remembered]));
+            let (first, second) = if preferences_first {
+                (preferences, displays)
+            } else {
+                (displays, preferences)
+            };
+
+            let _ = app.update(first);
+            let _ = app.update(second);
+            assert_eq!(app.selected, Some(7));
+            assert!(app.output.is_none());
+
+            let _ = app.update(Message::ControlOpened);
+            assert_eq!(app.output_display, Some(7));
+            assert!(app.live.is_none());
+            let output = app.output.unwrap();
+            let _ = app.update(Message::OutputDismissed);
+            let _ = app.update(Message::WindowClosed(output));
+            let _ = app.update(Message::ControlOpened);
+            assert!(app.output.is_none());
+        }
+    }
+
+    #[test]
     fn saved_song_shows_a_toast_that_adds_it() {
         let (id, song) = library_song();
         let mut app = App::default();
@@ -2078,7 +3227,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("B", "two", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
 
         let _ = app.update(Message::DragStarted(1));
@@ -2096,7 +3245,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("B", "two", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
         app.hovered_row = Some(1);
         let _ = app.update(Message::DragStarted(0));
@@ -2117,7 +3266,7 @@ mod tests {
     #[test]
     fn live_item_stays_live_after_a_recompile() {
         let mut app = live_with_two_songs();
-        let styles = app.styles.clone();
+        let styles = app.settings.styles.clone();
 
         app.schedule.recompile(&styles);
 
@@ -2131,7 +3280,7 @@ mod tests {
         app.schedule.push(
             ScheduleItem::Song(Song::new("B", "two", None)),
             None,
-            &app.styles,
+            &app.settings.styles,
         );
 
         let _ = app.update(Message::DragStarted(0));
@@ -2139,5 +3288,42 @@ mod tests {
 
         assert_eq!(&*app.schedule.entries()[0].deck().title, "A");
         assert_eq!(app.schedule.selected(), Some(0));
+    }
+}
+
+#[cfg(test)]
+mod allocation_probe {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static TRACK: Cell<bool> = const { Cell::new(false) };
+        static COPIES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    struct Probe;
+
+    unsafe impl GlobalAlloc for Probe {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if layout.size() == 61 && TRACK.try_with(Cell::get).unwrap_or(false) {
+                let _ = COPIES.try_with(|count| count.set(count.get() + 1));
+            }
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(pointer, layout) }
+        }
+    }
+
+    #[global_allocator]
+    static ALLOCATOR: Probe = Probe;
+
+    pub(super) fn measure(f: impl FnOnce()) -> usize {
+        COPIES.set(0);
+        TRACK.set(true);
+        f();
+        TRACK.set(false);
+        COPIES.get()
     }
 }

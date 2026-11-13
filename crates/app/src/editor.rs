@@ -7,7 +7,7 @@ use iced::widget::text_editor::{Action as EditorAction, Edit, Motion};
 use iced::widget::{Column, Row, button, column, container, row, text_editor, text_input};
 use iced::{Center, Element, Fill, Padding, Pixels, Theme};
 use sdw_core::slide::SlideDeck;
-use sdw_core::theme::SlideTheme;
+use sdw_core::theme::{SlideTheme, SongStyle};
 use sdw_core::{Song, compile};
 use sdw_library::SongId;
 
@@ -17,6 +17,7 @@ use crate::panes::{Card, slide_card};
 use crate::render::slide::{self, Visibility};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
+use sdw_core::labels::LabelSettings;
 
 pub const TITLE_INPUT: &str = "editor-title";
 
@@ -24,7 +25,6 @@ const SHEET_WIDTH: f32 = 1120.0;
 const SHEET_HEIGHT: f32 = 800.0;
 const SLIDES_WIDTH: f32 = 440.0;
 const SLIDES_PADDING: f32 = 24.0;
-const STAGE_HEIGHT: f32 = 220.0;
 const COLUMNS: usize = 3;
 const GAP: f32 = 8.0;
 
@@ -53,7 +53,7 @@ pub struct Editor {
     title: String,
     copyright: String,
     lyrics: text_editor::Content,
-    max_lines: usize,
+    style: SongStyle,
     deck: SlideDeck,
     selected: usize,
     confirm_delete: bool,
@@ -90,17 +90,15 @@ pub enum Action {
 }
 
 impl Editor {
-    pub fn new(origin: Option<SongId>, song: &Song, max_lines: u16) -> Self {
-        let max_lines = usize::from(max_lines);
-
+    pub fn with_style(origin: Option<SongId>, song: &Song, style: &SongStyle) -> Self {
         let mut editor = Self {
             origin,
             original: song.clone(),
             title: song.title().to_owned(),
             copyright: song.copyright().unwrap_or_default().to_owned(),
             lyrics: text_editor::Content::with_text(song.lyrics()),
-            max_lines,
-            deck: compile::song(song, max_lines),
+            style: style.clone(),
+            deck: compile::song_with_style(song, style),
             selected: 0,
             confirm_delete: false,
             busy: false,
@@ -109,7 +107,7 @@ impl Editor {
             summary: Box::default(),
             ready: Box::default(),
             lines_hint: count(
-                max_lines,
+                usize::from(style.max_lines),
                 t().editor.hint_lines_one,
                 t().editor.hint_lines_other,
             ),
@@ -196,7 +194,11 @@ impl Editor {
         self.confirm_delete = false;
     }
 
-    pub fn view<'a>(&'a self, theme: &'a SlideTheme) -> Element<'a, Message> {
+    pub fn view<'a>(
+        &'a self,
+        theme: &'a SlideTheme,
+        labels: &'a LabelSettings,
+    ) -> Element<'a, Message> {
         let (title, subtitle) = if self.origin.is_some() {
             (t().editor.edit_title, t().editor.edit_subtitle)
         } else {
@@ -206,7 +208,12 @@ impl Editor {
         ui::sheet(
             column![
                 ui::sheet_header(title, subtitle, Message::Cancel),
-                row![self.form(), ui::line(style::BORDER), self.slides(theme)].height(Fill),
+                row![
+                    self.form(),
+                    ui::line(style::BORDER),
+                    self.slides(theme, labels)
+                ]
+                .height(Fill),
                 ui::sheet_footer(self.footer()),
             ],
             SHEET_WIDTH,
@@ -300,7 +307,12 @@ impl Editor {
         .into()
     }
 
-    fn slides<'a>(&'a self, theme: &'a SlideTheme) -> Element<'a, Message> {
+    fn slides<'a>(
+        &'a self,
+        theme: &'a SlideTheme,
+        labels: &'a LabelSettings,
+    ) -> Element<'a, Message> {
+        let stage_height = ((SLIDES_WIDTH - SLIDES_PADDING * 2.0) / theme.layout.ratio()).round();
         let header = row![
             label(t().editor.slides, 13.0, style::SEMIBOLD, style::TEXT).width(Fill),
             label(&self.summary, 12.0, style::INTER, style::TEXT_3),
@@ -319,7 +331,7 @@ impl Editor {
             )
             .padding(20)
             .center_x(Fill)
-            .center_y(STAGE_HEIGHT)
+            .center_y(stage_height)
             .style(style::boxed(None, style::BORDER_STRONG, 8.0))
             .into()
         } else {
@@ -341,6 +353,7 @@ impl Editor {
                             cells.push(slide_card(
                                 Card {
                                     slide: item,
+                                    label_rule: crate::panes::label_rule(&self.deck, index, labels),
                                     theme,
                                     number: ui::number(index + 1),
                                     width,
@@ -362,7 +375,7 @@ impl Editor {
                     Visibility::FULL,
                 ))
                 .width(Fill)
-                .height(STAGE_HEIGHT)
+                .height(stage_height)
                 .padding(1)
                 .style(style::boxed(
                     Some(style::SLIDE_BG),
@@ -515,7 +528,7 @@ impl Editor {
     }
 
     fn recompile(&mut self) {
-        self.deck = compile::song(&self.song(), self.max_lines);
+        self.deck = compile::song_with_style(&self.song(), &self.style);
         self.selected = self.selected.min(self.deck.len().saturating_sub(1));
         self.describe();
     }
@@ -662,7 +675,11 @@ mod tests {
     use super::{Action, Editor, Message};
 
     fn editor(lyrics: &str) -> Editor {
-        Editor::new(None, &Song::new("Test", lyrics, None), 4)
+        Editor::with_style(
+            None,
+            &Song::new("Test", lyrics, None),
+            &sdw_core::Styles::default().song,
+        )
     }
 
     fn paste(editor: &mut Editor, text: &str) {
@@ -695,6 +712,37 @@ mod tests {
         let _ = editor.update(Message::CopyrightChanged("© Test".into()));
 
         assert_eq!(editor.deck.slides[0].footer.as_deref(), Some("© Test"));
+    }
+
+    #[test]
+    fn editing_keeps_song_footer_preferences_in_preview_and_source() {
+        let mut style = sdw_core::Styles::default().song;
+        style.show_copyright = false;
+        style.license = "CCLI 123".into();
+        let mut editor = Editor::with_style(
+            None,
+            &Song::new("Test", "[Verse 1]\none", Some("© Example")),
+            &style,
+        );
+
+        let _ = editor.update(Message::CopyrightChanged("© Updated".into()));
+        let _ = editor.update(Message::LyricsEdited(EditorAction::Move(
+            iced::widget::text_editor::Motion::DocumentEnd,
+        )));
+        paste(&mut editor, "\n\ntwo");
+
+        assert!(
+            editor
+                .deck
+                .slides
+                .iter()
+                .all(|slide| slide.footer.is_none())
+        );
+        assert_eq!(editor.deck.slides[0].label.as_deref(), Some("Verse 1"));
+        let Action::Save { song, .. } = editor.update(Message::Save) else {
+            panic!("expected a save action");
+        };
+        assert_eq!(song.copyright(), Some("© Updated"));
     }
 
     #[test]
@@ -765,7 +813,7 @@ mod tests {
         let mut library = sdw_library::Library::open_in_memory().unwrap();
         let song = Song::new("Test", "one", None);
         let id = library.insert_song(&song).unwrap();
-        let mut editor = Editor::new(Some(id), &song, 4);
+        let mut editor = Editor::with_style(Some(id), &song, &sdw_core::Styles::default().song);
 
         assert_eq!(editor.update(Message::DeleteConfirmed), Action::None);
         let _ = editor.update(Message::Delete);
@@ -806,7 +854,7 @@ mod tests {
         let mut library = sdw_library::Library::open_in_memory().unwrap();
         let song = Song::new("Test", "one", None);
         let id = library.insert_song(&song).unwrap();
-        let mut editor = Editor::new(Some(id), &song, 4);
+        let mut editor = Editor::with_style(Some(id), &song, &sdw_core::Styles::default().song);
         let _ = editor.update(Message::Delete);
 
         assert_eq!(editor.update(Message::Dismiss), Action::None);

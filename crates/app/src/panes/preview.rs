@@ -61,7 +61,7 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
     .spacing(8)
     .align_y(Center);
 
-    let theme = app.styles.theme(preview.deck().kind);
+    let theme = app.settings.styles.theme(preview.deck().kind);
     let live_index = app
         .live
         .as_ref()
@@ -88,6 +88,11 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
                         cells.push(slide_card(
                             Card {
                                 slide: item,
+                                label_rule: crate::panes::label_rule(
+                                    preview.deck(),
+                                    index,
+                                    &app.settings.labels,
+                                ),
                                 theme,
                                 number: ui::number(index + 1),
                                 width,

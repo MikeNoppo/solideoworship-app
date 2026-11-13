@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use crate::slide::{Slide, SlideDeck};
+use crate::labels::LabelRule;
+use crate::slide::{ContentKind, Slide, SlideDeck};
 
 // A cursor over one deck. The deck is shared through an Arc so pushing Preview to Live
 // never copies slide contents.
@@ -56,6 +57,27 @@ impl Presentation {
         true
     }
 
+    pub fn next_section(&self, rule: &LabelRule) -> Option<usize> {
+        if self.deck.kind != ContentKind::Song {
+            return None;
+        }
+        let matching = || {
+            self.deck
+                .sections
+                .iter()
+                .filter(|section| rule.matches(&section.name))
+        };
+        matching()
+            .find(|section| section.start > self.index)
+            .or_else(|| matching().next())
+            .map(|section| section.start)
+    }
+
+    pub fn cycle_section(&mut self, rule: &LabelRule) -> bool {
+        self.next_section(rule)
+            .is_some_and(|index| self.go_to(index))
+    }
+
     pub fn advance(&mut self) -> bool {
         self.go_to(self.index + 1)
     }
@@ -100,6 +122,7 @@ mod tests {
         Arc::new(SlideDeck {
             title: "Test".into(),
             kind: ContentKind::Song,
+            sections: Vec::new(),
             slides: (0..count)
                 .map(|index| Slide {
                     body: index.to_string().into_boxed_str(),
