@@ -2,6 +2,7 @@
 pub struct Slide {
     pub body: Box<str>,
     pub label: Option<Box<str>>,
+    pub header: Option<Box<str>>,
     pub footer: Option<Box<str>>,
 }
 

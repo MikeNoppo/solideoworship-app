@@ -1263,10 +1263,11 @@ impl App {
     fn live_frame(&self) -> Frame<'_> {
         self.playback.as_ref().map_or_else(
             || {
-                Frame::new(
+                Frame::with_logo_background(
                     self.live.as_ref().map(Presentation::current),
                     self.scene_theme(),
                     self.output_state,
+                    self.settings.output.logo_background,
                 )
             },
             Playback::frame,
@@ -1282,10 +1283,11 @@ impl App {
     }
 
     fn scene(&self) -> Scene {
-        Scene::new(
+        Scene::with_logo_background(
             self.live.clone(),
             self.scene_theme().clone(),
             self.output_state,
+            self.settings.output.logo_background,
         )
     }
 
@@ -1324,6 +1326,7 @@ impl App {
             OutputState::Show => self.settings.transitions.slides,
             OutputState::Black => self.settings.transitions.black,
             OutputState::Clear => self.settings.transitions.clear,
+            OutputState::Logo => self.settings.transitions.logo,
         };
         self.output_state = state;
         self.transition_live(spec);
@@ -1731,6 +1734,7 @@ fn shortcut(key: keyboard::Key) -> Option<Message> {
         keyboard::Key::Named(Named::Enter) => Some(Message::GoLive),
         keyboard::Key::Character("b") => Some(Message::OutputStateToggled(OutputState::Black)),
         keyboard::Key::Character("c") => Some(Message::OutputStateToggled(OutputState::Clear)),
+        keyboard::Key::Character("l") => Some(Message::OutputStateToggled(OutputState::Logo)),
         keyboard::Key::Named(Named::F5) => Some(Message::OutputRequested),
         keyboard::Key::Named(Named::Escape) => Some(Message::OutputDismissed),
         keyboard::Key::Named(Named::Delete | Named::Backspace) => Some(Message::SelectedRemoved),
@@ -2061,6 +2065,43 @@ mod tests {
         assert!(!app.has_animation());
         assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "chorus");
         assert_eq!(app.live_frame().body_opacity, 1.0);
+    }
+
+    #[test]
+    fn logo_mode_works_when_ready_and_live_with_shortcut_l() {
+        let mut app = App::default();
+        let output = window::Id::unique();
+        app.output = Some(output);
+        app.settings.output.logo_background = sdw_core::theme::Rgb::from_rgb8(18, 24, 30);
+
+        let Some(toggle_logo) = super::shortcut(iced::keyboard::Key::Character("l".into())) else {
+            panic!("expected L shortcut");
+        };
+        let _ = app.update(toggle_logo.clone());
+        assert_eq!(app.output_state, OutputState::Logo);
+        assert_eq!(app.live_frame().logo_opacity, 1.0);
+        assert_eq!(app.live_frame().body_opacity, 0.0);
+        assert_eq!(
+            app.live_frame().background,
+            app.settings.output.logo_background
+        );
+        assert!(app.captions.mode_hint.contains(t().slides.logo_ready_hint));
+
+        let _ = app.update(toggle_logo.clone());
+        assert_eq!(app.output_state, OutputState::Show);
+        assert_eq!(app.live_frame().logo_opacity, 0.0);
+
+        let mut app = live_song();
+        app.output = Some(window::Id::unique());
+        app.settings.transitions.logo = sdw_core::transition::TransitionSpec {
+            mode: sdw_core::transition::TransitionMode::Fade,
+            duration_ms: 400,
+        };
+        let _ = app.update(toggle_logo);
+        assert_eq!(app.output_state, OutputState::Logo);
+        assert!(app.has_animation());
+        assert!(app.captions.mode_hint.contains("1"));
+        assert!(!app.captions.mode_hint.contains(t().slides.logo_ready_hint));
     }
 
     #[test]

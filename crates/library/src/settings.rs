@@ -119,6 +119,7 @@ impl From<&Settings> for SettingsDto {
             output: OutputDto {
                 monitor: settings.output.monitor.as_ref().map(MonitorDto::from),
                 layout: LayoutDto::from(settings.output.layout),
+                logo_background: Some(settings.output.logo_background.to_hex()),
             },
             labels: Some(LabelsDto::from(&settings.labels)),
             transitions: Some(TransitionsDto::from(settings.transitions)),
@@ -147,6 +148,12 @@ impl SettingsDto {
             output: OutputSettings {
                 monitor: self.output.monitor.and_then(MonitorDto::into_monitor),
                 layout: self.output.layout.into_layout(defaults.output.layout),
+                logo_background: self
+                    .output
+                    .logo_background
+                    .as_deref()
+                    .and_then(Rgb::from_hex)
+                    .unwrap_or(defaults.output.logo_background),
             },
             labels: self
                 .labels
@@ -228,6 +235,8 @@ struct TransitionsDto {
     black: Option<TransitionDto>,
     #[serde(deserialize_with = "optional_preference")]
     clear: Option<TransitionDto>,
+    #[serde(deserialize_with = "optional_preference")]
+    logo: Option<TransitionDto>,
 }
 
 impl From<TransitionSettings> for TransitionsDto {
@@ -236,6 +245,7 @@ impl From<TransitionSettings> for TransitionsDto {
             slides: Some(settings.slides.into()),
             black: Some(settings.black.into()),
             clear: Some(settings.clear.into()),
+            logo: Some(settings.logo.into()),
         }
     }
 }
@@ -253,6 +263,10 @@ impl TransitionsDto {
                 .unwrap_or_default(),
             clear: self
                 .clear
+                .and_then(TransitionDto::into_spec)
+                .unwrap_or_default(),
+            logo: self
+                .logo
                 .and_then(TransitionDto::into_spec)
                 .unwrap_or_default(),
         }
@@ -306,6 +320,7 @@ struct GeneralDto {
 struct OutputDto {
     monitor: Option<MonitorDto>,
     layout: LayoutDto,
+    logo_background: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -446,6 +461,7 @@ struct SongStyleDto {
     theme: ThemeDto,
     max_lines: Option<u16>,
     show_copyright: Option<bool>,
+    copyright_first_slide_only: Option<bool>,
     license: Option<Box<str>>,
 }
 
@@ -457,6 +473,8 @@ struct ScriptureStyleDto {
     show_verse_numbers: Option<bool>,
     show_reference: Option<bool>,
     show_translation: Option<bool>,
+    reference_position: Option<String>,
+    reference_format: Option<String>,
     one_verse_per_slide: Option<bool>,
 }
 
@@ -474,6 +492,8 @@ struct ThemeDto {
     body_font: FontDto,
     footer_font: FontDto,
     show_label: Option<bool>,
+    text_shadow: Option<bool>,
+    text_scrim: Option<bool>,
 }
 
 impl From<&Styles> for StylesDto {
@@ -483,6 +503,7 @@ impl From<&Styles> for StylesDto {
                 theme: ThemeDto::from(&styles.song.theme),
                 max_lines: Some(styles.song.max_lines),
                 show_copyright: Some(styles.song.show_copyright),
+                copyright_first_slide_only: Some(styles.song.copyright_first_slide_only),
                 license: Some(styles.song.license.clone()),
             },
             scripture: ScriptureStyleDto {
@@ -491,6 +512,12 @@ impl From<&Styles> for StylesDto {
                 show_verse_numbers: Some(styles.scripture.show_verse_numbers),
                 show_reference: Some(styles.scripture.show_reference),
                 show_translation: Some(styles.scripture.show_translation),
+                reference_position: Some(
+                    reference_position_name(styles.scripture.reference_position).to_owned(),
+                ),
+                reference_format: Some(
+                    reference_format_name(styles.scripture.reference_format).to_owned(),
+                ),
                 one_verse_per_slide: Some(styles.scripture.one_verse_per_slide),
             },
         }
@@ -513,6 +540,10 @@ impl StylesDto {
                     .song
                     .show_copyright
                     .unwrap_or(defaults.song.show_copyright),
+                copyright_first_slide_only: self
+                    .song
+                    .copyright_first_slide_only
+                    .unwrap_or(defaults.song.copyright_first_slide_only),
                 license: self.song.license.unwrap_or(defaults.song.license),
             },
             scripture: ScriptureStyle {
@@ -533,6 +564,18 @@ impl StylesDto {
                     .scripture
                     .show_translation
                     .unwrap_or(defaults.scripture.show_translation),
+                reference_position: self
+                    .scripture
+                    .reference_position
+                    .as_deref()
+                    .and_then(reference_position_from_name)
+                    .unwrap_or(defaults.scripture.reference_position),
+                reference_format: self
+                    .scripture
+                    .reference_format
+                    .as_deref()
+                    .and_then(reference_format_from_name)
+                    .unwrap_or(defaults.scripture.reference_format),
                 one_verse_per_slide: self
                     .scripture
                     .one_verse_per_slide
@@ -556,6 +599,8 @@ impl From<&SlideTheme> for ThemeDto {
             body_font: FontDto::from(&theme.body_font),
             footer_font: FontDto::from(&theme.footer_font),
             show_label: Some(theme.show_label),
+            text_shadow: Some(theme.text_shadow),
+            text_scrim: Some(theme.text_scrim),
         }
     }
 }
@@ -582,8 +627,40 @@ impl ThemeDto {
             body_font: self.body_font.into_font(&defaults.body_font),
             footer_font: self.footer_font.into_font(&defaults.footer_font),
             show_label: self.show_label.unwrap_or(defaults.show_label),
+            text_shadow: self.text_shadow.unwrap_or(defaults.text_shadow),
+            text_scrim: self.text_scrim.unwrap_or(defaults.text_scrim),
             layout: defaults.layout,
         }
+    }
+}
+
+fn reference_position_name(position: sdw_core::ReferencePosition) -> &'static str {
+    match position {
+        sdw_core::ReferencePosition::Bottom => "bottom",
+        sdw_core::ReferencePosition::Top => "top",
+    }
+}
+
+fn reference_position_from_name(name: &str) -> Option<sdw_core::ReferencePosition> {
+    match name {
+        "bottom" => Some(sdw_core::ReferencePosition::Bottom),
+        "top" => Some(sdw_core::ReferencePosition::Top),
+        _ => None,
+    }
+}
+
+fn reference_format_name(format: sdw_core::ReferenceFormat) -> &'static str {
+    match format {
+        sdw_core::ReferenceFormat::Parentheses => "parentheses",
+        sdw_core::ReferenceFormat::MiddleDot => "middle_dot",
+    }
+}
+
+fn reference_format_from_name(name: &str) -> Option<sdw_core::ReferenceFormat> {
+    match name {
+        "parentheses" => Some(sdw_core::ReferenceFormat::Parentheses),
+        "middle_dot" => Some(sdw_core::ReferenceFormat::MiddleDot),
+        _ => None,
     }
 }
 
@@ -988,5 +1065,47 @@ mod tests {
         assert_eq!(library.settings().unwrap(), saved);
         assert_eq!(library.styles().unwrap(), legacy);
         assert!(!library.shadows().unwrap());
+    }
+
+    #[test]
+    fn phase3_logo_reference_and_readability_settings_round_trip_and_fallback() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use sdw_core::{ReferenceFormat, ReferencePosition};
+
+        let mut library = Library::open_in_memory().unwrap();
+        let mut saved = sdw_core::Settings::default();
+        saved.output.logo_background = Rgb::from_rgb8(10, 30, 50);
+        saved.transitions.logo = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 850,
+        };
+        saved.styles.song.copyright_first_slide_only = true;
+        saved.styles.song.theme.text_shadow = true;
+        saved.styles.scripture.theme.text_scrim = true;
+        saved.styles.scripture.reference_position = ReferencePosition::Top;
+        saved.styles.scripture.reference_format = ReferenceFormat::MiddleDot;
+
+        library.save_settings(&saved).unwrap();
+        assert_eq!(library.settings().unwrap(), saved);
+
+        store_raw_setting(
+            &library,
+            SETTINGS_KEY,
+            r#"{"output":{"logo_background":"bad"},"styles":{"scripture":{"reference_position":"left","reference_format":"slash"}},"transitions":{"logo":{"mode":"fade","duration_ms":333}}}"#,
+        );
+        let recovered = library.settings().unwrap();
+        assert_eq!(
+            recovered.output.logo_background,
+            sdw_core::Settings::default().output.logo_background
+        );
+        assert_eq!(
+            recovered.styles.scripture.reference_position,
+            ReferencePosition::Bottom
+        );
+        assert_eq!(
+            recovered.styles.scripture.reference_format,
+            ReferenceFormat::Parentheses
+        );
+        assert_eq!(recovered.transitions.logo, TransitionSpec::default());
     }
 }

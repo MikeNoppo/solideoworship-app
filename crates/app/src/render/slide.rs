@@ -1,12 +1,19 @@
 use iced::advanced::graphics::text::Paragraph;
+use iced::advanced::layout::{self, Layout};
 use iced::advanced::text::{self as typography, Paragraph as _};
+use iced::advanced::widget::{Tree, Widget};
+use iced::advanced::{Renderer as _, renderer};
 use iced::widget::{Column, Space, center, container, responsive, stack, text};
-use iced::{Color, Element, Fill, Font, Padding, Size};
+use iced::{
+    Center, Color, Element, Fill, Font, Length, Padding, Rectangle, Renderer, Size, Theme, Vector,
+    mouse,
+};
 use sdw_core::settings::ContentArea;
 use sdw_core::slide::Slide;
 use sdw_core::theme::{CANVAS_WIDTH, Rgb, SlideTheme, TextAlign};
 
 use super::fonts;
+use crate::logo;
 
 pub fn color(rgb: Rgb) -> Color {
     Color::from_rgb(rgb.r, rgb.g, rgb.b)
@@ -66,6 +73,8 @@ pub fn stage_sampled<'a, Message: 'a>(
     slide: Option<&'a Slide>,
     theme: &'a SlideTheme,
     body_opacity: f32,
+    logo_opacity: f32,
+    logo_foreground: Rgb,
     background: Rgb,
 ) -> Element<'a, Message> {
     stage_content(
@@ -73,8 +82,21 @@ pub fn stage_sampled<'a, Message: 'a>(
         theme,
         Visibility::FULL,
         false,
-        Some((body_opacity, background)),
+        Some(SampledAppearance {
+            body_opacity,
+            logo_opacity,
+            logo_foreground,
+            background,
+        }),
     )
+}
+
+#[derive(Clone, Copy)]
+struct SampledAppearance {
+    body_opacity: f32,
+    logo_opacity: f32,
+    logo_foreground: Rgb,
+    background: Rgb,
 }
 
 fn stage_content<'a, Message>(
@@ -82,7 +104,7 @@ fn stage_content<'a, Message>(
     theme: &'a SlideTheme,
     visibility: Visibility,
     guides: bool,
-    appearance: Option<(f32, Rgb)>,
+    appearance: Option<SampledAppearance>,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -90,9 +112,7 @@ where
     responsive(move |size| {
         let width = size.width.min(size.height * theme.layout.ratio());
         let canvas = match appearance {
-            Some((opacity, background)) => {
-                canvas_sampled(slide, theme, width, 0.0, opacity, background)
-            }
+            Some(appearance) => canvas_sampled(slide, theme, width, 0.0, appearance),
             None => canvas(slide, theme, visibility, width, 0.0),
         };
 
@@ -138,16 +158,21 @@ fn canvas<'a, Message>(
 where
     Message: 'a,
 {
+    let background = if visibility.background {
+        theme.background
+    } else {
+        Rgb::new(0.0, 0.0, 0.0)
+    };
     canvas_sampled(
         slide,
         theme,
         width,
         radius,
-        if visibility.body { 1.0 } else { 0.0 },
-        if visibility.background {
-            theme.background
-        } else {
-            Rgb::new(0.0, 0.0, 0.0)
+        SampledAppearance {
+            body_opacity: if visibility.body { 1.0 } else { 0.0 },
+            logo_opacity: 0.0,
+            logo_foreground: background.contrasting_foreground(),
+            background,
         },
     )
 }
@@ -157,34 +182,87 @@ fn canvas_sampled<'a, Message: 'a>(
     theme: &'a SlideTheme,
     width: f32,
     radius: f32,
-    body_opacity: f32,
-    background: Rgb,
+    appearance: SampledAppearance,
 ) -> Element<'a, Message> {
     // Every theme size is expressed on a 1920x1080 canvas and scaled once here.
     // That is why a 160 px thumbnail and a 1920 px projector share the same layout.
     let scale = width / CANVAS_WIDTH;
     let height = width / theme.layout.ratio();
-    let background = color(background);
-
-    let area = theme.layout.content_area(theme.margin);
-    let body = slide
-        .filter(|_| body_opacity > 0.0 && area.is_some())
-        .map(|slide| {
-            runs(slide, theme).fold(
-                Column::new().spacing(theme.footer_size * scale).width(Fill),
-                |lines, run| lines.push(run.widget(scale, body_opacity)),
-            )
-        });
+    let background = color(appearance.background);
     let margins = theme.layout.margins;
-    let padding = if area.is_some() {
-        Padding {
-            top: (margins.top + theme.margin) * scale,
-            right: (margins.right + theme.margin) * scale,
-            bottom: (margins.bottom + theme.margin) * scale,
-            left: (margins.left + theme.margin) * scale,
-        }
+
+    let (body, padding) = if appearance.logo_opacity > 0.0 {
+        let safe = theme.layout.content_area(0.0);
+        let lockup: Option<Element<'_, Message>> = safe.map(|safe| {
+            let mark_height = (safe.width.min(safe.height) * 0.14).max(12.0) * scale;
+            let wordmark_size = (mark_height * 0.42).max(8.0);
+            let gap = mark_height * 0.28;
+            let primary = color_with_opacity(appearance.logo_foreground, appearance.logo_opacity);
+            let secondary =
+                color_with_opacity(appearance.logo_foreground, appearance.logo_opacity * 0.68);
+            Column::new()
+                .push(logo::mark_colored(&logo::SMALL, mark_height, primary))
+                .push(logo::wordmark_colored(wordmark_size, primary, secondary))
+                .spacing(gap)
+                .align_x(Center)
+                .into()
+        });
+        let padding = if safe.is_some() {
+            Padding {
+                top: margins.top * scale,
+                right: margins.right * scale,
+                bottom: margins.bottom * scale,
+                left: margins.left * scale,
+            }
+        } else {
+            Padding::ZERO
+        };
+        (lockup, padding)
     } else {
-        Padding::ZERO
+        let area = theme.layout.content_area(theme.margin);
+        let body = slide
+            .filter(|_| appearance.body_opacity > 0.0 && area.is_some())
+            .map(|slide| {
+                let column = runs(slide, theme).fold(
+                    Column::new().spacing(theme.footer_size * scale).width(Fill),
+                    |lines, run| {
+                        lines.push(run.widget(scale, appearance.body_opacity, theme.text_shadow))
+                    },
+                );
+                if theme.text_scrim {
+                    let scrim = Color::from_rgba(
+                        0.0,
+                        0.0,
+                        0.0,
+                        (appearance.body_opacity * 0.45).clamp(0.0, 1.0),
+                    );
+                    container(column)
+                        .width(Fill)
+                        .padding(Padding::from([16.0 * scale, 0.0]))
+                        .style(move |_theme| container::Style {
+                            background: Some(scrim.into()),
+                            border: iced::Border {
+                                radius: (14.0 * scale).into(),
+                                ..iced::Border::default()
+                            },
+                            ..container::Style::default()
+                        })
+                        .into()
+                } else {
+                    column.into()
+                }
+            });
+        let padding = if area.is_some() {
+            Padding {
+                top: (margins.top + theme.margin) * scale,
+                right: (margins.right + theme.margin) * scale,
+                bottom: (margins.bottom + theme.margin) * scale,
+                left: (margins.left + theme.margin) * scale,
+            }
+        } else {
+            Padding::ZERO
+        };
+        (body, padding)
     };
 
     container(container(body).center(Fill).padding(padding))
@@ -230,6 +308,7 @@ fn guide<'a, Message: 'a>(
         .into()
 }
 
+#[derive(Clone, Copy)]
 struct Run<'a> {
     content: &'a str,
     font: Font,
@@ -240,17 +319,30 @@ struct Run<'a> {
 }
 
 impl<'a> Run<'a> {
-    fn widget<Message: 'a>(self, scale: f32, opacity: f32) -> Element<'a, Message> {
+    fn text_widget<Message: 'a>(self, scale: f32, color: Color) -> Element<'a, Message> {
         text(self.content)
             .font(self.font)
             .size(self.size * scale)
             .line_height(self.line_height)
-            .color(color_with_opacity(self.color, opacity))
+            .color(color)
             .align_x(self.align)
             .shaping(typography::Shaping::Auto)
             .wrapping(typography::Wrapping::Word)
             .width(Fill)
             .into()
+    }
+
+    fn widget<Message: 'a>(self, scale: f32, opacity: f32, shadow: bool) -> Element<'a, Message> {
+        let foreground = self.text_widget(scale, color_with_opacity(self.color, opacity));
+        if !shadow || opacity <= 0.0 {
+            return foreground;
+        }
+        let shadow_color = Color::from_rgba(0.0, 0.0, 0.0, (opacity * 0.72).clamp(0.0, 1.0));
+        let offset = Offset {
+            content: self.text_widget(scale, shadow_color),
+            offset: Vector::new(3.0 * scale, 3.0 * scale),
+        };
+        stack![Element::new(offset), foreground].into()
     }
 
     fn bounds(self, width: f32) -> Size {
@@ -279,12 +371,13 @@ fn runs<'a>(slide: &'a Slide, theme: &SlideTheme) -> impl Iterator<Item = Run<'a
         color: theme.footer,
     };
 
+    let top = slide
+        .header
+        .as_deref()
+        .or_else(|| slide.label.as_deref().filter(|_| theme.show_label));
+
     [
-        slide
-            .label
-            .as_deref()
-            .filter(|_| theme.show_label)
-            .map(auxiliary),
+        top.map(auxiliary),
         Some(Run {
             content: &slide.body,
             font: fonts::resolve(&theme.body_font),
@@ -330,6 +423,63 @@ fn alignment(align: TextAlign) -> text::Alignment {
     }
 }
 
+struct Offset<'a, Message> {
+    content: Element<'a, Message>,
+    offset: Vector,
+}
+
+impl<Message> Widget<Message, Theme, Renderer> for Offset<'_, Message> {
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        renderer.with_translation(self.offset, |renderer| {
+            self.content.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                layout,
+                cursor,
+                viewport,
+            );
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use sdw_core::settings::CanvasFormat;
@@ -343,6 +493,7 @@ mod tests {
         let slide = Slide {
             body: "Praise the Lord\n".repeat(40).into(),
             label: None,
+            header: None,
             footer: None,
         };
         let mut theme = SlideTheme::song();
@@ -359,6 +510,7 @@ mod tests {
         let slide = Slide {
             body: "Amen".into(),
             label: Some("Chorus".into()),
+            header: None,
             footer: Some("Public domain".into()),
         };
         let mut theme = SlideTheme::song();
@@ -368,6 +520,24 @@ mod tests {
         assert!(!overflows(&slide, &theme));
         theme.show_label = true;
         assert!(overflows(&slide, &theme));
+
+        let scripture_body_only = Slide {
+            body: "Amen".into(),
+            label: Some("Yoh 3:16".into()),
+            header: None,
+            footer: None,
+        };
+        let scripture_top = Slide {
+            body: "Amen".into(),
+            label: Some("Yoh 3:16".into()),
+            header: Some("Yoh 3:16 (TB)".into()),
+            footer: None,
+        };
+        theme.show_label = false;
+        theme.layout.margins.top = 350.0;
+        theme.layout.margins.bottom = 350.0;
+        assert!(!overflows(&scripture_body_only, &theme));
+        assert!(overflows(&scripture_top, &theme));
     }
 
     #[test]
@@ -375,6 +545,7 @@ mod tests {
         let slide = Slide {
             body: ["Amen"; 10].join("\n").into(),
             label: None,
+            header: None,
             footer: None,
         };
         let mut theme = SlideTheme::song();
@@ -389,6 +560,7 @@ mod tests {
         let slide = Slide {
             body: ["Praise the Lord"; 4].join("\n").into(),
             label: None,
+            header: None,
             footer: None,
         };
         let mut theme = SlideTheme::song();

@@ -1,10 +1,11 @@
 use iced::widget::{Column, Space, button, column, container, row, stack};
-use iced::{Border, Center, Element, Fill, Padding};
+use iced::{Border, Bottom, Center, Element, Fill, Padding};
 use sdw_core::OutputState;
 
 use crate::App;
 use crate::i18n::{Label, t};
 use crate::icon;
+use crate::logo;
 use crate::message::{Message, Step};
 use crate::panes::{columns, label_chip, label_rule};
 use crate::render::transition;
@@ -64,8 +65,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .spacing(10)
     .align_y(Center);
 
-    let frame: Element<'_, Message> = match live {
-        Some(_) => container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
+    let show_stage = live.is_some()
+        || (is_open && (app.output_state == OutputState::Logo || app.has_animation()));
+
+    let frame: Element<'_, Message> = if show_stage {
+        container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
             .width(Fill)
             .height(frame_height)
             .padding(2)
@@ -82,46 +86,51 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 },
                 ..iced::widget::container::Style::default()
             })
-            .into(),
-        None => {
-            let (title, body) = if is_open {
-                (t().slides.ready_title, t().slides.ready_body)
-            } else if app.disconnected.is_some() {
-                (t().slides.closed_title, &*app.captions.disconnected_frame)
-            } else if app.displays.is_empty() {
-                (t().slides.closed_title, t().slides.no_screen_body)
-            } else {
-                (t().slides.closed_title, &*app.captions.closed_body)
-            };
-
-            container(
-                column![
-                    label(title, 13.0, style::MEDIUM, style::TEXT_3),
-                    label(body, 11.0, style::INTER, style::SLIDE_HINT),
-                ]
-                .spacing(10)
-                .align_x(Center),
-            )
-            .padding(20)
-            .center_x(Fill)
-            .center_y(frame_height)
-            .style(style::boxed(
-                Some(style::SLIDE_BG),
-                style::BORDER_STRONG,
-                8.0,
-            ))
             .into()
-        }
+    } else {
+        let (title, body) = if is_open {
+            (t().slides.ready_title, t().slides.ready_body)
+        } else if app.disconnected.is_some() {
+            (t().slides.closed_title, &*app.captions.disconnected_frame)
+        } else if app.displays.is_empty() {
+            (t().slides.closed_title, t().slides.no_screen_body)
+        } else {
+            (t().slides.closed_title, &*app.captions.closed_body)
+        };
+
+        container(
+            column![
+                label(title, 13.0, style::MEDIUM, style::TEXT_3),
+                label(body, 11.0, style::INTER, style::SLIDE_HINT),
+            ]
+            .spacing(10)
+            .align_x(Center),
+        )
+        .padding(20)
+        .center_x(Fill)
+        .center_y(frame_height)
+        .style(style::boxed(
+            Some(style::SLIDE_BG),
+            style::BORDER_STRONG,
+            8.0,
+        ))
+        .into()
     };
 
+    let compact = width < 380.0;
     let modes = [
-        (OutputState::Show, icon::EYE, None),
-        (OutputState::Black, icon::SQUARE, Some("B")),
-        (OutputState::Clear, icon::ERASER, Some("C")),
+        (OutputState::Show, None, None),
+        (OutputState::Black, Some(icon::SQUARE), Some("B")),
+        (OutputState::Clear, Some(icon::ERASER), Some("C")),
+        (OutputState::Logo, None, Some("L")),
     ]
     .into_iter()
     .fold(row![].spacing(3), |list, (state, glyph, key)| {
-        list.push(mode(app, state, glyph, key))
+        let glyph = match (state, glyph) {
+            (OutputState::Show, _) => Some(icon::EYE),
+            (_, glyph) => glyph,
+        };
+        list.push(mode(app, state, glyph, key, compact))
     });
 
     let modes = container(modes).height(40).padding(3).style(style::boxed(
@@ -199,23 +208,57 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 fn mode_notice(app: &App) -> Option<Element<'_, Message>> {
-    let (glyph, chip) = match app.output_state {
+    let (chip_icon, chip): (Element<'_, Message>, &'static str) = match app.output_state {
         OutputState::Show => return None,
-        OutputState::Black => (icon::SQUARE, t().slides.black_chip),
-        OutputState::Clear => (icon::ERASER, t().slides.clear_chip),
+        OutputState::Black => (
+            icon::view(icon::SQUARE, 12.0, style::TEXT_2).into(),
+            t().slides.black_chip,
+        ),
+        OutputState::Clear => (
+            icon::view(icon::ERASER, 12.0, style::TEXT_2).into(),
+            t().slides.clear_chip,
+        ),
+        OutputState::Logo => (
+            logo::mark_colored(&logo::SMALL, 12.0, style::TEXT_2),
+            t().slides.logo_chip,
+        ),
     };
 
     let chip = container(
-        row![
-            icon::view(glyph, 12.0, style::TEXT_2),
-            label(chip, 10.0, style::SEMIBOLD, style::TEXT_2),
-        ]
-        .spacing(6)
-        .align_y(Center),
+        row![chip_icon, label(chip, 10.0, style::SEMIBOLD, style::TEXT_2)]
+            .spacing(6)
+            .align_y(Center),
     )
     .padding([0, 8])
     .center_y(22)
     .style(style::rounded(style::INVERSE.scale_alpha(0.08), 5.0));
+
+    if app.output_state == OutputState::Logo {
+        return Some(
+            container(
+                container(
+                    row![
+                        chip,
+                        label(&app.captions.mode_hint, 10.5, style::INTER, style::TEXT_2),
+                    ]
+                    .spacing(8)
+                    .align_y(Center),
+                )
+                .padding([4, 8])
+                .style(style::boxed(
+                    Some(style::SURFACE.scale_alpha(0.92)),
+                    style::BORDER_STRONG,
+                    6.0,
+                )),
+            )
+            .padding(6)
+            .width(Fill)
+            .height(Fill)
+            .align_x(Center)
+            .align_y(Bottom)
+            .into(),
+        );
+    }
 
     Some(
         container(
@@ -235,8 +278,9 @@ fn mode_notice(app: &App) -> Option<Element<'_, Message>> {
 fn mode<'a>(
     app: &'a App,
     state: OutputState,
-    glyph: &'static str,
+    glyph: Option<&'static str>,
     key: Option<&'static str>,
+    compact: bool,
 ) -> Element<'a, Message> {
     let is_open = app.output.is_some();
     let is_active = app.output_state == state;
@@ -247,17 +291,27 @@ fn mode<'a>(
         (style::TEXT_3, style::TEXT_2, style::MEDIUM)
     };
 
+    let glyph: Element<'a, Message> = match glyph {
+        Some(glyph) => icon::view(glyph, 13.0, style::fade(glyph_color, is_open)).into(),
+        None => logo::mark_colored(&logo::SMALL, 13.0, style::fade(glyph_color, is_open)),
+    };
+
     let content = row![
-        icon::view(glyph, 14.0, style::fade(glyph_color, is_open)),
+        glyph,
         label(
             state.label(),
-            13.0,
+            if compact { 12.0 } else { 12.5 },
             font,
             style::fade(caption_color, is_open)
         ),
     ]
-    .push(key.map(|key| ui::kbd(key, 20.0, 11.0, is_open)))
-    .spacing(8)
+    .push(
+        (!compact)
+            .then_some(key)
+            .flatten()
+            .map(|key| ui::kbd(key, 18.0, 10.5, is_open)),
+    )
+    .spacing(if compact { 5 } else { 6 })
     .align_y(Center);
 
     button(container(content).center(Fill))

@@ -27,12 +27,31 @@ fn defaults_preserve_projection_and_general_behavior() {
     );
     assert_eq!(settings.styles.song.theme.footer_font, FontSpec::default());
     assert!(!settings.styles.song.theme.show_label);
+    assert!(!settings.styles.song.theme.text_shadow);
+    assert!(!settings.styles.song.theme.text_scrim);
     assert!(settings.styles.song.show_copyright);
+    assert!(!settings.styles.song.copyright_first_slide_only);
     assert!(settings.styles.song.license.is_empty());
     assert!(settings.styles.scripture.show_verse_numbers);
     assert!(settings.styles.scripture.show_reference);
     assert!(settings.styles.scripture.show_translation);
+    assert_eq!(
+        settings.styles.scripture.reference_position,
+        sdw_core::ReferencePosition::Bottom
+    );
+    assert_eq!(
+        settings.styles.scripture.reference_format,
+        sdw_core::ReferenceFormat::Parentheses
+    );
     assert!(!settings.styles.scripture.one_verse_per_slide);
+    assert_eq!(
+        settings.output.logo_background,
+        sdw_core::theme::Rgb::from_rgb8(20, 20, 22)
+    );
+    assert_eq!(
+        settings.transitions.logo,
+        sdw_core::transition::TransitionSpec::default()
+    );
 }
 
 #[test]
@@ -140,4 +159,25 @@ fn validation_rejects_unusable_monitor_descriptors() {
     monitor.backend_name = " ".into();
     assert!(settings.validate().is_err());
     assert_eq!(settings.clamped().output.monitor, None);
+}
+
+#[test]
+fn validation_rejects_out_of_range_logo_background_and_invalid_logo_transition() {
+    let mut settings = Settings::default();
+    settings.output.logo_background.r = 1.5;
+    assert!(settings.validate().is_err());
+    let clamped = settings.clone().clamped();
+    assert_eq!(clamped.output.logo_background.r, 1.0);
+    assert_eq!(clamped.validate(), Ok(()));
+
+    let mut invalid_transition = Settings::default();
+    invalid_transition.transitions.logo.duration_ms = 125;
+    assert_eq!(
+        invalid_transition.validate(),
+        Err(sdw_core::settings::SettingsError::InvalidTransitions)
+    );
+    assert_eq!(
+        invalid_transition.clamped().transitions.logo.duration_ms,
+        150
+    );
 }

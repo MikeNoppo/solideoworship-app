@@ -52,13 +52,15 @@ pub struct TransitionSettings {
     pub slides: TransitionSpec,
     pub black: TransitionSpec,
     pub clear: TransitionSpec,
+    pub logo: TransitionSpec,
 }
 
 impl TransitionSettings {
     pub fn validate(self) -> Result<(), SettingsError> {
         self.slides.validate()?;
         self.black.validate()?;
-        self.clear.validate()
+        self.clear.validate()?;
+        self.logo.validate()
     }
 
     pub fn clamped(self) -> Self {
@@ -66,6 +68,7 @@ impl TransitionSettings {
             slides: self.slides.clamped(),
             black: self.black.clamped(),
             clear: self.clear.clamped(),
+            logo: self.logo.clamped(),
         }
     }
 }

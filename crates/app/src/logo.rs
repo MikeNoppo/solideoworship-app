@@ -23,15 +23,27 @@ impl Cut {
 }
 
 pub fn mark<'a, Message: 'a>(cut: &Cut, height: f32) -> Element<'a, Message> {
+    mark_with_color(cut, height, None)
+}
+
+pub fn mark_colored<'a, Message: 'a>(cut: &Cut, height: f32, color: Color) -> Element<'a, Message> {
+    mark_with_color(cut, height, Some(color))
+}
+
+fn mark_with_color<'a, Message: 'a>(
+    cut: &Cut,
+    height: f32,
+    color: Option<Color>,
+) -> Element<'a, Message> {
     let scale = height / cut.height();
     let row = cut.row * scale;
 
     Column::with_children(cut.rows.iter().map(|width| {
-        container(Space::new())
-            .width(width * scale)
-            .height(row)
-            .style(style::logo_row(row / 2.0))
-            .into()
+        let cell = container(Space::new()).width(width * scale).height(row);
+        match color {
+            Some(color) => cell.style(style::rounded(color, row / 2.0)).into(),
+            None => cell.style(style::logo_row(row / 2.0)).into(),
+        }
     }))
     .spacing(cut.gap * scale)
     .align_x(Center)
@@ -39,15 +51,20 @@ pub fn mark<'a, Message: 'a>(cut: &Cut, height: f32) -> Element<'a, Message> {
 }
 
 pub fn wordmark<'a, Message: 'a>(size: f32) -> Element<'a, Message> {
+    wordmark_colored(size, style::TEXT, style::TEXT_2)
+}
+
+pub fn wordmark_colored<'a, Message: 'a>(
+    size: f32,
+    primary: Color,
+    secondary: Color,
+) -> Element<'a, Message> {
     row![
-        text("Solideo")
-            .size(size)
-            .font(style::BOLD)
-            .color(style::TEXT),
+        text("Solideo").size(size).font(style::BOLD).color(primary),
         text("Worship")
             .size(size)
             .font(style::INTER)
-            .color(style::TEXT_2),
+            .color(secondary),
     ]
     .into()
 }
