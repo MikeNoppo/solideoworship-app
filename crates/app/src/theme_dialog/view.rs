@@ -88,6 +88,7 @@ impl ThemeDialog {
                                 )
                             ]
                             .spacing(10)
+                            .height(Fill)
                             .align_y(Center),
                         )
                         .width(Fill)
@@ -151,8 +152,9 @@ impl ThemeDialog {
             column![
                 row![
                     label(t().common.preview, 13.0, style::SEMIBOLD, style::TEXT).width(Fill),
-                    label(&self.captions.sample, 12.0, style::INTER, style::TEXT_3).width(Fill),
+                    label(&self.captions.sample, 12.0, style::INTER, style::TEXT_3),
                 ]
+                .spacing(12)
                 .align_y(Center),
                 row![
                     action(

@@ -111,21 +111,25 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )
     };
 
+    let settings = hint(
+        icon_button(
+            icon::SETTINGS,
+            style::TEXT_2,
+            32.0,
+            Some(Message::ThemeRequested),
+        ),
+        t().settings.title,
+    );
+
     container(
         row![logo::mark(&logo::SMALL, 23.0), ui::vrule(20.0), switcher,]
             .push(unsaved)
             .push(files)
+            .push(ui::vrule(20.0))
+            .push(settings)
             .push(space::horizontal())
             .push(picker)
             .push(output)
-            .push(ui::vrule(20.0))
-            .push(action(
-                Tone::Ghost,
-                Some(icon::PALETTE),
-                t().settings.title,
-                None,
-                Some(Message::ThemeRequested),
-            ))
             .spacing(10)
             .align_y(Center),
     )
