@@ -9,6 +9,7 @@ impl ThemeDialog {
         let content = match self.category {
             Category::General => self.general_form(),
             Category::Output => self.output_form(),
+            Category::Transitions => self.transitions_form(),
             _ => unreachable!(),
         };
         container(ui::scroll(content.padding(Padding {
