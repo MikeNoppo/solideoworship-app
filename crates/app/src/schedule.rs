@@ -217,9 +217,20 @@ impl Schedule {
     }
 
     pub fn push(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
-        self.entries.push(Entry::new(item, origin, styles));
+        self.insert(self.entries.len(), item, origin, styles);
+    }
+
+    pub fn insert(
+        &mut self,
+        index: usize,
+        item: ScheduleItem,
+        origin: Option<SongId>,
+        styles: &Styles,
+    ) {
+        let index = index.min(self.entries.len());
+        self.entries.insert(index, Entry::new(item, origin, styles));
         self.revision += 1;
-        self.select(self.entries.len() - 1);
+        self.select(index);
     }
 
     pub fn duplicate(&mut self, index: usize) -> Option<usize> {
@@ -821,5 +832,27 @@ mod tests {
         assert_eq!(schedule.entries()[3].origin(), Some(origin));
         assert_ne!(schedule.entries()[3].key(), original_key);
         assert_eq!(preview_title(&schedule), Some("Shared"));
+    }
+
+    #[test]
+    fn inserting_at_an_index_places_and_selects_the_entry_there() {
+        let mut schedule = schedule(&["First", "Third"]);
+        let origin = song_ids(1)[0];
+
+        schedule.insert(1, song("Second"), Some(origin), &Styles::default());
+
+        let titles: Vec<&str> = schedule
+            .entries()
+            .iter()
+            .map(|entry| &*entry.deck().title)
+            .collect();
+        assert_eq!(titles, ["First", "Second", "Third"]);
+        assert_eq!(schedule.selected(), Some(1));
+        assert_eq!(schedule.entries()[1].origin(), Some(origin));
+        assert_eq!(preview_title(&schedule), Some("Second"));
+
+        schedule.insert(99, song("Last"), None, &Styles::default());
+        assert_eq!(&*schedule.entries()[3].deck().title, "Last");
+        assert_eq!(schedule.selected(), Some(3));
     }
 }
