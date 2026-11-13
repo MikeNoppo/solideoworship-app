@@ -2,7 +2,7 @@ use std::fmt;
 use std::io::BufRead;
 
 use rusqlite::OptionalExtension;
-use sdw_core::bible::{Passage, Reference, Verse};
+use sdw_core::bible::{Book, Passage, Reference, Verse};
 
 use crate::zefania::ZefaniaReader;
 use crate::{Error, Library};
@@ -16,6 +16,12 @@ pub struct BibleSummary {
     pub abbreviation: Box<str>,
     pub title: Box<str>,
     pub verses: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BibleBook {
+    pub book: Book,
+    pub chapters: Vec<(u16, u16)>,
 }
 
 impl fmt::Display for BibleSummary {
@@ -175,6 +181,36 @@ impl Library {
             .execute("DELETE FROM bibles WHERE id = ?1", [id.0])?;
 
         Ok(())
+    }
+
+    pub fn bible_index(&self, bible: BibleId) -> Result<Vec<BibleBook>, Error> {
+        let mut statement = self.conn.prepare_cached(
+            "SELECT book, chapter, MAX(verse) FROM verses
+             WHERE bible_id = ?1
+             GROUP BY book, chapter
+             ORDER BY book, chapter",
+        )?;
+        let mut rows = statement.query([bible.0])?;
+        let mut books: Vec<BibleBook> = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let number: u8 = row.get(0)?;
+            let chapter: u16 = row.get(1)?;
+            let max_verse: u16 = row.get(2)?;
+            let Some(book) = Book::from_number(number) else {
+                continue;
+            };
+
+            match books.last_mut() {
+                Some(last) if last.book == book => last.chapters.push((chapter, max_verse)),
+                _ => books.push(BibleBook {
+                    book,
+                    chapters: vec![(chapter, max_verse)],
+                }),
+            }
+        }
+
+        Ok(books)
     }
 }
 
@@ -503,5 +539,24 @@ mod tests {
         );
         assert_eq!(&*second.verses()[0].text, "other version");
         assert_eq!(second.translation(), "OTHER");
+    }
+
+    #[test]
+    fn bible_index_lists_books_chapters_and_max_verses() {
+        let (library, bible) = imported();
+
+        let index = library.bible_index(bible).unwrap();
+
+        assert_eq!(index.len(), 2);
+        assert_eq!(
+            index[0].book,
+            sdw_core::bible::Book::from_number(1).unwrap()
+        );
+        assert_eq!(index[0].chapters, vec![(1, 1)]);
+        assert_eq!(
+            index[1].book,
+            sdw_core::bible::Book::from_number(43).unwrap()
+        );
+        assert_eq!(index[1].chapters, vec![(3, 20)]);
     }
 }
