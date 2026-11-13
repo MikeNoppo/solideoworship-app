@@ -29,12 +29,13 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::theme::SlideTheme;
+use sdw_core::transition::TransitionSpec;
 use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
 use sdw_library::{SongId, SongSummary, schedule_file};
 
@@ -47,6 +48,7 @@ use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
 use crate::message::{LibraryTab, Menu, Message, Notice, Pending, Step, UnsavedChoice};
 use crate::recovery::Recovery;
+use crate::render::transition::{Frame, Playback, Scene};
 use crate::schedule::{Entry, Schedule};
 use crate::theme_dialog::ThemeDialog;
 use crate::work::Store;
@@ -189,6 +191,7 @@ struct App {
     live_generation: u64,
     live_theme: SlideTheme,
     live_sections: Vec<Box<str>>,
+    playback: Option<Playback>,
 
     output_state: OutputState,
     library_tab: LibraryTab,
@@ -261,6 +264,18 @@ impl App {
 
     fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::AnimationFrame(now) => {
+                if let Some(playback) = &mut self.playback {
+                    playback.advance(now);
+                    if !playback.is_active() {
+                        self.playback = None;
+                    }
+                }
+                if let Some(Modal::Theme(dialog)) = &mut self.modal {
+                    dialog.advance_animation(now);
+                }
+                Task::none()
+            }
             Message::SplashOpened => {
                 self.splash_ready = true;
                 Task::none()
@@ -377,13 +392,13 @@ impl App {
             // path and the button path obey the same conditions.
             Message::OutputStateChanged(state) => {
                 if self.output.is_some() {
-                    self.output_state = state;
+                    self.change_output_state(state);
                 }
                 Task::none()
             }
             Message::OutputStateToggled(state) => {
                 if self.output.is_some() {
-                    self.output_state = self.output_state.toggled(state);
+                    self.change_output_state(self.output_state.toggled(state));
                 }
                 Task::none()
             }
@@ -394,6 +409,7 @@ impl App {
             Message::WindowCloseRequested(id) => {
                 if self.output == Some(id) {
                     self.reopen_output = false;
+                    self.playback = None;
                 }
                 window::close(id)
             }
@@ -484,6 +500,9 @@ impl App {
                 Task::none()
             }
             Message::GoLive => {
+                if self.schedule.preview().is_some() {
+                    self.prepare_playback();
+                }
                 // The deck is shared through an Arc, so going live copies no slides.
                 if let Some(preview) = self.schedule.preview() {
                     let mut live = Presentation::new(preview.share());
@@ -518,6 +537,7 @@ impl App {
                     {
                         self.schedule.select(index + 1);
                     }
+                    self.transition_live(self.settings.transitions.slides);
                 }
                 Task::none()
             }
@@ -1007,15 +1027,7 @@ impl App {
 
     fn view(&self, window: window::Id) -> Element<'_, Message> {
         if self.output == Some(window) {
-            return render::output::view(
-                self.live.as_ref().map(Presentation::current),
-                if self.live.is_some() {
-                    &self.live_theme
-                } else {
-                    &self.settings.styles.song.theme
-                },
-                self.output_state,
-            );
+            return render::output::view(self.live_frame());
         }
 
         if self.splash == Some(window) {
@@ -1056,6 +1068,10 @@ impl App {
                 }));
             }
             Phase::Operator => subscriptions.push(event::listen_with(operator_shortcut)),
+        }
+
+        if self.has_animation() {
+            subscriptions.push(window::frames().map(Message::AnimationFrame));
         }
 
         if self.drag.is_some() {
@@ -1244,8 +1260,88 @@ impl App {
         )
     }
 
+    fn live_frame(&self) -> Frame<'_> {
+        self.playback.as_ref().map_or_else(
+            || {
+                Frame::new(
+                    self.live.as_ref().map(Presentation::current),
+                    self.scene_theme(),
+                    self.output_state,
+                )
+            },
+            Playback::frame,
+        )
+    }
+
+    fn scene_theme(&self) -> &SlideTheme {
+        if self.live.is_some() {
+            &self.live_theme
+        } else {
+            &self.settings.styles.song.theme
+        }
+    }
+
+    fn scene(&self) -> Scene {
+        Scene::new(
+            self.live.clone(),
+            self.scene_theme().clone(),
+            self.output_state,
+        )
+    }
+
+    fn prepare_playback(&mut self) {
+        if self.playback.is_none() {
+            self.playback = Some(Playback::new(self.scene()));
+        }
+    }
+
+    fn transition_live(&mut self, spec: TransitionSpec) {
+        let scene = self.scene();
+        if let Some(playback) = &mut self.playback {
+            playback.retarget(scene, spec, Instant::now());
+            if !playback.is_active() {
+                self.playback = None;
+            }
+        }
+    }
+
+    fn has_animation(&self) -> bool {
+        self.playback.as_ref().is_some_and(Playback::is_active)
+            || matches!(&self.modal, Some(Modal::Theme(dialog)) if dialog.has_animation())
+    }
+
+    fn change_output_state(&mut self, state: OutputState) {
+        if state == self.output_state {
+            return;
+        }
+        self.prepare_playback();
+        let option = if state == OutputState::Show {
+            self.output_state
+        } else {
+            state
+        };
+        let spec = match option {
+            OutputState::Show => self.settings.transitions.slides,
+            OutputState::Black => self.settings.transitions.black,
+            OutputState::Clear => self.settings.transitions.clear,
+        };
+        self.output_state = state;
+        self.transition_live(spec);
+    }
+
     fn navigate_live(&mut self, index: usize) -> bool {
-        self.live.as_mut().is_some_and(|live| live.go_to(index))
+        let Some(live) = &self.live else {
+            return false;
+        };
+        if index >= live.len() || index == live.index() {
+            return false;
+        }
+        self.prepare_playback();
+        let changed = self.live.as_mut().is_some_and(|live| live.go_to(index));
+        if changed {
+            self.transition_live(self.settings.transitions.slides);
+        }
+        changed
     }
 
     fn navigate_section(&mut self, shortcut: char) -> bool {
@@ -1502,7 +1598,9 @@ impl App {
         };
 
         let display_id = display.id;
-        let (id, opened) = window::open(windows::output(display));
+        let settings = windows::output(display);
+        self.playback = None;
+        let (id, opened) = window::open(settings);
 
         self.output = Some(id);
         self.output_display = Some(display_id);
@@ -1511,6 +1609,7 @@ impl App {
     }
 
     fn close_output(&mut self) -> Task<Message> {
+        self.playback = None;
         match self.output {
             Some(id) => window::close(id),
             None => Task::none(),
@@ -1529,6 +1628,7 @@ impl App {
         }
 
         if self.output == Some(id) {
+            self.playback = None;
             self.output = None;
             self.output_display = None;
 
@@ -1686,6 +1786,281 @@ mod tests {
         );
         let _ = app.update(Message::GoLive);
         app
+    }
+
+    #[test]
+    fn output_section_shortcuts_interrupt_a_fade_and_keep_black_or_clear() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use std::time::{Duration, Instant};
+        for state in [OutputState::Black, OutputState::Clear] {
+            let mut app = live_song();
+            let output = window::Id::unique();
+            app.output = Some(output);
+            let _ = app.update(Message::OutputStateChanged(state));
+            app.settings.transitions.slides = TransitionSpec {
+                mode: TransitionMode::Fade,
+                duration_ms: 1000,
+            };
+            let _ = app.update(Message::LiveMoved(crate::message::Step::Next));
+            let _ = app.update(Message::SectionShortcutRequested(output, 'v'));
+            assert_eq!(app.live.as_ref().unwrap().index(), 3);
+            assert_eq!(app.output_state, state);
+            assert!(app.has_animation());
+            let _ = app.update(Message::AnimationFrame(
+                Instant::now() + Duration::from_secs(2),
+            ));
+            assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "second");
+            assert_eq!(app.live_frame().body_opacity, 0.0);
+            assert!(!app.has_animation());
+        }
+    }
+
+    #[test]
+    fn opening_output_and_native_close_end_an_active_fade_immediately() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        let mut app = live_song();
+        let _ = app.update(Message::DisplaysLoaded(Ok(vec![screen(1, "HDMI-1")])));
+        let _ = app.update(Message::DisplaySelected(1));
+        app.settings.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::LiveSlideSelected(2));
+        assert!(app.has_animation());
+        let _ = app.update(Message::OutputRequested);
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "chorus");
+        let _ = app.update(Message::LiveSlideSelected(3));
+        assert!(app.has_animation());
+        let output = app.output.unwrap();
+        let _ = app.update(Message::WindowCloseRequested(output));
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "second");
+        let _ = app.update(Message::WindowClosed(output));
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+    }
+
+    #[test]
+    fn ready_output_uses_applied_background_after_a_finished_mode_change() {
+        let mut app = app_on_air();
+        let _ = app.update(Message::OutputStateChanged(OutputState::Clear));
+        let mut settings = app.settings.clone();
+        let background = sdw_core::theme::Rgb::new(0.2, 0.3, 0.4);
+        settings.styles.song.theme.background = background;
+        let _ = app.update(Message::SettingsSaved(0, false, Ok(Box::new(settings))));
+        assert_eq!(app.live_frame().background, background);
+        assert!(!app.has_animation());
+    }
+
+    #[test]
+    fn native_frames_advance_live_and_local_demo_then_unsubscribe_without_refreshing_captions() {
+        use crate::theme_dialog::{Message as ThemeMessage, TransitionTarget};
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use std::time::{Duration, Instant};
+
+        let mut app = live_song();
+        app.phase = super::Phase::Operator;
+        let idle_subscriptions = app.subscription().units();
+        app.settings.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let now = Instant::now();
+        let _ = app.update(Message::LiveMoved(crate::message::Step::Next));
+        let _ = app.update(Message::ThemeRequested);
+        let _ = app.update(Message::Theme(ThemeMessage::PreviewTransition(
+            TransitionTarget::Slides,
+        )));
+        assert_eq!(app.subscription().units(), idle_subscriptions + 1);
+        assert!(matches!(&app.modal, Some(Modal::Theme(dialog)) if dialog.has_animation()));
+        app.captions.live_position = "unchanged during animation".into();
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_millis(250)));
+        let opacity = app.live_frame().body_opacity;
+        assert!(opacity > 0.45 && opacity < 0.55);
+        let _ = app.update(Message::AnimationFrame(now));
+        assert_eq!(app.live_frame().body_opacity, opacity);
+        assert_eq!(
+            app.captions.live_position.as_ref(),
+            "unchanged during animation"
+        );
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_secs(3)));
+        assert!(!app.has_animation());
+        assert_eq!(app.subscription().units(), idle_subscriptions);
+        assert!(matches!(&app.modal, Some(Modal::Theme(dialog)) if !dialog.has_animation()));
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "continued");
+        let _ = app.update(Message::Theme(ThemeMessage::PreviewTransition(
+            TransitionTarget::Slides,
+        )));
+        assert!(app.has_animation());
+        let _ = app.update(Message::ModalDismissed);
+        assert!(!app.has_animation());
+        assert_eq!(app.live.as_ref().unwrap().index(), 1);
+    }
+
+    #[test]
+    fn applied_settings_do_not_change_active_fade_or_live_style_until_next_go_live() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        use std::time::{Duration, Instant};
+        let mut app = live_song();
+        let original_theme = app.live_theme.clone();
+        app.settings.transitions.slides = TransitionSpec {
+            mode: TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::LiveSlideSelected(2));
+        let mut settings = app.settings.clone();
+        settings.transitions.slides = TransitionSpec::default();
+        settings.styles.song.theme.body = sdw_core::theme::Rgb::new(0.0, 1.0, 0.0);
+        let _ = app.update(Message::SettingsSaved(0, false, Ok(Box::new(settings))));
+        let now = Instant::now();
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_millis(600)));
+        assert!(app.has_animation());
+        assert_eq!(app.live_frame().theme, &original_theme);
+        let _ = app.update(Message::AnimationFrame(now + Duration::from_secs(2)));
+        let _ = app.update(Message::LiveSlideSelected(0));
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().theme, &original_theme);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(
+            app.live_frame().theme.body,
+            sdw_core::theme::Rgb::new(0.0, 1.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn output_lifecycle_cuts_animation_without_changing_the_live_cursor_or_modes_on_move() {
+        for state in [OutputState::Show, OutputState::Black, OutputState::Clear] {
+            let mut app = live_with_two_songs();
+            app.settings.transitions.slides = sdw_core::transition::TransitionSpec {
+                mode: sdw_core::transition::TransitionMode::Fade,
+                duration_ms: 1000,
+            };
+            let _ = app.update(Message::OutputStateChanged(state));
+            let _ = app.update(Message::LiveSlideSelected(1));
+            assert!(app.has_animation());
+            let old_output = app.output.unwrap();
+            let _ = app.update(Message::DisplaySelected(2));
+            assert!(!app.has_animation());
+            assert_eq!(app.live.as_ref().unwrap().index(), 1);
+            assert_eq!(app.output_state, state);
+            let _ = app.update(Message::WindowClosed(old_output));
+            assert_eq!(app.output_state, state);
+            assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "two");
+            let _ = app.update(Message::LiveSlideSelected(0));
+            assert!(app.has_animation());
+            let output = app.output.unwrap();
+            let _ = app.update(Message::OutputDismissed);
+            assert!(!app.has_animation());
+            let _ = app.update(Message::WindowClosed(output));
+            assert_eq!(app.output_state, OutputState::Show);
+            assert_eq!(app.live_frame().body_opacity, 1.0);
+        }
+    }
+
+    #[test]
+    fn modes_use_destination_options_and_show_uses_the_departing_mode_option() {
+        use sdw_core::transition::{TransitionMode, TransitionSpec};
+        for (start, destination, toggled) in [
+            (OutputState::Show, OutputState::Black, false),
+            (OutputState::Show, OutputState::Clear, true),
+            (OutputState::Clear, OutputState::Black, true),
+            (OutputState::Black, OutputState::Clear, false),
+            (OutputState::Black, OutputState::Show, true),
+            (OutputState::Clear, OutputState::Show, false),
+        ] {
+            let mut app = live_song();
+            app.output = Some(window::Id::unique());
+            let _ = app.update(Message::OutputStateChanged(start));
+            app.settings.transitions.black = TransitionSpec {
+                mode: TransitionMode::Fade,
+                duration_ms: 1000,
+            };
+            app.settings.transitions.clear = TransitionSpec {
+                mode: TransitionMode::Fade,
+                duration_ms: 2000,
+            };
+            let command = if toggled {
+                Message::OutputStateToggled(if destination == OutputState::Show {
+                    start
+                } else {
+                    destination
+                })
+            } else {
+                Message::OutputStateChanged(destination)
+            };
+            let _ = app.update(command);
+            assert_eq!(app.output_state, destination);
+            assert!(app.has_animation(), "{start:?} to {destination:?}");
+            let now = std::time::Instant::now();
+            let _ = app.update(Message::AnimationFrame(
+                now + std::time::Duration::from_millis(1100),
+            ));
+            let uses_clear = destination == OutputState::Clear
+                || (destination == OutputState::Show && start == OutputState::Clear);
+            assert_eq!(app.has_animation(), uses_clear);
+            let _ = app.update(Message::AnimationFrame(
+                now + std::time::Duration::from_secs(3),
+            ));
+            assert!(!app.has_animation());
+            assert_eq!(
+                app.live_frame().body_opacity,
+                if destination == OutputState::Show {
+                    1.0
+                } else {
+                    0.0
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn go_live_retargets_the_frame_to_the_latest_preview_with_saved_slide_options() {
+        let mut app = live_song();
+        app.settings.transitions.slides = sdw_core::transition::TransitionSpec {
+            mode: sdw_core::transition::TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::PreviewSlideSelected(2));
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live.as_ref().unwrap().index(), 2);
+        assert!(app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "first");
+        let _ = app.update(Message::PreviewSlideSelected(3));
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live.as_ref().unwrap().index(), 3);
+        let _ = app.update(Message::AnimationFrame(
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        ));
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "second");
+        assert!(!app.has_animation());
+    }
+
+    #[test]
+    fn live_navigation_samples_a_shared_fade_and_ignores_duplicate_targets() {
+        let mut app = live_song();
+        app.settings.transitions.slides = sdw_core::transition::TransitionSpec {
+            mode: sdw_core::transition::TransitionMode::Fade,
+            duration_ms: 1000,
+        };
+        let _ = app.update(Message::LiveSlideSelected(2));
+        assert_eq!(app.live.as_ref().unwrap().index(), 2);
+        assert!(app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "first");
+        let now = std::time::Instant::now();
+        let _ = app.update(Message::AnimationFrame(
+            now + std::time::Duration::from_millis(250),
+        ));
+        let opacity = app.live_frame().body_opacity;
+        assert!(opacity > 0.45 && opacity < 0.55);
+        let _ = app.update(Message::LiveSlideSelected(2));
+        assert_eq!(app.live_frame().body_opacity, opacity);
+        let _ = app.update(Message::AnimationFrame(
+            now + std::time::Duration::from_secs(2),
+        ));
+        assert!(!app.has_animation());
+        assert_eq!(app.live_frame().slide.unwrap().body.as_ref(), "chorus");
+        assert_eq!(app.live_frame().body_opacity, 1.0);
     }
 
     #[test]

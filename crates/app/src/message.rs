@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
@@ -71,6 +71,7 @@ pub enum UnsavedChoice {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    AnimationFrame(Instant),
     SplashOpened,
     SplashElapsed,
     ControlOpened,
@@ -154,7 +155,8 @@ pub enum Message {
 impl Message {
     pub fn refreshes_captions(&self) -> bool {
         match self {
-            Self::WindowCloseRequested(..)
+            Self::AnimationFrame(..)
+            | Self::WindowCloseRequested(..)
             | Self::WindowResized(..)
             | Self::RowHovered(..)
             | Self::DragOver(..)
