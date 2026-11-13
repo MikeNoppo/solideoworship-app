@@ -101,6 +101,13 @@ impl ThemeDialog {
         Ok(labels)
     }
 
+    pub(super) fn update_label_preview(&mut self) {
+        if let Ok(labels) = self.validated_labels() {
+            self.draft.labels = labels.clone();
+            self.preview_settings.labels = labels;
+        }
+    }
+
     pub(super) fn labels_form(&self) -> Element<'_, Message> {
         let header = row![
             label(
@@ -140,20 +147,7 @@ impl ThemeDialog {
             |rows, (index, draft)| {
                 let sample = draft.rule().ok();
                 let chip: Element<'_, Message> = if let Some(rule) = sample {
-                    container(label(
-                        &draft.name,
-                        11.0,
-                        style::SEMIBOLD,
-                        color(rule.foreground()),
-                    ))
-                    .padding([5, 8])
-                    .clip(true)
-                    .style(style::boxed(
-                        Some(color(rule.color)),
-                        color(rule.color),
-                        4.0,
-                    ))
-                    .into()
+                    crate::panes::label_chip(&draft.name, 11.0, Some(&rule))
                 } else {
                     label(t().settings.label_invalid, 11.0, style::INTER, style::LIVE).into()
                 };

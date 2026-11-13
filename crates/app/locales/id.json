@@ -457,8 +457,8 @@
     "labels_hint": "Warna hanya tampil pada label operator. Alt/Option + huruf berpindah di antara bagian lagu yang cocok. Kosongkan tombol untuk menonaktifkannya.",
     "labels_limit": "Maksimal 32 label, 8 alias per label, dan 64 karakter per nama atau alias. Nama, alias, dan tombol tidak boleh bertentangan dengan label lain.",
     "add_label": "Tambah label",
-    "invalid_labels": "Periksa label lagu: nama dan alias harus 1–64 karakter, maksimal 8 alias, warna hex enam digit, dan tombol kosong atau satu huruf besar A–Z.",
-    "conflicting_labels": "Dua label lagu memiliki nama, alias, atau tombol yang sama. Gunakan nilai berbeda sebelum menyimpan.",
+    "invalid_labels": "Periksa nama label, alias, warna hex, dan tombol huruf besar A–Z.",
+    "conflicting_labels": "Label lagu harus memakai nama, alias, dan tombol yang berbeda.",
     "transitions": "Transisi",
     "cut": "Langsung",
     "fade": "Pudar",
@@ -468,6 +468,9 @@
     "fade_hint": "Pudar meredupkan teks sebelumnya, lalu menampilkan teks berikutnya sambil memadukan warna latar polos.",
     "duration_hint": "Durasi Pudar: 100–2000 md, kelipatan 50. Langsung tetap mengingat durasi.",
     "milliseconds": "md",
-    "invalid_transitions": "Masukkan durasi transisi dari 100 hingga 2000 md dalam kelipatan 50."
+    "invalid_transitions": "Masukkan durasi transisi dari 100 hingga 2000 md dalam kelipatan 50.",
+    "demo_hint": "Coba tombol Pratinjau untuk mengganti slide contoh atau beralih ke Hitam atau Kosong. Demo ini hanya berjalan di Pengaturan.",
+    "demo_playing": "Memutar transisi contoh…",
+    "demo_idle": "Siap untuk transisi contoh"
   }
 }

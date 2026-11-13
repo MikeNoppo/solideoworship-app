@@ -3,6 +3,9 @@ mod labels;
 mod transitions;
 mod view;
 
+use std::sync::Arc;
+use std::time::Instant;
+
 use iced::widget::{
     Column, Row, button, container, row, slider, space, stack, text_input, toggler,
 };
@@ -26,8 +29,10 @@ use crate::icon;
 use crate::panes::{Card, slide_card};
 use crate::render::fonts;
 use crate::render::slide::{self, Visibility, color};
+use crate::render::transition::{self, Playback, Scene};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
+use sdw_core::{OutputState, Presentation};
 
 const WIDTH: f32 = 1220.0;
 const SIDEBAR_WIDTH: f32 = 148.0;
@@ -207,6 +212,8 @@ pub struct ThemeDialog {
     draft: Settings,
     labels: Vec<LabelDraft>,
     durations: [String; 3],
+    demo: Option<Playback>,
+    demo_deck: Arc<SlideDeck>,
     preview_settings: Settings,
     overflow: bool,
     guides: bool,
@@ -264,6 +271,7 @@ pub enum Message {
     MaxChars(u16),
     Shadows(bool),
     SlideSelected(usize),
+    PreviewTransition(TransitionTarget),
     TransitionMode(TransitionTarget, TransitionMode),
     TransitionDuration(TransitionTarget, String),
     LabelChanged(usize, LabelField, String),
@@ -305,6 +313,8 @@ impl ThemeDialog {
             draft: settings.clone(),
             labels: Vec::new(),
             durations: Default::default(),
+            demo: None,
+            demo_deck: Arc::new(sample_song().compile(&settings.styles)),
             preview_settings: settings.clone().clamped(),
             overflow: false,
             guides: true,
@@ -339,6 +349,20 @@ impl ThemeDialog {
             return Action::None;
         }
 
+        if matches!(
+            message,
+            Message::Reset
+                | Message::Save
+                | Message::Apply
+                | Message::Cancel
+                | Message::CategorySelected(_)
+                | Message::KindSelected(_)
+                | Message::TransitionMode(_, _)
+                | Message::TransitionDuration(_, _)
+        ) {
+            self.demo = None;
+        }
+
         if !matches!(
             message,
             Message::Save
@@ -349,11 +373,16 @@ impl ThemeDialog {
                 | Message::SlideSelected(_)
                 | Message::KindSelected(_)
                 | Message::CategorySelected(_)
+                | Message::PreviewTransition(_)
         ) {
             self.applied = false;
             self.error = None;
         }
         match message {
+            Message::PreviewTransition(target) => {
+                self.preview_transition(target, Instant::now());
+                return Action::None;
+            }
             Message::TransitionMode(target, mode) => {
                 target.get_mut(&mut self.draft.transitions).mode = mode;
                 return Action::None;
@@ -369,18 +398,21 @@ impl ThemeDialog {
                 if let Some(label) = self.labels.get_mut(index) {
                     *field.get_mut(label) = value;
                 }
+                self.update_label_preview();
                 return Action::None;
             }
             Message::AddLabel => {
                 if self.labels.len() < MAX_RULES {
                     self.labels.push(LabelDraft::empty());
                 }
+                self.update_label_preview();
                 return Action::None;
             }
             Message::DeleteLabel(index) => {
                 if index < self.labels.len() {
                     self.labels.remove(index);
                 }
+                self.update_label_preview();
                 return Action::None;
             }
             Message::RefreshDisplays => {
@@ -577,6 +609,7 @@ impl ThemeDialog {
     }
 
     pub fn saved(&mut self, settings: &Settings) {
+        self.demo = None;
         self.applied = true;
         self.draft = settings.clone();
         self.busy = false;
@@ -648,6 +681,7 @@ impl ThemeDialog {
         };
 
         self.deck = sample.compile(&self.preview_settings.styles);
+        self.demo_deck = Arc::new(sample_song().compile(&self.preview_settings.styles));
         self.selected = self.selected.min(self.deck.len().saturating_sub(1));
         self.measure();
     }
@@ -736,6 +770,55 @@ mod tests {
     }
 
     #[test]
+    fn transition_demo_uses_sample_sections_for_a_single_slide_selected_song() {
+        let current = ScheduleItem::Song(Song::new("Selected", "single slide", None));
+        let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), Some(&current), &[]);
+        let _ = dialog.update(Message::TransitionMode(
+            super::TransitionTarget::Slides,
+            sdw_core::transition::TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::PreviewTransition(super::TransitionTarget::Slides));
+        assert!(dialog.has_animation());
+    }
+
+    #[test]
+    fn transition_demo_finishes_and_stops_when_saving_resetting_or_closing() {
+        use super::TransitionTarget;
+        use sdw_core::transition::TransitionMode;
+        use std::time::{Duration, Instant};
+        for stop in [
+            Message::Reset,
+            Message::Cancel,
+            Message::Apply,
+            Message::Save,
+            Message::CategorySelected(Category::Song),
+        ] {
+            let mut dialog = dialog();
+            let _ = dialog.update(Message::CategorySelected(Category::Transitions));
+            let _ = dialog.update(Message::TransitionMode(
+                TransitionTarget::Slides,
+                TransitionMode::Fade,
+            ));
+            assert_eq!(
+                dialog.update(Message::PreviewTransition(TransitionTarget::Slides)),
+                Action::None
+            );
+            assert!(dialog.has_animation());
+            let _ = dialog.update(stop);
+            assert!(!dialog.has_animation());
+        }
+        let mut dialog = dialog();
+        let _ = dialog.update(Message::TransitionMode(
+            TransitionTarget::Slides,
+            TransitionMode::Fade,
+        ));
+        let _ = dialog.update(Message::PreviewTransition(TransitionTarget::Slides));
+        assert!(dialog.advance_animation(Instant::now() + Duration::from_secs(3)));
+        assert!(!dialog.has_animation());
+        assert!(!dialog.advance_animation(Instant::now() + Duration::from_secs(4)));
+    }
+
+    #[test]
     fn transition_modes_preserve_independent_durations_and_reject_invalid_raw_text() {
         use super::TransitionTarget;
         use sdw_core::transition::TransitionMode;
@@ -769,6 +852,21 @@ mod tests {
         assert_eq!(saved.transitions.slides.duration_ms, 850);
         assert_eq!(saved.transitions.black.duration_ms, 650);
         assert_eq!(saved.transitions.clear.duration_ms, 500);
+    }
+
+    #[test]
+    fn label_table_accepts_at_most_thirty_two_rules() {
+        let mut dialog = dialog();
+        for index in 8..32 {
+            let _ = dialog.update(Message::AddLabel);
+            let name = format!("Custom{}", char::from(b'A' + (index - 8) as u8));
+            let _ = dialog.update(Message::LabelChanged(index, super::LabelField::Name, name));
+        }
+        let _ = dialog.update(Message::AddLabel);
+        let Action::SaveSettings(saved, _) = dialog.update(Message::Apply) else {
+            panic!("expected bounded label table");
+        };
+        assert_eq!(saved.labels.rules.len(), 32);
     }
 
     #[test]

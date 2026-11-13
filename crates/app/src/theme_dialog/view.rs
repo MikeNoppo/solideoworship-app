@@ -108,6 +108,9 @@ impl ThemeDialog {
     }
 
     fn preview(&self, sheet_width: f32) -> Element<'_, Message> {
+        if self.category == Category::Transitions {
+            return self.transition_preview(sheet_width);
+        }
         let theme = self.preview_settings.styles.theme(self.kind);
         let inner = sheet_width - SIDEBAR_WIDTH - FORM_WIDTH - 2.0 - PADDING * 2.0;
         let stage_height = (inner / theme.layout.ratio()).floor();

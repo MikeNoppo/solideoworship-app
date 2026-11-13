@@ -457,8 +457,8 @@
     "labels_hint": "Colors appear on operator labels only. Alt/Option + a letter cycles through matching song sections. Leave the shortcut blank to disable it.",
     "labels_limit": "Up to 32 labels, 8 aliases each, and 64 characters per name or alias. Names, aliases and shortcuts must not conflict with another label.",
     "add_label": "Add label",
-    "invalid_labels": "Check song labels: names and aliases need 1–64 characters, at most 8 aliases, a six-digit hex color, and a blank or single uppercase A–Z shortcut.",
-    "conflicting_labels": "Two song labels share a name, alias or shortcut. Use distinct values before saving.",
+    "invalid_labels": "Check label names, aliases, hex colors and uppercase A–Z shortcuts.",
+    "conflicting_labels": "Song labels must use distinct names, aliases and shortcuts.",
     "transitions": "Transitions",
     "cut": "Cut",
     "fade": "Fade",
@@ -468,6 +468,9 @@
     "fade_hint": "Fade dims the outgoing text, then brings in the next text while blending the solid background.",
     "duration_hint": "Fade duration: 100–2000 ms, in steps of 50. Cut keeps the remembered duration.",
     "milliseconds": "ms",
-    "invalid_transitions": "Enter transition durations from 100 to 2000 ms in steps of 50."
+    "invalid_transitions": "Enter transition durations from 100 to 2000 ms in steps of 50.",
+    "demo_hint": "Try a Preview button to change the sample slide or toggle Black or Clear. This demo stays inside Settings.",
+    "demo_playing": "Playing sample transition…",
+    "demo_idle": "Ready for a sample transition"
   }
 }
