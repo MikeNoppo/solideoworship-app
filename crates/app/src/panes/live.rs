@@ -7,7 +7,7 @@ use crate::i18n::{Label, t};
 use crate::icon;
 use crate::message::{Message, Step};
 use crate::panes::{columns, label_chip, label_rule};
-use crate::render::slide::{self, Visibility};
+use crate::render::transition;
 use crate::style::{self, Tone};
 use crate::ui::{self, label, wide_action};
 
@@ -65,34 +65,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .align_y(Center);
 
     let frame: Element<'_, Message> = match live {
-        Some(live) => container(
-            stack![slide::stage(
-                Some(live.current()),
-                &app.live_theme,
-                Visibility {
-                    background: app.output_state.shows_background(),
-                    body: app.output_state.shows_content(),
+        Some(_) => container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
+            .width(Fill)
+            .height(frame_height)
+            .padding(2)
+            .style(move |_theme| iced::widget::container::Style {
+                background: Some(style::SLIDE_BG.into()),
+                border: Border {
+                    color: if is_open {
+                        style::LIVE.scale_alpha(0.5)
+                    } else {
+                        style::BORDER_STRONG
+                    },
+                    width: if is_open { 1.5 } else { 1.0 },
+                    radius: 8.0.into(),
                 },
-            )]
-            .push(mode_notice(app)),
-        )
-        .width(Fill)
-        .height(frame_height)
-        .padding(2)
-        .style(move |_theme| iced::widget::container::Style {
-            background: Some(style::SLIDE_BG.into()),
-            border: Border {
-                color: if is_open {
-                    style::LIVE.scale_alpha(0.5)
-                } else {
-                    style::BORDER_STRONG
-                },
-                width: if is_open { 1.5 } else { 1.0 },
-                radius: 8.0.into(),
-            },
-            ..iced::widget::container::Style::default()
-        })
-        .into(),
+                ..iced::widget::container::Style::default()
+            })
+            .into(),
         None => {
             let (title, body) = if is_open {
                 (t().slides.ready_title, t().slides.ready_body)
