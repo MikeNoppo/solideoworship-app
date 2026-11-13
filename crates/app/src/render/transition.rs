@@ -10,6 +10,8 @@ pub fn stage<'a, Message: 'a>(frame: Frame<'a>) -> iced::Element<'a, Message> {
         frame.slide,
         frame.theme,
         frame.body_opacity,
+        frame.logo_opacity,
+        frame.logo_foreground,
         frame.background,
     )
 }
@@ -19,14 +21,26 @@ pub struct Scene {
     pub presentation: Option<Presentation>,
     pub theme: SlideTheme,
     pub state: OutputState,
+    pub logo_background: Rgb,
 }
 
 impl Scene {
+    #[cfg(test)]
     pub fn new(presentation: Option<Presentation>, theme: SlideTheme, state: OutputState) -> Self {
+        Self::with_logo_background(presentation, theme, state, Rgb::from_rgb8(20, 20, 22))
+    }
+
+    pub fn with_logo_background(
+        presentation: Option<Presentation>,
+        theme: SlideTheme,
+        state: OutputState,
+        logo_background: Rgb,
+    ) -> Self {
         Self {
             presentation,
             theme,
             state,
+            logo_background,
         }
     }
 
@@ -41,11 +55,23 @@ impl Scene {
             }
     }
 
+    fn same_target(&self, other: &Self) -> bool {
+        if self.state != other.state {
+            return false;
+        }
+        if self.state == OutputState::Logo {
+            return self.logo_background == other.logo_background
+                && self.theme.layout == other.theme.layout;
+        }
+        self.same_content(other)
+    }
+
     fn frame(&self) -> Frame<'_> {
-        Frame::new(
+        Frame::with_logo_background(
             self.presentation.as_ref().map(Presentation::current),
             &self.theme,
             self.state,
+            self.logo_background,
         )
     }
 }
@@ -55,11 +81,23 @@ pub struct Frame<'a> {
     pub slide: Option<&'a Slide>,
     pub theme: &'a SlideTheme,
     pub body_opacity: f32,
+    pub logo_opacity: f32,
+    pub logo_foreground: Rgb,
     pub background: Rgb,
 }
 
 impl<'a> Frame<'a> {
-    pub fn new(slide: Option<&'a Slide>, theme: &'a SlideTheme, state: OutputState) -> Self {
+    pub fn with_logo_background(
+        slide: Option<&'a Slide>,
+        theme: &'a SlideTheme,
+        state: OutputState,
+        logo_background: Rgb,
+    ) -> Self {
+        let background = match state {
+            OutputState::Show | OutputState::Clear => theme.background,
+            OutputState::Black => Rgb::new(0.0, 0.0, 0.0),
+            OutputState::Logo => logo_background,
+        };
         Self {
             slide,
             theme,
@@ -68,11 +106,9 @@ impl<'a> Frame<'a> {
             } else {
                 0.0
             },
-            background: if state.shows_background() {
-                theme.background
-            } else {
-                Rgb::new(0.0, 0.0, 0.0)
-            },
+            logo_opacity: if state.shows_logo() { 1.0 } else { 0.0 },
+            logo_foreground: logo_background.contrasting_foreground(),
+            background,
         }
     }
 }
@@ -91,7 +127,8 @@ struct Transition {
     duration: Duration,
     progress: f32,
     direct: bool,
-    source_opacity: f32,
+    source_body_opacity: f32,
+    source_logo_opacity: f32,
     source_background: Rgb,
 }
 
@@ -105,7 +142,7 @@ impl Playback {
 
     pub fn retarget(&mut self, scene: Scene, spec: TransitionSpec, now: Instant) -> bool {
         self.advance(now);
-        if self.target.state == scene.state && self.target.same_content(&scene) {
+        if self.target.same_target(&scene) {
             return false;
         }
         let now = self
@@ -113,7 +150,8 @@ impl Playback {
             .as_ref()
             .map_or(now, |transition| now.max(transition.last));
         let frame = self.frame();
-        let source_opacity = frame.body_opacity;
+        let source_body_opacity = frame.body_opacity;
+        let source_logo_opacity = frame.logo_opacity;
         let source_background = frame.background;
         let source = match &self.transition {
             Some(transition) if !transition.direct && transition.progress < 0.5 => {
@@ -123,14 +161,24 @@ impl Playback {
         };
         self.transition = None;
         self.target = scene;
+        let target_frame = self.target.frame();
+        let source_empty = source_body_opacity == 0.0 && source_logo_opacity == 0.0;
+        let target_empty = target_frame.body_opacity == 0.0 && target_frame.logo_opacity == 0.0;
+        let same_logo = source_logo_opacity > 0.0 && target_frame.logo_opacity > 0.0;
+        let same_slide_mode = source.same_content(&self.target)
+            && source_logo_opacity == 0.0
+            && target_frame.logo_opacity == 0.0;
+        let logo_fade_out = source_logo_opacity > 0.0 && target_empty;
+        let direct = source_empty || same_logo || same_slide_mode || logo_fade_out;
         self.transition = (spec.mode == TransitionMode::Fade
             && spec.duration_ms > 0
             && source.theme.layout == self.target.theme.layout
             && source.theme.margin == self.target.theme.margin)
             .then_some(Transition {
-                direct: source.same_content(&self.target) || source_opacity == 0.0,
+                direct,
                 source,
-                source_opacity,
+                source_body_opacity,
+                source_logo_opacity,
                 source_background,
                 start: now,
                 last: now,
@@ -174,10 +222,17 @@ impl Playback {
         let progress = transition.progress;
         let mut frame = if transition.direct {
             let target = self.target.frame();
+            let base = if target.body_opacity > 0.0 || target.logo_opacity > 0.0 {
+                target
+            } else {
+                transition.source.frame()
+            };
             Frame {
-                body_opacity: transition.source_opacity
-                    + (target.body_opacity - transition.source_opacity) * progress,
-                ..target
+                body_opacity: transition.source_body_opacity
+                    + (target.body_opacity - transition.source_body_opacity) * progress,
+                logo_opacity: transition.source_logo_opacity
+                    + (target.logo_opacity - transition.source_logo_opacity) * progress,
+                ..base
             }
         } else {
             let mut frame = if progress < 0.5 {
@@ -185,11 +240,15 @@ impl Playback {
             } else {
                 self.target.frame()
             };
-            frame.body_opacity = if progress < 0.5 {
-                transition.source_opacity * (1.0 - progress * 2.0)
+            if progress < 0.5 {
+                let factor = 1.0 - progress * 2.0;
+                frame.body_opacity = transition.source_body_opacity * factor;
+                frame.logo_opacity = transition.source_logo_opacity * factor;
             } else {
-                frame.body_opacity * (progress * 2.0 - 1.0)
-            };
+                let factor = progress * 2.0 - 1.0;
+                frame.body_opacity *= factor;
+                frame.logo_opacity *= factor;
+            }
             frame
         };
         let source = transition.source_background;
@@ -223,6 +282,7 @@ mod tests {
             slides: vec![Slide {
                 body: body.into(),
                 label: None,
+                header: None,
                 footer: None,
             }],
         });
@@ -409,5 +469,43 @@ mod tests {
         playback.retarget(target, fade(), now);
         assert!(!playback.is_active());
         assert_eq!(playback.frame().slide.unwrap().body.as_ref(), "Margin");
+    }
+
+    #[test]
+    fn logo_transitions_fade_out_then_in_with_show_and_directly_with_black() {
+        let now = Instant::now();
+        let show = scene("Praise", Rgb::new(0.0, 0.0, 0.0));
+        let logo_bg = Rgb::new(0.2, 0.4, 0.8);
+        let logo = Scene::with_logo_background(
+            show.presentation.clone(),
+            show.theme.clone(),
+            OutputState::Logo,
+            logo_bg,
+        );
+        let mut playback = Playback::new(show.clone());
+
+        assert!(playback.retarget(logo.clone(), fade(), now));
+        playback.advance(now + Duration::from_millis(250));
+        assert_eq!(playback.frame().body_opacity, 0.5);
+        assert_eq!(playback.frame().logo_opacity, 0.0);
+        playback.advance(now + Duration::from_millis(750));
+        assert_eq!(playback.frame().body_opacity, 0.0);
+        assert_eq!(playback.frame().logo_opacity, 0.5);
+        playback.advance(now + Duration::from_millis(1000));
+        assert!(!playback.is_active());
+        assert_eq!(playback.frame().logo_opacity, 1.0);
+        assert_eq!(playback.frame().background, logo_bg);
+
+        let mut black = logo.clone();
+        black.state = OutputState::Black;
+        assert!(playback.retarget(black, fade(), now + Duration::from_millis(1000)));
+        playback.advance(now + Duration::from_millis(1250));
+        assert_eq!(playback.frame().logo_opacity, 0.75);
+        assert_eq!(playback.frame().body_opacity, 0.0);
+        playback.advance(now + Duration::from_millis(2000));
+        assert_eq!(playback.frame().logo_opacity, 0.0);
+        assert!(playback.retarget(logo, fade(), now + Duration::from_millis(2000)));
+        playback.advance(now + Duration::from_millis(2250));
+        assert_eq!(playback.frame().logo_opacity, 0.25);
     }
 }
