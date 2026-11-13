@@ -12,13 +12,15 @@ pub enum LabelField {
 }
 
 impl LabelField {
-    pub(super) fn get_mut(self, draft: &mut LabelDraft) -> &mut String {
-        match self {
+    pub(super) fn set(self, draft: &mut LabelDraft, value: String) {
+        let field = match self {
             Self::Name => &mut draft.name,
             Self::Aliases => &mut draft.aliases,
             Self::Color => &mut draft.color,
             Self::Shortcut => &mut draft.shortcut,
-        }
+        };
+        *field = value;
+        draft.parsed = draft.rule().ok();
     }
 }
 
@@ -27,16 +29,20 @@ pub(super) struct LabelDraft {
     aliases: String,
     color: String,
     shortcut: String,
+    parsed: Option<LabelRule>,
 }
 
 impl LabelDraft {
     pub(super) fn empty() -> Self {
-        Self {
+        let mut draft = Self {
             name: String::new(),
             aliases: String::new(),
             color: "#305384".into(),
             shortcut: String::new(),
-        }
+            parsed: None,
+        };
+        draft.parsed = draft.rule().ok();
+        draft
     }
 
     fn rule(&self) -> Result<LabelRule, SettingsError> {
@@ -85,6 +91,7 @@ impl ThemeDialog {
                 shortcut: rule
                     .shortcut
                     .map_or_else(String::new, |letter| letter.to_string()),
+                parsed: Some(rule.clone()),
             })
             .collect();
     }
@@ -94,7 +101,7 @@ impl ThemeDialog {
             rules: self
                 .labels
                 .iter()
-                .map(LabelDraft::rule)
+                .map(|draft| draft.parsed.clone().ok_or(SettingsError::InvalidLabels))
                 .collect::<Result<_, _>>()?,
         };
         labels.validate()?;
@@ -145,9 +152,8 @@ impl ThemeDialog {
         let rows = self.labels.iter().enumerate().fold(
             Column::new().spacing(10),
             |rows, (index, draft)| {
-                let sample = draft.rule().ok();
-                let chip: Element<'_, Message> = if let Some(rule) = sample {
-                    crate::panes::label_chip(&draft.name, 11.0, Some(&rule))
+                let chip: Element<'_, Message> = if let Some(rule) = &draft.parsed {
+                    crate::panes::label_chip(&draft.name, 11.0, Some(rule))
                 } else {
                     label(t().settings.label_invalid, 11.0, style::INTER, style::LIVE).into()
                 };

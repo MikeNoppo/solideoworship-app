@@ -396,7 +396,7 @@ impl ThemeDialog {
             }
             Message::LabelChanged(index, field, value) => {
                 if let Some(label) = self.labels.get_mut(index) {
-                    *field.get_mut(label) = value;
+                    field.set(label, value);
                 }
                 self.update_label_preview();
                 return Action::None;
@@ -852,6 +852,31 @@ mod tests {
         assert_eq!(saved.transitions.slides.duration_ms, 850);
         assert_eq!(saved.transitions.black.duration_ms, 650);
         assert_eq!(saved.transitions.clear.duration_ms, 500);
+    }
+
+    #[test]
+    fn label_view_does_not_copy_name_and_alias_buffers() {
+        let mut dialog = dialog();
+        let name = "n".repeat(61);
+        let aliases = std::array::from_fn::<_, 8, _>(|_| "a".repeat(61)).join(", ");
+        for index in 0..8 {
+            let _ = dialog.update(Message::LabelChanged(
+                index,
+                super::LabelField::Name,
+                name.clone(),
+            ));
+            let _ = dialog.update(Message::LabelChanged(
+                index,
+                super::LabelField::Aliases,
+                aliases.clone(),
+            ));
+        }
+        let _ = dialog.update(Message::CategorySelected(Category::Labels));
+        let copies = crate::allocation_probe::measure(|| {
+            std::hint::black_box(dialog.view(1480.0));
+        });
+        eprintln!("label name/alias allocations per redraw: {copies}");
+        assert_eq!(copies, 0);
     }
 
     #[test]

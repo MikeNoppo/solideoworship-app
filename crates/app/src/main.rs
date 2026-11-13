@@ -3290,3 +3290,40 @@ mod tests {
         assert_eq!(app.schedule.selected(), Some(0));
     }
 }
+
+#[cfg(test)]
+mod allocation_probe {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static TRACK: Cell<bool> = const { Cell::new(false) };
+        static COPIES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    struct Probe;
+
+    unsafe impl GlobalAlloc for Probe {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if layout.size() == 61 && TRACK.try_with(Cell::get).unwrap_or(false) {
+                let _ = COPIES.try_with(|count| count.set(count.get() + 1));
+            }
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(pointer, layout) }
+        }
+    }
+
+    #[global_allocator]
+    static ALLOCATOR: Probe = Probe;
+
+    pub(super) fn measure(f: impl FnOnce()) -> usize {
+        COPIES.set(0);
+        TRACK.set(true);
+        f();
+        TRACK.set(false);
+        COPIES.get()
+    }
+}
