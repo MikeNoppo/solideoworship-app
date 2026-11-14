@@ -134,6 +134,7 @@ pub struct GeneralSettings {
     pub open_output_on_startup: bool,
     pub advance_after_go_live: bool,
     pub shadows: bool,
+    pub telemetry: bool,
     pub ui_scale: u16,
 }
 
@@ -150,6 +151,7 @@ impl Default for GeneralSettings {
             open_output_on_startup: false,
             advance_after_go_live: false,
             shadows: true,
+            telemetry: true,
             ui_scale: UI_SCALE_DEFAULT,
         }
     }
@@ -323,5 +325,10 @@ mod tests {
         settings.general.ui_scale = 200;
         assert_eq!(settings.validate(), Err(SettingsError::InvalidValues));
         assert_eq!(settings.clamped().general.ui_scale, 150);
+    }
+
+    #[test]
+    fn general_settings_enable_telemetry_by_default() {
+        assert!(GeneralSettings::default().telemetry);
     }
 }
