@@ -182,6 +182,17 @@ impl Label for ColorSlot {
     }
 }
 
+impl Label for report::ReportCategory {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Bug => t().report.category_bug,
+            Self::Display => t().report.category_display,
+            Self::Crash => t().report.category_crash,
+            Self::Other => t().report.category_other,
+        }
+    }
+}
+
 impl Label for Category {
     fn label(self) -> &'static str {
         match self {

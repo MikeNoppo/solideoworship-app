@@ -94,6 +94,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         Some(Modal::Theme(dialog)) => Some(dialog.view(app.control_width).map(Message::Theme)),
         Some(Modal::Unsaved(_)) => Some(unsaved::view(app)),
         Some(Modal::Bibles(manager)) => Some(manager.view().map(Message::BibleManager)),
+        Some(Modal::Report(report)) => Some(report.view().map(Message::BugReport)),
         None => None,
     };
 
@@ -218,6 +219,23 @@ fn notices(app: &App) -> Vec<Element<'_, Message>> {
                             t().toolbar.save_as,
                             None,
                             Some(Message::ScheduleSaveAsRequested),
+                        )
+                        .height(28)
+                        .into(),
+                    ),
+                    dismiss,
+                ),
+                Notice::Crash => ui::banner(
+                    icon::CIRCLE_ALERT,
+                    t().notice.crash_title,
+                    Some(t().notice.crash_body),
+                    Some(
+                        action(
+                            Tone::Secondary,
+                            Some(icon::FILE_TEXT),
+                            t().report.review_crash,
+                            None,
+                            Some(Message::CrashReportRequested),
                         )
                         .height(28)
                         .into(),

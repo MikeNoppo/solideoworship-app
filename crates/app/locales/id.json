@@ -37,7 +37,9 @@
     "recovered_title": "Susunan acara dipulihkan.",
     "recovered_body": "SolideoWorship tertutup sebelum susunan acara ini disimpan, jadi dipulihkan dari recovery.sdw. Simpan agar tidak hilang.",
     "disconnected_title": "{screen} terputus.",
-    "disconnected_body": "Jendela output ditutup. Sambungkan kembali kabelnya lalu muat ulang layar, atau pilih layar lain."
+    "disconnected_body": "Jendela output ditutup. Sambungkan kembali kabelnya lalu muat ulang layar, atau pilih layar lain.",
+    "crash_title": "SolideoWorship berhenti mendadak sebelumnya.",
+    "crash_body": "Kirim laporan crash untuk membantu memperbaiki masalah ini."
   },
   "toolbar": {
     "new": "Susunan acara baru",
@@ -526,5 +528,33 @@
     "demo_hint": "Coba tombol Pratinjau untuk mengganti slide contoh atau beralih ke Hitam, Kosong, atau Logo. Demo ini hanya berjalan di Pengaturan.",
     "demo_playing": "Memutar transisi contoh…",
     "demo_idle": "Siap untuk transisi contoh"
+  },
+  "report": {
+    "title": "Laporkan masalah",
+    "subtitle": "Kirim laporan masalah atau masukan ke pengembang",
+    "crash_title": "Laporkan berhenti mendadak",
+    "crash_subtitle": "Tinjau detail kesalahan yang terekam sebelum mengirim",
+    "review_crash": "Laporkan crash…",
+    "open_button": "Laporkan masalah…",
+    "category": "KATEGORI",
+    "category_bug": "Bug",
+    "category_display": "Tampilan",
+    "category_crash": "Crash",
+    "category_other": "Lainnya",
+    "crash_details": "KESALAHAN TEREKAM",
+    "description": "Apa yang terjadi?",
+    "crash_note": "Apa yang sedang Anda lakukan saat berhenti?",
+    "description_placeholder": "Jelaskan masalahnya dan langkah-langkah sebelum kejadian…",
+    "crash_note_placeholder": "Catatan opsional untuk membantu melacak crash ini…",
+    "contact": "Kontak (email atau WhatsApp)",
+    "contact_placeholder": "Opsional, bila kami perlu bertanya lebih lanjut",
+    "system_heading": "INFO SISTEM YANG DISERTAKAN",
+    "privacy_note": "Hanya formulir ini dan info sistem dasar (versi aplikasi, OS) yang dikirim. Lagu, Alkitab, dan susunan acara Anda tidak pernah keluar dari komputer ini.",
+    "needs_description": "Tulis deskripsi masalah sebelum mengirim",
+    "send": "Kirim laporan",
+    "sending": "Mengirim…",
+    "discard_crash": "Buang laporan",
+    "sent": "Laporan terkirim. Terima kasih!",
+    "send_failed": "Gagal mengirim laporan: {error}. Tulisan Anda tetap ada; coba lagi."
   }
 }

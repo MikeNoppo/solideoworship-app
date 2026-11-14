@@ -21,6 +21,7 @@ const NO_CONSOLE: bool = cfg!(all(windows, not(debug_assertions)));
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 const SECONDS_PER_DAY: u64 = 86_400;
 const DEFAULT_TELEMETRY_URL: &str = "https://solideoworship.com/api/desktop/telemetry";
+const DEFAULT_REPORT_URL: &str = "https://solideoworship.com/api/desktop/reports";
 
 static MAIN_PANIC: Mutex<Option<String>> = Mutex::new(None);
 
@@ -34,6 +35,43 @@ pub struct CrashRecord {
     pub location: Option<Box<str>>,
     pub panic_message: Box<str>,
     pub occurred_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportKind {
+    Crash,
+    Bug,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportCategory {
+    #[default]
+    Bug,
+    Display,
+    Crash,
+    Other,
+}
+
+impl ReportCategory {
+    pub const ALL: [Self; 4] = [Self::Bug, Self::Display, Self::Crash, Self::Other];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportPayload {
+    pub kind: ReportKind,
+    pub category: ReportCategory,
+    pub message: Box<str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact: Option<Box<str>>,
+    pub app_version: Box<str>,
+    pub os: Box<str>,
+    pub arch: Box<str>,
+    pub locale: Box<str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crash: Option<CrashRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +142,34 @@ pub fn record_crash(path: &Path, record: &CrashRecord) {
         let _ = fs::create_dir_all(parent);
     }
     let _ = fs::write(path, json);
+}
+
+pub fn load_crash(path: &Path) -> Option<CrashRecord> {
+    let bytes = fs::read(path).ok()?;
+    match serde_json::from_slice(&bytes) {
+        Ok(record) => Some(record),
+        Err(_) => {
+            let _ = fs::remove_file(path);
+            None
+        }
+    }
+}
+
+pub fn clear_crash(path: &Path) {
+    let _ = fs::remove_file(path);
+}
+
+pub fn submit_report(payload: &ReportPayload) -> Result<(), Box<str>> {
+    let Some(url) = report_endpoint() else {
+        return Ok(());
+    };
+    submit_report_to(&url, payload)
+}
+
+pub fn submit_report_to(url: &str, payload: &ReportPayload) -> Result<(), Box<str>> {
+    let body =
+        serde_json::to_string(payload).map_err(|error| error.to_string().into_boxed_str())?;
+    post_json(url, &body)
 }
 
 pub fn ping_telemetry(enabled: bool) {
@@ -286,6 +352,12 @@ fn telemetry_endpoint() -> Option<String> {
         .or_else(|| (!cfg!(debug_assertions)).then(|| DEFAULT_TELEMETRY_URL.to_owned()))
 }
 
+fn report_endpoint() -> Option<String> {
+    non_empty_env("SDW_REPORT_URL")
+        .or_else(|| option_env!("SDW_REPORT_URL").map(str::to_owned))
+        .or_else(|| (!cfg!(debug_assertions)).then(|| DEFAULT_REPORT_URL.to_owned()))
+}
+
 pub(crate) fn non_empty_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
@@ -379,7 +451,10 @@ mod tests {
     use std::net::TcpListener;
     use std::{env, fs, process, thread};
 
-    use super::{CrashRecord, TelemetryPayload, record_crash, send_telemetry_to};
+    use super::{
+        CrashRecord, ReportCategory, ReportKind, ReportPayload, TelemetryPayload, clear_crash,
+        load_crash, record_crash, send_telemetry_to, submit_report_to,
+    };
 
     fn accept_once(status: &str) -> (String, thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -434,9 +509,35 @@ mod tests {
         };
 
         record_crash(&path, &record);
-        let stored: CrashRecord = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let stored = load_crash(&path).unwrap();
         assert_eq!(stored, record);
+        clear_crash(&path);
+        assert_eq!(load_crash(&path), None);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn report_submission_posts_json_and_propagates_http_errors() {
+        let payload = ReportPayload {
+            kind: ReportKind::Bug,
+            category: ReportCategory::Display,
+            message: "Projector flickers".into(),
+            contact: Some("operator@church.org".into()),
+            app_version: "0.1.0-beta.2".into(),
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            locale: "id".into(),
+            crash: None,
+        };
+        let (url, server) = accept_once("201 Created");
+        assert_eq!(submit_report_to(&url, &payload), Ok(()));
+        let body = server.join().unwrap();
+        let received: ReportPayload = serde_json::from_str(&body).unwrap();
+        assert_eq!(received, payload);
+
+        let (bad_url, bad_server) = accept_once("500 Internal Server Error");
+        assert!(submit_report_to(&bad_url, &payload).is_err());
+        let _ = bad_server.join();
     }
 
     #[test]
