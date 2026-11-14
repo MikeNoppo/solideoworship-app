@@ -115,6 +115,7 @@ impl From<&Settings> for SettingsDto {
                 open_output_on_startup: Some(settings.general.open_output_on_startup),
                 advance_after_go_live: Some(settings.general.advance_after_go_live),
                 shadows: Some(settings.general.shadows),
+                telemetry: Some(settings.general.telemetry),
                 ui_scale: Some(settings.general.ui_scale),
             },
             output: OutputDto {
@@ -145,6 +146,7 @@ impl SettingsDto {
                     .advance_after_go_live
                     .unwrap_or(defaults.general.advance_after_go_live),
                 shadows: self.general.shadows.unwrap_or(defaults.general.shadows),
+                telemetry: self.general.telemetry.unwrap_or(defaults.general.telemetry),
                 ui_scale: self.general.ui_scale.unwrap_or(defaults.general.ui_scale),
             },
             output: OutputSettings {
@@ -315,6 +317,7 @@ struct GeneralDto {
     open_output_on_startup: Option<bool>,
     advance_after_go_live: Option<bool>,
     shadows: Option<bool>,
+    telemetry: Option<bool>,
     ui_scale: Option<u16>,
 }
 
@@ -802,6 +805,7 @@ mod tests {
         settings.general.open_output_on_startup = true;
         settings.general.advance_after_go_live = true;
         settings.general.shadows = false;
+        settings.general.telemetry = false;
         settings.general.ui_scale = 120;
         settings.output.monitor = Some(MonitorPreference {
             backend_name: "HDMI-1".into(),
@@ -1111,6 +1115,7 @@ mod tests {
             ReferenceFormat::Parentheses
         );
         assert_eq!(recovered.transitions.logo, TransitionSpec::default());
+        assert!(recovered.general.telemetry);
         assert_eq!(recovered.general.ui_scale, 100);
 
         store_raw_setting(&library, SETTINGS_KEY, r#"{"general":{"ui_scale":300}}"#);
