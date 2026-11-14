@@ -535,7 +535,6 @@
     "crash_title": "Report unexpected stop",
     "crash_subtitle": "Review the captured error details before sending",
     "review_crash": "Report crash…",
-    "open_button": "Report an issue…",
     "category": "CATEGORY",
     "category_bug": "Bug",
     "category_display": "Display",

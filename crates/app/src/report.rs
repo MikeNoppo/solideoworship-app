@@ -94,12 +94,13 @@ struct TelemetryState {
 pub fn run(app: impl FnOnce() -> iced::Result) -> ExitCode {
     let previous = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
-        let name = thread::current().name().unwrap_or("unnamed").to_owned();
-        let record = panic_record(info, &name);
-        record_crash(&paths::crash_file(), &record);
+        if thread::current().name() == Some("main") {
+            let record = panic_record(info, "main");
+            record_crash(&paths::crash_file(), &record);
+        }
 
         if NO_CONSOLE {
-            if name == "main"
+            if thread::current().name() == Some("main")
                 && let Ok(mut panic) = MAIN_PANIC.lock()
             {
                 *panic = Some(info.to_string());
@@ -244,7 +245,10 @@ fn post_http(rest: &str, body: &str) -> Result<(), Box<str>> {
         Some(index) => (&rest[..index], &rest[index..]),
         None => (rest, "/"),
     };
-    let socket_target = if authority.contains(':') {
+    let has_port = authority
+        .rsplit_once(':')
+        .is_some_and(|(_, port)| !port.contains(']'));
+    let socket_target = if has_port {
         authority.to_owned()
     } else {
         format!("{authority}:80")

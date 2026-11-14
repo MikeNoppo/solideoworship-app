@@ -491,14 +491,10 @@ impl App {
             }
             Message::NoticeDismissed(notice) => {
                 if notice == Notice::Crash {
-                    self.pending_crash = None;
-                    let path = paths::crash_file();
-                    let _ = work::background(move || {
-                        report::clear_crash(&path);
-                        Ok(())
-                    });
+                    self.clear_pending_crash();
+                } else {
+                    self.notices.retain(|shown| *shown != notice);
                 }
-                self.notices.retain(|shown| *shown != notice);
                 Task::none()
             }
 
@@ -1034,10 +1030,6 @@ impl App {
                         self.modal = None;
                         Task::none()
                     }
-                    theme_dialog::Action::ReportIssue => {
-                        self.open_modal(Modal::Report(Box::new(BugReport::manual())));
-                        Task::none()
-                    }
                     theme_dialog::Action::SaveSettings(settings, close_after_save) => {
                         self.save_settings(ticket, settings, close_after_save)
                     }
@@ -1388,13 +1380,7 @@ impl App {
                     }
                     bug_report::Action::DiscardCrash => {
                         self.modal = None;
-                        self.pending_crash = None;
-                        self.notices.retain(|notice| *notice != Notice::Crash);
-                        let path = paths::crash_file();
-                        let _ = work::background(move || {
-                            report::clear_crash(&path);
-                            Ok(())
-                        });
+                        self.clear_pending_crash();
                         Task::none()
                     }
                     bug_report::Action::Submit(payload) => {
@@ -1408,13 +1394,7 @@ impl App {
                 match result {
                     Ok(()) => {
                         if is_crash {
-                            self.pending_crash = None;
-                            self.notices.retain(|notice| *notice != Notice::Crash);
-                            let path = paths::crash_file();
-                            let _ = work::background(move || {
-                                report::clear_crash(&path);
-                                Ok(())
-                            });
+                            self.clear_pending_crash();
                         }
                         self.close_modal(ticket);
                         self.show_toast(Toast::Done(t().report.sent.into()));
@@ -1860,6 +1840,16 @@ impl App {
         self.drag = None;
         self.modal_ticket += 1;
         self.modal = Some(modal);
+    }
+
+    fn clear_pending_crash(&mut self) {
+        self.pending_crash = None;
+        self.notices.retain(|notice| *notice != Notice::Crash);
+        let path = paths::crash_file();
+        let _ = work::background(move || {
+            report::clear_crash(&path);
+            Ok(())
+        });
     }
 
     fn insert_song(&mut self, index: Option<usize>, id: SongId, result: Outcome<Song>) {

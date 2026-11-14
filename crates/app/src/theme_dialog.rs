@@ -289,7 +289,6 @@ pub enum Message {
     AddLabel,
     DeleteLabel(usize),
     Reset,
-    ReportIssue,
     Save,
     Apply,
     Cancel,
@@ -300,7 +299,6 @@ pub enum Action {
     None,
     SaveSettings(Box<Settings>, bool),
     RefreshDisplays,
-    ReportIssue,
     Close,
 }
 
@@ -382,7 +380,6 @@ impl ThemeDialog {
             Message::Save
                 | Message::Apply
                 | Message::Cancel
-                | Message::ReportIssue
                 | Message::RefreshDisplays
                 | Message::Guides(_)
                 | Message::SlideSelected(_)
@@ -647,7 +644,6 @@ impl ThemeDialog {
                 let settings = self.draft.clone().clamped();
                 return Action::SaveSettings(Box::new(settings), matches!(message, Message::Save));
             }
-            Message::ReportIssue => return Action::ReportIssue,
             Message::Cancel => return Action::Close,
         }
 

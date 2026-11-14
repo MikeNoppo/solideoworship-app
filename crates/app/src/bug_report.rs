@@ -313,7 +313,7 @@ impl BugReport {
                 self.error = Some(t().report.needs_description.into());
                 return Action::None;
             }
-            (Some(crash), true) => crash.panic_message.clone(),
+            (Some(_), true) => Box::from(""),
             (_, false) => trimmed.into(),
         };
 
@@ -421,7 +421,7 @@ mod tests {
         };
         assert_eq!(payload.kind, ReportKind::Crash);
         assert_eq!(payload.category, ReportCategory::Crash);
-        assert_eq!(&*payload.message, " unexpected panic ");
+        assert_eq!(&*payload.message, "");
         assert_eq!(payload.crash, Some(crash.clone()));
 
         let mut second = BugReport::from_crash(crash);

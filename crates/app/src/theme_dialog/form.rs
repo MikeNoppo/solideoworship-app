@@ -130,13 +130,6 @@ impl ThemeDialog {
                 self.draft.general.telemetry,
                 Message::Telemetry
             ),
-            action(
-                Tone::Secondary,
-                Some(icon::CIRCLE_ALERT),
-                t().report.open_button,
-                None,
-                (!self.busy).then_some(Message::ReportIssue),
-            ),
         ]
         .spacing(20)
     }
