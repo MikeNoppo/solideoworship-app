@@ -35,8 +35,14 @@ OutputBaseFilename={#AppName}-{#AppVersion}-windows-x64-setup
 UninstallDisplayIcon={app}\{#AppExe}
 
 [Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "privacy-en.txt"
-Name: "id"; MessagesFile: "Indonesian.isl"; InfoBeforeFile: "privacy-id.txt"
+Name: "en"; MessagesFile: "compiler:Default.isl"; LicenseFile: "privacy-en.txt"
+Name: "id"; MessagesFile: "Indonesian.isl"; LicenseFile: "privacy-id.txt"
+
+[Messages]
+en.WizardLicense=Privacy Policy & License Agreement
+en.LicenseLabel3=Please read the following Privacy Policy and License Agreement. You must accept the terms before continuing with the installation.
+id.WizardLicense=Kebijakan Privasi & Kesepakatan Lisensi
+id.LicenseLabel3=Silakan baca Kebijakan Privasi dan Kesepakatan Lisensi berikut. Anda harus menyetujuinya sebelum meneruskan instalasi.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

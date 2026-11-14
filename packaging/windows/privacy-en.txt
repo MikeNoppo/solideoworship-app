@@ -1,5 +1,5 @@
-SOLIDEOWORSHIP PRIVACY POLICY
-=============================
+SOLIDEOWORSHIP PRIVACY POLICY & LICENSE
+=======================================
 
 SolideoWorship is built to serve churches, never to harvest data.
 
@@ -13,5 +13,8 @@ SolideoWorship is built to serve churches, never to harvest data.
 
 3. CRASH & ISSUE REPORTS (WITH YOUR CONSENT)
    If the application stops unexpectedly, technical error details are saved locally first and are never sent behind your back. On the next launch, you can review, send, or discard the report.
+
+4. SOFTWARE LICENSE
+   SolideoWorship is open-source software licensed under the GNU General Public License v3.0 (GPL-3.0-only). The full license text is installed alongside the application (LICENSE.txt).
 
 Full privacy policy: https://solideoworship.com/privacy

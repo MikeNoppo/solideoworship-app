@@ -17,17 +17,40 @@ desktop=$applications/$app.desktop
 
 usage() {
     cat <<USAGE
-Usage: $0 [--uninstall]
+Usage: $0 [--yes] [--uninstall]
 
 Installs SolideoWorship for the current user, without root:
   $binary
   $desktop
   $icons/*/apps/$app.*
 
+--yes accepts the privacy policy without prompting.
 --uninstall removes them, along with a menu entry and icons left in
 ~/.local/share by an install that used a different XDG_DATA_HOME.
 Songs, Bibles and settings in $data_home/$app are kept either way.
 USAGE
+}
+
+confirm_privacy() {
+    [ "$assume_yes" = true ] && return 0
+    [ -t 0 ] || return 0
+
+    cat <<PRIVACY
+SolideoWorship Privacy Policy (https://solideoworship.com/privacy)
+- Songs, Bibles, schedules, and files outside the app never leave your computer.
+- Anonymous daily usage stats (app version, OS) can be disabled in Settings -> General.
+- Crash reports are saved locally first and sent only with your consent.
+
+PRIVACY
+    printf "Do you accept the Privacy Policy and GPL-3.0 license? [y/N]: "
+    read -r answer
+    case $answer in
+        [yY] | [yY][eE][sS] | [yY][aA]) ;;
+        *)
+            echo "Installation cancelled." >&2
+            exit 1
+            ;;
+    esac
 }
 
 desktop_exec_argument() {
@@ -41,6 +64,8 @@ install_app() {
             exit 1
             ;;
     esac
+
+    confirm_privacy
 
     mkdir -p "$bin_dir" "$applications"
     install -m 755 "$here/$app" "$binary"
@@ -118,8 +143,14 @@ if [ "$(id -u)" -eq 0 ]; then
     exit 1
 fi
 
+assume_yes=false
+
 case "${1:-}" in
     "") install_app ;;
+    -y | --yes)
+        assume_yes=true
+        install_app
+        ;;
     --uninstall) uninstall_app ;;
     -h | --help) usage ;;
     *)
