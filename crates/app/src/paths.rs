@@ -5,6 +5,8 @@ use std::path::PathBuf;
 const LIBRARY_FILE: &str = "library.sqlite3";
 const RECOVERY_FILE: &str = "recovery.sdw";
 const LANGUAGE_FILE: &str = "language";
+const CRASH_FILE: &str = "pending_crash.json";
+const TELEMETRY_FILE: &str = "telemetry.json";
 
 pub fn library_file() -> PathBuf {
     data_dir().join(LIBRARY_FILE)
@@ -16,6 +18,14 @@ pub fn recovery_file() -> PathBuf {
 
 pub fn language_file() -> PathBuf {
     data_dir().join(LANGUAGE_FILE)
+}
+
+pub fn crash_file() -> PathBuf {
+    data_dir().join(CRASH_FILE)
+}
+
+pub fn telemetry_file() -> PathBuf {
+    data_dir().join(TELEMETRY_FILE)
 }
 
 #[cfg(windows)]

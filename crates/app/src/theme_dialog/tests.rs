@@ -647,3 +647,21 @@ fn phase3_song_copyright_scripture_reference_and_readability_save_and_reset() {
         ReferenceFormat::MiddleDot
     );
 }
+
+#[test]
+fn telemetry_toggle_updates_draft_and_resets_with_general_category() {
+    let mut dialog = ThemeDialog::settings(&sdw_core::Settings::default(), None, &[]);
+    assert!(dialog.draft.general.telemetry);
+
+    assert_eq!(dialog.update(Message::Telemetry(false)), Action::None);
+    assert!(!dialog.draft.general.telemetry);
+
+    let Action::SaveSettings(saved, false) = dialog.update(Message::Apply) else {
+        panic!("expected settings save");
+    };
+    assert!(!saved.general.telemetry);
+    dialog.saved(&saved);
+
+    let _ = dialog.update(Message::Reset);
+    assert!(dialog.draft.general.telemetry);
+}

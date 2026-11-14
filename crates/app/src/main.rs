@@ -380,6 +380,7 @@ impl App {
                         } = *startup;
                         self.settings = settings;
                         style::set_shadows(self.settings.general.shadows);
+                        report::ping_telemetry(self.settings.general.telemetry);
                         self.schedule.recompile(&self.settings.styles);
                         self.bible.set_style(&self.settings.styles.scripture);
                         self.resolve_monitor();
@@ -1718,6 +1719,9 @@ impl App {
             self.bible.set_style(&settings.styles.scripture);
         }
         style::set_shadows(settings.general.shadows);
+        if !self.settings.general.telemetry && settings.general.telemetry {
+            report::ping_telemetry(true);
+        }
         let monitor_changed = self.settings.output.monitor != settings.output.monitor;
         self.settings = settings;
         if monitor_changed {

@@ -122,6 +122,14 @@ impl ThemeDialog {
                 self.draft.general.shadows,
                 Message::Shadows
             ),
+            ui::hrule(style::BORDER),
+            ui::eyebrow(t().settings.privacy),
+            self.toggle(
+                t().settings.telemetry,
+                Some(t().settings.telemetry_hint),
+                self.draft.general.telemetry,
+                Message::Telemetry
+            ),
         ]
         .spacing(20)
     }

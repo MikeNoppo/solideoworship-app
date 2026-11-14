@@ -101,6 +101,15 @@ pub fn t() -> &'static Strings {
     ACTIVE.get().copied().unwrap_or(&EN)
 }
 
+pub fn code() -> &'static str {
+    let active = t();
+    Language::ALL
+        .into_iter()
+        .find(|language| std::ptr::eq(language.strings(), active))
+        .unwrap_or(Language::En)
+        .code()
+}
+
 pub trait Label {
     fn label(self) -> &'static str;
 }
