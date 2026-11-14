@@ -35,8 +35,8 @@ OutputBaseFilename={#AppName}-{#AppVersion}-windows-x64-setup
 UninstallDisplayIcon={app}\{#AppExe}
 
 [Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "id"; MessagesFile: "Indonesian.isl"
+Name: "en"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "privacy-en.txt"
+Name: "id"; MessagesFile: "Indonesian.isl"; InfoBeforeFile: "privacy-id.txt"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -44,6 +44,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\..\target\release\sdw-app.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\PRIVACY.md"; DestDir: "{app}"; DestName: "PRIVACY.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\Inter-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Inter.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\JetBrainsMono-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-JetBrainsMono.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\Lucide-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Lucide.txt"; Flags: ignoreversion

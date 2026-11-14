@@ -58,6 +58,7 @@ install_app() {
     echo "Installed $binary"
     echo "Installed $desktop"
     echo "Installed icons in $icons"
+    echo "Privacy policy: https://solideoworship.com/privacy"
 }
 
 refresh_icons() {

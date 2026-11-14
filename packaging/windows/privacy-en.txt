@@ -1,0 +1,17 @@
+SOLIDEOWORSHIP PRIVACY POLICY
+=============================
+
+SolideoWorship is built to serve churches, never to harvest data.
+
+1. WORSHIP DATA & LOCAL FILES STAY ON YOUR COMPUTER
+   SolideoWorship never reads, copies, or transmits any file outside the application. All of your songs, lyrics, Bibles, and schedules remain entirely on your own computer.
+
+2. ANONYMOUS USAGE STATISTICS (OPTIONAL)
+   By default, the application sends an anonymous usage ping at most once per day (containing a random installation ID, app version, operating system, CPU architecture, and interface language code) solely so we know which platforms and versions are in active use.
+   You can turn this off at any time in:
+   Settings -> General -> Send anonymous usage statistics.
+
+3. CRASH & ISSUE REPORTS (WITH YOUR CONSENT)
+   If the application stops unexpectedly, technical error details are saved locally first and are never sent behind your back. On the next launch, you can review, send, or discard the report.
+
+Full privacy policy: https://solideoworship.com/privacy
