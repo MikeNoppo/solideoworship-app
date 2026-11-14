@@ -1,0 +1,20 @@
+KEBIJAKAN PRIVASI & LISENSI SOLIDEOWORSHIP
+==========================================
+
+SolideoWorship dibuat untuk membantu pelayanan gereja, bukan untuk mengambil data.
+
+1. DATA IBADAH & FILE LOKAL TETAP DI KOMPUTER ANDA
+   SolideoWorship tidak pernah membaca, menyalin, atau mengirim file apa pun di luar aplikasi. Seluruh daftar lagu, lirik, Alkitab, dan susunan acara tersimpan sepenuhnya di komputer Anda sendiri.
+
+2. STATISTIK PENGGUNAAN ANONIM (OPSIONAL)
+   Secara bawaan, aplikasi mengirim statistik penggunaan anonim paling banyak sekali sehari (berisi ID instalasi acak, versi aplikasi, sistem operasi, arsitektur prosesor, dan kode bahasa antarmuka) semata-mata agar pengembang mengetahui sistem operasi dan versi mana yang masih digunakan.
+   Anda dapat mematikan fitur ini kapan saja melalui:
+   Pengaturan -> Umum -> Kirim statistik penggunaan anonim.
+
+3. LAPORAN CRASH & MASALAH (DENGAN PERSETUJUAN ANDA)
+   Jika aplikasi berhenti mendadak, detail teknis kesalahannya disimpan secara lokal terlebih dahulu dan tidak pernah dikirim otomatis tanpa sepengetahuan Anda. Saat aplikasi dibuka kembali, Anda dapat meninjau, mengirim, atau membuang laporan tersebut.
+
+4. LISENSI PERANGKAT LUNAK
+   SolideoWorship adalah perangkat lunak sumber terbuka di bawah lisensi GNU General Public License v3.0 (GPL-3.0-only). Salinan lengkap lisensi disertakan di dalam folder instalasi (LICENSE.txt).
+
+Kebijakan privasi lengkap: https://solideoworship.com/privacy

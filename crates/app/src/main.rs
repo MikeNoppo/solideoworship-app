@@ -2,6 +2,7 @@
 
 mod bible_manager;
 mod bible_tab;
+mod bug_report;
 mod captions;
 mod display;
 mod drag;
@@ -43,6 +44,7 @@ use sdw_library::{SongId, SongSummary, schedule_file};
 
 use crate::bible_manager::BibleManager;
 use crate::bible_tab::BibleTab;
+use crate::bug_report::BugReport;
 use crate::captions::Captions;
 use crate::display::Display;
 use crate::editor::Editor;
@@ -53,6 +55,7 @@ use crate::message::{
 };
 use crate::recovery::Recovery;
 use crate::render::transition::{Frame, Playback, Scene};
+use crate::report::CrashRecord;
 use crate::schedule::{Entry, Schedule};
 use crate::theme_dialog::ThemeDialog;
 use crate::work::{Outcome, Store};
@@ -172,6 +175,7 @@ enum Modal {
     Theme(Box<ThemeDialog>),
     Unsaved(Pending),
     Bibles(Box<BibleManager>),
+    Report(Box<BugReport>),
 }
 
 #[derive(Default)]
@@ -203,6 +207,7 @@ struct App {
     store: Store,
     recovery: Recovery,
     recovery_loaded: bool,
+    pending_crash: Option<CrashRecord>,
     fonts_loaded: bool,
     library_ready: bool,
     library_unavailable: Option<Box<str>>,
@@ -260,6 +265,9 @@ impl App {
         let recovery_path = app.recovery.path().to_path_buf();
         let recovery_loaded =
             work::background(move || recovery::load(&recovery_path)).map(Message::RecoveryLoaded);
+        let crash_path = paths::crash_file();
+        let crash_loaded =
+            work::background(move || Ok(report::load_crash(&crash_path))).map(Message::CrashLoaded);
         let fonts_loaded = work::background(|| {
             render::fonts::warm();
             Ok(())
@@ -273,6 +281,7 @@ impl App {
                 load_displays(),
                 library_opened,
                 recovery_loaded,
+                crash_loaded,
                 fonts_loaded,
             ]),
         )
@@ -380,6 +389,7 @@ impl App {
                         } = *startup;
                         self.settings = settings;
                         style::set_shadows(self.settings.general.shadows);
+                        report::ping_telemetry(self.settings.general.telemetry);
                         self.schedule.recompile(&self.settings.styles);
                         self.bible.set_style(&self.settings.styles.scripture);
                         self.resolve_monitor();
@@ -418,6 +428,13 @@ impl App {
 
                 self.recovery.activate();
                 self.leave_splash()
+            }
+            Message::CrashLoaded(result) => {
+                if let Ok(Some(crash)) = result {
+                    self.pending_crash = Some(crash);
+                    self.notify(Notice::Crash);
+                }
+                Task::none()
             }
             Message::FontsLoaded => {
                 self.fonts_loaded = true;
@@ -473,7 +490,11 @@ impl App {
                 Task::none()
             }
             Message::NoticeDismissed(notice) => {
-                self.notices.retain(|shown| *shown != notice);
+                if notice == Notice::Crash {
+                    self.clear_pending_crash();
+                } else {
+                    self.notices.retain(|shown| *shown != notice);
+                }
                 Task::none()
             }
 
@@ -982,6 +1003,9 @@ impl App {
                 Some(Modal::Bibles(_)) => {
                     self.update(Message::BibleManager(bible_manager::Message::Close))
                 }
+                Some(Modal::Report(_)) => {
+                    self.update(Message::BugReport(bug_report::Message::Dismiss))
+                }
                 _ => Task::none(),
             },
             Message::ThemeRequested => {
@@ -1097,6 +1121,9 @@ impl App {
                 Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Save)),
                 Some(Modal::Theme(_)) => self.update(Message::Theme(theme_dialog::Message::Save)),
                 Some(Modal::Unsaved(_)) => self.update(Message::Unsaved(UnsavedChoice::Save)),
+                Some(Modal::Report(_)) => {
+                    self.update(Message::BugReport(bug_report::Message::Submit))
+                }
                 Some(Modal::Bibles(_)) => Task::none(),
                 None => self.update(Message::ScheduleSaveRequested),
             },
@@ -1324,6 +1351,62 @@ impl App {
                     (_, Ok(())) => {}
                 }
                 self.load_bibles()
+            }
+            Message::BugReportRequested => {
+                if self.modal.is_none() {
+                    self.open_modal(Modal::Report(Box::new(BugReport::manual())));
+                }
+                Task::none()
+            }
+            Message::CrashReportRequested => {
+                if self.modal.is_none()
+                    && let Some(crash) = self.pending_crash.clone()
+                {
+                    self.open_modal(Modal::Report(Box::new(BugReport::from_crash(crash))));
+                }
+                Task::none()
+            }
+            Message::BugReport(message) => {
+                let ticket = self.modal_ticket;
+                let Some(Modal::Report(dialog)) = &mut self.modal else {
+                    return Task::none();
+                };
+
+                match dialog.update(message) {
+                    bug_report::Action::None => Task::none(),
+                    bug_report::Action::Close => {
+                        self.modal = None;
+                        Task::none()
+                    }
+                    bug_report::Action::DiscardCrash => {
+                        self.modal = None;
+                        self.clear_pending_crash();
+                        Task::none()
+                    }
+                    bug_report::Action::Submit(payload) => {
+                        let is_crash = dialog.is_crash();
+                        work::background(move || report::submit_report(&payload))
+                            .map(move |result| Message::ReportSubmitted(ticket, is_crash, result))
+                    }
+                }
+            }
+            Message::ReportSubmitted(ticket, is_crash, result) => {
+                match result {
+                    Ok(()) => {
+                        if is_crash {
+                            self.clear_pending_crash();
+                        }
+                        self.close_modal(ticket);
+                        self.show_toast(Toast::Done(t().report.sent.into()));
+                        self.flash(t().report.sent.to_owned());
+                    }
+                    Err(error) => {
+                        if let Some(Modal::Report(dialog)) = self.modal_for(ticket) {
+                            dialog.fail(&error);
+                        }
+                    }
+                }
+                Task::none()
             }
         }
     }
@@ -1718,6 +1801,9 @@ impl App {
             self.bible.set_style(&settings.styles.scripture);
         }
         style::set_shadows(settings.general.shadows);
+        if !self.settings.general.telemetry && settings.general.telemetry {
+            report::ping_telemetry(true);
+        }
         let monitor_changed = self.settings.output.monitor != settings.output.monitor;
         self.settings = settings;
         if monitor_changed {
@@ -1754,6 +1840,16 @@ impl App {
         self.drag = None;
         self.modal_ticket += 1;
         self.modal = Some(modal);
+    }
+
+    fn clear_pending_crash(&mut self) {
+        self.pending_crash = None;
+        self.notices.retain(|notice| *notice != Notice::Crash);
+        let path = paths::crash_file();
+        let _ = work::background(move || {
+            report::clear_crash(&path);
+            Ok(())
+        });
     }
 
     fn insert_song(&mut self, index: Option<usize>, id: SongId, result: Outcome<Song>) {
@@ -4413,6 +4509,34 @@ mod tests {
         assert_eq!(app.splash_status(), (t().app.preparing_window, 2));
         let _ = app.update(Message::SplashElapsed);
         assert_eq!(app.phase, Phase::Operator);
+    }
+
+    #[test]
+    fn crash_notice_opens_report_dialog_and_clears_after_submission() {
+        let mut app = App::default();
+        let crash = super::CrashRecord {
+            app_version: "0.1.0-beta.2".into(),
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            thread: "main".into(),
+            location: Some("crates/app/src/main.rs:99:1".into()),
+            panic_message: "panic in operator".into(),
+            occurred_at: 1_700_000_000,
+        };
+
+        let _ = app.update(Message::CrashLoaded(Ok(Some(crash))));
+        assert!(app.notices.contains(&Notice::Crash));
+        assert!(app.pending_crash.is_some());
+
+        let _ = app.update(Message::CrashReportRequested);
+        assert!(matches!(&app.modal, Some(Modal::Report(report)) if report.is_crash()));
+        let ticket = app.modal_ticket;
+
+        let _ = app.update(Message::ReportSubmitted(ticket, true, Ok(())));
+        assert!(app.modal.is_none());
+        assert!(app.pending_crash.is_none());
+        assert!(!app.notices.contains(&Notice::Crash));
+        assert!(app.toast.is_some());
     }
 }
 

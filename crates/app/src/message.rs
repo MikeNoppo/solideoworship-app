@@ -8,9 +8,10 @@ use sdw_library::{BibleBook, BibleId, BibleSummary, ImportReport, SongId, SongSu
 
 use crate::display::Display;
 use crate::files::{SaveFailure, SaveTarget};
+use crate::report::CrashRecord;
 use crate::theme_dialog;
 use crate::work::Outcome;
-use crate::{bible_manager, bible_tab, editor};
+use crate::{bible_manager, bible_tab, bug_report, editor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zoom {
@@ -49,6 +50,7 @@ impl LibraryTab {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
     Recovered,
+    Crash,
     Library,
     Screens,
     Disconnected,
@@ -102,6 +104,7 @@ pub enum Message {
     ControlOpened,
     LibraryOpened(Outcome<Box<StartupLibrary>>),
     RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
+    CrashLoaded(Outcome<Option<CrashRecord>>),
     FontsLoaded,
 
     DisplaysRequested,
@@ -198,6 +201,10 @@ pub enum Message {
     BibleManager(bible_manager::Message),
     BibleImported(u64, Outcome<ImportReport>),
     BibleDeleted(u64, Outcome<()>),
+    BugReportRequested,
+    CrashReportRequested,
+    BugReport(bug_report::Message),
+    ReportSubmitted(u64, bool, Outcome<()>),
 }
 impl Message {
     pub fn refreshes_captions(&self) -> bool {
@@ -227,7 +234,8 @@ impl Message {
             | Self::ZoomSaveDue(..)
             | Self::UiScaleSaved(..)
             | Self::SaveShortcut
-            | Self::BibleManager(..) => false,
+            | Self::BibleManager(..)
+            | Self::BugReport(..) => false,
             Self::SplashOpened
             | Self::SplashElapsed
             | Self::ControlOpened
@@ -237,6 +245,7 @@ impl Message {
             | Self::MenuToggled(..)
             | Self::MenuDismissed
             | Self::RecoveryLoaded(..)
+            | Self::CrashLoaded(..)
             | Self::DisplaysRequested
             | Self::DisplaysLoaded(..)
             | Self::DisplaySelected(..)
@@ -298,7 +307,10 @@ impl Message {
             | Self::PassageFound(..)
             | Self::BibleManagerRequested
             | Self::BibleImported(..)
-            | Self::BibleDeleted(..) => true,
+            | Self::BibleDeleted(..)
+            | Self::BugReportRequested
+            | Self::CrashReportRequested
+            | Self::ReportSubmitted(..) => true,
         }
     }
 }

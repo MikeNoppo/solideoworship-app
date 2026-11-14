@@ -101,6 +101,15 @@ pub fn t() -> &'static Strings {
     ACTIVE.get().copied().unwrap_or(&EN)
 }
 
+pub fn code() -> &'static str {
+    let active = t();
+    Language::ALL
+        .into_iter()
+        .find(|language| std::ptr::eq(language.strings(), active))
+        .unwrap_or(Language::En)
+        .code()
+}
+
 pub trait Label {
     fn label(self) -> &'static str;
 }
@@ -169,6 +178,17 @@ impl Label for ColorSlot {
             Self::Background => t().theme.background,
             Self::Body => t().theme.text,
             Self::Footer => t().theme.footer,
+        }
+    }
+}
+
+impl Label for report::ReportCategory {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Bug => t().report.category_bug,
+            Self::Display => t().report.category_display,
+            Self::Crash => t().report.category_crash,
+            Self::Other => t().report.category_other,
         }
     }
 }

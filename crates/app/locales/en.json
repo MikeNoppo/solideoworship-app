@@ -37,7 +37,9 @@
     "recovered_title": "Schedule recovered.",
     "recovered_body": "SolideoWorship closed before this schedule was saved, so it was restored from recovery.sdw. Save it to keep it.",
     "disconnected_title": "{screen} was disconnected.",
-    "disconnected_body": "The output window was closed. Reconnect the cable and reload screens, or pick another screen."
+    "disconnected_body": "The output window was closed. Reconnect the cable and reload screens, or pick another screen.",
+    "crash_title": "SolideoWorship stopped unexpectedly last time.",
+    "crash_body": "Send a crash report to help fix this problem."
   },
   "toolbar": {
     "new": "New schedule",
@@ -435,6 +437,9 @@
     "startup_hint": "Uses the preferred monitor when it is available.",
     "advance": "Advance the schedule preview after Go Live",
     "advance_hint": "Moves to the next item after the selected item is live.",
+    "privacy": "PRIVACY",
+    "telemetry": "Send anonymous usage statistics",
+    "telemetry_hint": "Sends app version, OS, and language once a day. Songs, Bibles, and schedules never leave this computer.",
     "monitor": "OUTPUT MONITOR",
     "no_monitor": "No preferred monitor",
     "no_monitors": "No monitors detected. Refresh to try again.",
@@ -523,5 +528,32 @@
     "demo_hint": "Try a Preview button to change the sample slide or toggle Black, Clear or Logo. This demo stays inside Settings.",
     "demo_playing": "Playing sample transition…",
     "demo_idle": "Ready for a sample transition"
+  },
+  "report": {
+    "title": "Report an issue",
+    "subtitle": "Send a bug report or feedback to the developer",
+    "crash_title": "Report unexpected stop",
+    "crash_subtitle": "Review the captured error details before sending",
+    "review_crash": "Report crash…",
+    "category": "CATEGORY",
+    "category_bug": "Bug",
+    "category_display": "Display",
+    "category_crash": "Crash",
+    "category_other": "Other",
+    "crash_details": "CAPTURED ERROR",
+    "description": "What happened?",
+    "crash_note": "What were you doing when it stopped?",
+    "description_placeholder": "Describe the problem and the steps that led to it…",
+    "crash_note_placeholder": "Optional note to help reproduce this crash…",
+    "contact": "Contact (email or WhatsApp)",
+    "contact_placeholder": "Optional, in case we need more details",
+    "system_heading": "INCLUDED SYSTEM INFO",
+    "privacy_note": "Only this form and basic system info (app version, OS) are sent. Your songs, Bibles, and schedules never leave this computer.",
+    "needs_description": "Describe the problem before sending",
+    "send": "Send report",
+    "sending": "Sending…",
+    "discard_crash": "Discard report",
+    "sent": "Report sent. Thank you!",
+    "send_failed": "Could not send report: {error}. Your text is kept; try again."
   }
 }

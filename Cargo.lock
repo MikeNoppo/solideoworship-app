@@ -2649,6 +2649,7 @@ dependencies = [
  "rfd",
  "sdw-core",
  "sdw-library",
+ "serde",
  "serde_json",
  "sys-locale",
  "winresource",

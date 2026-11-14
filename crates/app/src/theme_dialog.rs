@@ -263,6 +263,7 @@ pub enum Message {
     Guides(bool),
     OpenAtStartup(bool),
     AdvanceAfterGoLive(bool),
+    Telemetry(bool),
     CanvasFormat(CanvasFormat),
     SafeMargin(MarginSide, String),
     LogoHexChanged(String),
@@ -495,6 +496,10 @@ impl ThemeDialog {
             }
             Message::AdvanceAfterGoLive(value) => {
                 self.draft.general.advance_after_go_live = value;
+                return Action::None;
+            }
+            Message::Telemetry(value) => {
+                self.draft.general.telemetry = value;
                 return Action::None;
             }
             Message::CanvasFormat(value) => self.draft.output.layout.format = value,

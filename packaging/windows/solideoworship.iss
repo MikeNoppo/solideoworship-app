@@ -35,8 +35,14 @@ OutputBaseFilename={#AppName}-{#AppVersion}-windows-x64-setup
 UninstallDisplayIcon={app}\{#AppExe}
 
 [Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "id"; MessagesFile: "Indonesian.isl"
+Name: "en"; MessagesFile: "compiler:Default.isl"; LicenseFile: "privacy-en.txt"
+Name: "id"; MessagesFile: "Indonesian.isl"; LicenseFile: "privacy-id.txt"
+
+[Messages]
+en.WizardLicense=Privacy Policy & License Agreement
+en.LicenseLabel3=Please read the following Privacy Policy and License Agreement. You must accept the terms before continuing with the installation.
+id.WizardLicense=Kebijakan Privasi & Kesepakatan Lisensi
+id.LicenseLabel3=Silakan baca Kebijakan Privasi dan Kesepakatan Lisensi berikut. Anda harus menyetujuinya sebelum meneruskan instalasi.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -44,6 +50,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\..\target\release\sdw-app.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\PRIVACY.md"; DestDir: "{app}"; DestName: "PRIVACY.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\Inter-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Inter.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\JetBrainsMono-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-JetBrainsMono.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\Lucide-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Lucide.txt"; Flags: ignoreversion

@@ -123,12 +123,23 @@ pub fn view(app: &App) -> Element<'_, Message> {
         t().settings.title,
     );
 
+    let report = hint(
+        icon_button(
+            icon::CIRCLE_ALERT,
+            style::TEXT_2,
+            32.0,
+            Some(Message::BugReportRequested),
+        ),
+        t().report.title,
+    );
+
     container(
         row![logo::mark(&logo::SMALL, 23.0), ui::vrule(20.0), switcher,]
             .push(unsaved)
             .push(files)
             .push(ui::vrule(20.0))
             .push(settings)
+            .push(report)
             .push(space::horizontal())
             .push(picker)
             .push(output)
