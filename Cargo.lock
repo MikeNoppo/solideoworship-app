@@ -2642,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "sdw-app"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.3"
 dependencies = [
  "display-info",
  "iced",
@@ -2657,11 +2657,11 @@ dependencies = [
 
 [[package]]
 name = "sdw-core"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.3"
 
 [[package]]
 name = "sdw-library"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.3"
 dependencies = [
  "quick-xml",
  "rusqlite",
