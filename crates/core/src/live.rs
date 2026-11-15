@@ -134,6 +134,9 @@ mod tests {
                     label: None,
                     header: None,
                     footer: None,
+                    body_box: None,
+                    footer_box: None,
+                    ..Slide::default()
                 })
                 .collect(),
         })
