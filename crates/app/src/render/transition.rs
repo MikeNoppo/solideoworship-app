@@ -284,6 +284,9 @@ mod tests {
                 label: None,
                 header: None,
                 footer: None,
+                body_box: None,
+                footer_box: None,
+                ..Slide::default()
             }],
         });
         let mut theme = SlideTheme::song();
@@ -520,6 +523,9 @@ mod tests {
                     label: None,
                     header: None,
                     footer: None,
+                    body_box: None,
+                    footer_box: None,
+                    ..Slide::default()
                 }],
             }))
             .unwrap(),

@@ -802,7 +802,7 @@ fn preset_swatches<'a>(
     busy: bool,
     message: fn(Rgb) -> Message,
 ) -> Element<'a, Message> {
-    PRESETS
+    style::COLOR_PRESETS
         .into_iter()
         .fold(row![].spacing(6), |list, preset| {
             list.push(

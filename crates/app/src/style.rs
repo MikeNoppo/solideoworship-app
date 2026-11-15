@@ -5,6 +5,7 @@ use iced::font::Weight;
 use iced::theme::Palette;
 use iced::widget::{button, container, scrollable, text_editor, text_input};
 use iced::{Background, Border, Color, Font, Shadow, Theme, Vector};
+use sdw_core::theme::Rgb;
 
 pub const BG: Color = Color::from_rgb8(0x0A, 0x0A, 0x0B);
 pub const SURFACE: Color = Color::from_rgb8(0x11, 0x11, 0x13);
@@ -19,7 +20,22 @@ pub const INVERSE: Color = Color::from_rgb8(0xF4, 0xF4, 0xF5);
 pub const ON_INVERSE: Color = BG;
 pub const LIVE: Color = Color::from_rgb8(0xE5, 0x48, 0x4D);
 pub const LIVE_SOFT: Color = Color::from_rgba8(0xE5, 0x48, 0x4D, 0.14);
+pub const SUCCESS: Color = Color::from_rgb8(0x30, 0xA4, 0x6C);
+pub const LOCKED: Color = Color::from_rgb8(0xF5, 0xA6, 0x23);
 pub const SLIDE_BG: Color = Color::from_rgb8(0x14, 0x14, 0x16);
+
+pub const COLOR_PRESETS: [Rgb; 10] = [
+    Rgb::from_rgb8(0, 0, 0),
+    Rgb::from_rgb8(20, 20, 22),
+    Rgb::from_rgb8(39, 39, 42),
+    Rgb::from_rgb8(63, 63, 70),
+    Rgb::from_rgb8(23, 30, 54),
+    Rgb::from_rgb8(22, 42, 34),
+    Rgb::from_rgb8(46, 34, 26),
+    Rgb::from_rgb8(245, 240, 230),
+    Rgb::from_rgb8(228, 228, 231),
+    Rgb::from_rgb8(255, 255, 255),
+];
 
 pub const DISABLED: f32 = 0.4;
 pub const MUTED: f32 = 0.45;
@@ -382,5 +398,38 @@ pub fn swatch(color: Color, is_selected: bool) -> impl Fn(&Theme, button::Status
             },
         },
         ..button::Style::default()
+    }
+}
+
+pub fn canvas_text_editor(
+    text_color: Color,
+) -> impl Fn(&Theme, text_editor::Status) -> text_editor::Style {
+    move |_theme, _status| text_editor::Style {
+        background: Color::from_rgba(0.0, 0.0, 0.0, 0.25).into(),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 4.0.into(),
+        },
+        placeholder: text_color.scale_alpha(0.45),
+        value: text_color,
+        selection: BORDER_STRONG.scale_alpha(0.75),
+    }
+}
+
+pub fn canvas_text_input(
+    text_color: Color,
+) -> impl Fn(&Theme, text_input::Status) -> text_input::Style {
+    move |_theme, _status| text_input::Style {
+        background: Color::from_rgba(0.0, 0.0, 0.0, 0.35).into(),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 4.0.into(),
+        },
+        icon: text_color.scale_alpha(0.6),
+        placeholder: text_color.scale_alpha(0.45),
+        value: text_color,
+        selection: BORDER_STRONG.scale_alpha(0.75),
     }
 }
