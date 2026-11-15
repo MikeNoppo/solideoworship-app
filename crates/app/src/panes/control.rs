@@ -88,7 +88,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let dialog: Option<Element<'_, Message>> = match &app.modal {
         Some(Modal::Editor(editor)) => Some(
             editor
-                .view(&app.settings.styles.song.theme, &app.settings.labels)
+                .view(
+                    &app.settings.styles.song.theme,
+                    &app.settings.labels,
+                    app.control_width,
+                    app.control_height,
+                )
                 .map(Message::Editor),
         ),
         Some(Modal::Theme(dialog)) => Some(dialog.view(app.control_width).map(Message::Theme)),

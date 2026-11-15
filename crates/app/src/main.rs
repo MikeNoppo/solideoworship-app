@@ -920,11 +920,16 @@ impl App {
 
                 match editor.update(message) {
                     editor::Action::None => Task::none(),
+                    editor::Action::Focus(id) => operation::focus(id),
                     editor::Action::Close => {
                         self.modal = None;
                         Task::none()
                     }
-                    editor::Action::Save { origin, song } => self.store.run(
+                    editor::Action::Save {
+                        origin,
+                        song,
+                        close,
+                    } => self.store.run(
                         move |library| {
                             let id = match origin {
                                 Some(id) => library.update_song(id, &song).map(|()| id)?,
@@ -933,7 +938,7 @@ impl App {
 
                             Ok((id, song))
                         },
-                        move |result| Message::SongSaved(ticket, result),
+                        move |result| Message::SongSaved(ticket, close, result),
                     ),
                     editor::Action::Delete(id) => {
                         let title: Box<str> = editor.name().into();
@@ -945,9 +950,15 @@ impl App {
                     }
                 }
             }
-            Message::SongSaved(ticket, result) => match result {
+            Message::SongSaved(ticket, close, result) => match result {
                 Ok((id, song)) => {
-                    self.close_modal(ticket);
+                    if close {
+                        self.close_modal(ticket);
+                    } else if ticket == self.modal_ticket
+                        && let Some(Modal::Editor(editor)) = &mut self.modal
+                    {
+                        editor.mark_applied(id, &song);
+                    }
                     self.show_toast(Toast::Saved {
                         id,
                         text: fill(t().library.saved, &[("title", &song.title())]).into_boxed_str(),
@@ -1006,6 +1017,14 @@ impl App {
                 Some(Modal::Report(_)) => {
                     self.update(Message::BugReport(bug_report::Message::Dismiss))
                 }
+                _ => Task::none(),
+            },
+            Message::ModalUndo => match &self.modal {
+                Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Undo)),
+                _ => Task::none(),
+            },
+            Message::ModalRedo => match &self.modal {
+                Some(Modal::Editor(_)) => self.update(Message::Editor(editor::Message::Redo)),
                 _ => Task::none(),
             },
             Message::ThemeRequested => {
@@ -2248,9 +2267,13 @@ fn modal_shortcut(event: iced::Event, status: event::Status) -> Option<Message> 
             modified_key,
             modifiers,
             ..
-        }) if modifiers.command() => {
-            zoom_shortcut(&key, &modified_key, modifiers).or_else(|| save_shortcut(key))
-        }
+        }) if modifiers.command() => zoom_shortcut(&key, &modified_key, modifiers)
+            .or_else(|| save_shortcut(key.clone()))
+            .or_else(|| {
+                (status == event::Status::Ignored)
+                    .then(|| history_shortcut(key, modifiers))
+                    .flatten()
+            }),
         iced::Event::Keyboard(keyboard::Event::KeyPressed {
             key: keyboard::Key::Named(Named::Escape),
             ..
@@ -2289,6 +2312,15 @@ fn zoom_shortcut(
 fn save_shortcut(key: keyboard::Key) -> Option<Message> {
     match key.as_ref() {
         keyboard::Key::Character("s") => Some(Message::SaveShortcut),
+        _ => None,
+    }
+}
+
+fn history_shortcut(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
+    match key.as_ref() {
+        keyboard::Key::Character("z") if modifiers.shift() => Some(Message::ModalRedo),
+        keyboard::Key::Character("z") => Some(Message::ModalUndo),
+        keyboard::Key::Character("y") => Some(Message::ModalRedo),
         _ => None,
     }
 }
@@ -3125,7 +3157,7 @@ mod tests {
         let _ = app.update(Message::Editor(editor::Message::Cancel));
         let _ = app.update(Message::SongCreateRequested);
 
-        let _ = app.update(Message::SongSaved(old_ticket, Ok((id, song))));
+        let _ = app.update(Message::SongSaved(old_ticket, true, Ok((id, song))));
 
         assert!(matches!(app.modal, Some(Modal::Editor(_))));
     }
@@ -3137,9 +3169,29 @@ mod tests {
         let _ = app.open_editor(Some(id), &song);
         let ticket = app.modal_ticket;
 
-        let _ = app.update(Message::SongSaved(ticket, Ok((id, song))));
+        let _ = app.update(Message::SongSaved(ticket, true, Ok((id, song))));
 
         assert!(app.modal.is_none());
+    }
+
+    #[test]
+    fn editor_apply_keeps_editor_open_and_records_origin() {
+        let (id, song) = library_song();
+        let mut app = App::default();
+        let _ = app.open_editor(None, &Song::new("Draft", "one", None));
+        let ticket = app.modal_ticket;
+
+        let _ = app.update(Message::SongSaved(ticket, false, Ok((id, song))));
+
+        let Some(Modal::Editor(editor)) = &mut app.modal else {
+            panic!("editor should remain open after Apply");
+        };
+        let editor::Action::Save { origin, close, .. } = editor.update(editor::Message::Save)
+        else {
+            panic!("expected save action");
+        };
+        assert_eq!(origin, Some(id));
+        assert!(close);
     }
 
     #[test]
@@ -3180,7 +3232,7 @@ mod tests {
         let ticket = app.modal_ticket;
         let _ = app.update(Message::Theme(crate::theme_dialog::Message::Cancel));
 
-        let _ = app.update(Message::SongSaved(ticket, Err("broken".into())));
+        let _ = app.update(Message::SongSaved(ticket, true, Err("broken".into())));
 
         assert_eq!(app.library_error.as_deref(), Some("broken"));
     }
@@ -3794,7 +3846,7 @@ mod tests {
         let _ = app.open_editor(None, &song);
         let ticket = app.modal_ticket;
 
-        let _ = app.update(Message::SongSaved(ticket, Ok((id, song))));
+        let _ = app.update(Message::SongSaved(ticket, true, Ok((id, song))));
         assert_eq!(app.toast.as_ref().and_then(super::Toast::saved), Some(id));
 
         let _ = app.update(Message::ToastAccepted);

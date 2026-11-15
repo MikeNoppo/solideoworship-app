@@ -166,7 +166,7 @@ pub enum Message {
     SongCreateRequested,
     SongEditRequested(SongId),
     SongEditLoaded(SongId, Outcome<Song>),
-    SongSaved(u64, Outcome<(SongId, Song)>),
+    SongSaved(u64, bool, Outcome<(SongId, Song)>),
     SongDeleted(u64, SongId, Box<str>, Outcome<()>),
     ToastDismissed,
     ToastExpired(u64),
@@ -174,6 +174,8 @@ pub enum Message {
     ModalSubmitted,
     ToastAccepted,
     ModalDismissed,
+    ModalUndo,
+    ModalRedo,
     Editor(editor::Message),
     ThemeRequested,
     Theme(theme_dialog::Message),
@@ -229,6 +231,8 @@ impl Message {
             | Self::ToastExpired(..)
             | Self::ModalDismissed
             | Self::ModalSubmitted
+            | Self::ModalUndo
+            | Self::ModalRedo
             | Self::Editor(..)
             | Self::Theme(..)
             | Self::ZoomSaveDue(..)
