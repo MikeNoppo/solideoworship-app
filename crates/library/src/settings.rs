@@ -426,15 +426,7 @@ impl From<&FontSpec> for FontDto {
     fn from(font: &FontSpec) -> Self {
         Self {
             family: Some(font.family.clone()),
-            weight: Some(
-                match font.weight {
-                    FontWeight::Normal => "normal",
-                    FontWeight::Medium => "medium",
-                    FontWeight::Semibold => "semibold",
-                    FontWeight::Bold => "bold",
-                }
-                .into(),
-            ),
+            weight: Some(font_weight_name(font.weight).into()),
         }
     }
 }
@@ -443,13 +435,11 @@ impl FontDto {
     fn into_font(self, defaults: &FontSpec) -> FontSpec {
         FontSpec {
             family: self.family.unwrap_or_else(|| defaults.family.clone()),
-            weight: match self.weight.as_deref() {
-                Some("normal") => FontWeight::Normal,
-                Some("medium") => FontWeight::Medium,
-                Some("semibold") => FontWeight::Semibold,
-                Some("bold") => FontWeight::Bold,
-                _ => defaults.weight,
-            },
+            weight: self
+                .weight
+                .as_deref()
+                .and_then(font_weight_from_name)
+                .unwrap_or(defaults.weight),
         }
     }
 }
@@ -670,7 +660,26 @@ fn reference_format_from_name(name: &str) -> Option<sdw_core::ReferenceFormat> {
     }
 }
 
-fn align_name(align: TextAlign) -> &'static str {
+pub(crate) fn font_weight_name(weight: FontWeight) -> &'static str {
+    match weight {
+        FontWeight::Normal => "normal",
+        FontWeight::Medium => "medium",
+        FontWeight::Semibold => "semibold",
+        FontWeight::Bold => "bold",
+    }
+}
+
+pub(crate) fn font_weight_from_name(name: &str) -> Option<FontWeight> {
+    match name {
+        "normal" => Some(FontWeight::Normal),
+        "medium" => Some(FontWeight::Medium),
+        "semibold" => Some(FontWeight::Semibold),
+        "bold" => Some(FontWeight::Bold),
+        _ => None,
+    }
+}
+
+pub(crate) fn align_name(align: TextAlign) -> &'static str {
     match align {
         TextAlign::Left => "left",
         TextAlign::Center => "center",
@@ -678,7 +687,7 @@ fn align_name(align: TextAlign) -> &'static str {
     }
 }
 
-fn align_from_name(name: &str) -> Option<TextAlign> {
+pub(crate) fn align_from_name(name: &str) -> Option<TextAlign> {
     match name {
         "left" => Some(TextAlign::Left),
         "center" => Some(TextAlign::Center),
