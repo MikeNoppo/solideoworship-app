@@ -2,7 +2,13 @@ use rusqlite::Connection;
 
 use crate::Error;
 
-const MIGRATIONS: &[&str] = &[V1_SONGS, V2_SETTINGS, V3_BIBLES];
+const MIGRATIONS: &[&str] = &[
+    V1_SONGS,
+    V2_SETTINGS,
+    V3_BIBLES,
+    V4_SONG_LAYOUT,
+    V5_SONG_FORMAT,
+];
 
 const V1_SONGS: &str = "
 CREATE TABLE songs (
@@ -62,6 +68,14 @@ CREATE TABLE verses (
     text TEXT NOT NULL,
     PRIMARY KEY (bible_id, book, chapter, verse)
 ) WITHOUT ROWID;
+";
+
+const V4_SONG_LAYOUT: &str = "
+ALTER TABLE songs ADD COLUMN layout TEXT;
+";
+
+const V5_SONG_FORMAT: &str = "
+ALTER TABLE songs ADD COLUMN format TEXT;
 ";
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<(), Error> {
@@ -127,5 +141,30 @@ mod tests {
                 supported
             } if supported == MIGRATIONS.len() as u32
         ));
+    }
+
+    #[test]
+    fn v4_database_migrates_to_v5_keeping_existing_songs() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for (version, script) in (1..).zip(&MIGRATIONS[..4]) {
+            conn.execute_batch(script).unwrap();
+            conn.pragma_update(None, "user_version", version).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO songs (title, lyrics) VALUES (?1, ?2)",
+            ("Existing", "Line"),
+        )
+        .unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        assert_eq!(version(&conn), MIGRATIONS.len() as u32);
+        let (title, format): (String, Option<String>) = conn
+            .query_row("SELECT title, format FROM songs", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(title, "Existing");
+        assert_eq!(format, None);
     }
 }

@@ -5,6 +5,10 @@ use sdw_core::bible::{Book, Passage, Reference, Verse};
 use sdw_core::{ScheduleItem, Song};
 use serde::{Deserialize, Serialize};
 
+use crate::songs::{
+    SlideFormatDto, SongSlideDto, decode_format, decode_slides, encode_format, encode_slides,
+};
+
 const FORMAT: &str = "solideoworship-schedule";
 const VERSION: u32 = 1;
 
@@ -126,6 +130,10 @@ enum ItemDto {
         title: String,
         lyrics: String,
         copyright: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        layout: Option<Vec<SongSlideDto>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        format: Option<Box<SlideFormatDto>>,
     },
     Passage {
         book: u8,
@@ -149,6 +157,8 @@ impl From<&ScheduleItem> for ItemDto {
                 title: song.title().to_owned(),
                 lyrics: song.lyrics().to_owned(),
                 copyright: song.copyright().map(str::to_owned),
+                layout: encode_slides(song.slides()),
+                format: encode_format(song.format()).map(Box::new),
             },
             ScheduleItem::Passage(passage) => {
                 let reference = passage.reference();
@@ -179,11 +189,20 @@ impl ItemDto {
                 title,
                 lyrics,
                 copyright,
-            } => Some(ScheduleItem::Song(Song::new(
-                &title,
-                &lyrics,
-                copyright.as_deref(),
-            ))),
+                layout,
+                format,
+            } => {
+                let song = match layout {
+                    Some(slides) if !slides.is_empty() => {
+                        Song::with_slides(&title, copyright.as_deref(), decode_slides(slides))
+                    }
+                    _ => Song::new(&title, &lyrics, copyright.as_deref()),
+                };
+                Some(ScheduleItem::Song(match format {
+                    Some(format) => song.with_format(decode_format(*format)),
+                    None => song,
+                }))
+            }
             Self::Passage {
                 book,
                 chapter,
@@ -356,5 +375,63 @@ mod tests {
             open(&dir.path().join("missing.sdw")),
             Err(ScheduleFileError::Io(_))
         ));
+    }
+
+    #[test]
+    fn song_slide_layout_round_trips_in_schedule_file() {
+        use sdw_core::{SlideBox, SongSlide};
+
+        let dir = TempDir::new("schedule-layout");
+        let path = dir.path().join("layout.sdw");
+        let song = Song::with_slides(
+            "Layout Song",
+            Some("© Test"),
+            vec![SongSlide {
+                label: Some("Verse 1".into()),
+                body: "Line one\nLine two".into(),
+                body_box: Some(SlideBox::new(0.15, 0.1, 0.7, 0.5)),
+                footer_box: Some(SlideBox::new(0.1, 0.85, 0.8, 0.1)),
+            }],
+        );
+        let items = vec![ScheduleItem::Song(song)];
+        save(&path, &items).unwrap();
+        assert_eq!(open(&path).unwrap(), items);
+    }
+
+    #[test]
+    fn empty_layout_array_falls_back_to_lyrics() {
+        let text = r#"{"format":"solideoworship-schedule","version":1,"items":[
+            {"type":"song","title":"A","lyrics":"[Verse 1]\nLine","copyright":null,"layout":[]}
+        ]}"#;
+
+        let items = open_text("schedule-empty-layout", text).unwrap();
+        assert_eq!(
+            items,
+            vec![ScheduleItem::Song(Song::new("A", "[Verse 1]\nLine", None))]
+        );
+    }
+
+    #[test]
+    fn song_format_round_trips_in_schedule_file() {
+        use sdw_core::theme::{FontWeight, Rgb};
+        use sdw_core::{BoxFill, BulletStyle, SlideFormat, TextSize};
+
+        let dir = TempDir::new("schedule-format");
+        let path = dir.path().join("formatted.sdw");
+        let mut format = SlideFormat::default();
+        format.body.fill = Some(BoxFill::Solid {
+            color: Rgb::from_rgb8(20, 40, 80),
+            opacity: 0.6,
+        });
+        format.body.text.font_weight = Some(FontWeight::Bold);
+        format.body.text.italic = true;
+        format.body.text.font_size = Some(TextSize::AutoFit);
+        format.body.text.bullets = BulletStyle::Numbered;
+        format.footer_on_top = false;
+
+        let song = Song::new("Styled", "Line 1\nLine 2", Some("© 2026")).with_format(format);
+        let items = vec![ScheduleItem::Song(song)];
+        save(&path, &items).unwrap();
+        assert_eq!(open(&path).unwrap(), items);
     }
 }

@@ -45,19 +45,6 @@ const COLUMNS: usize = 3;
 const GAP: f32 = 12.0;
 const CHARS_STEP: u16 = 10;
 
-const PRESETS: [Rgb; 10] = [
-    Rgb::from_rgb8(0, 0, 0),
-    Rgb::from_rgb8(20, 20, 22),
-    Rgb::from_rgb8(39, 39, 42),
-    Rgb::from_rgb8(63, 63, 70),
-    Rgb::from_rgb8(23, 30, 54),
-    Rgb::from_rgb8(22, 42, 34),
-    Rgb::from_rgb8(46, 34, 26),
-    Rgb::from_rgb8(245, 240, 230),
-    Rgb::from_rgb8(228, 228, 231),
-    Rgb::from_rgb8(255, 255, 255),
-];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorSlot {
     Background,

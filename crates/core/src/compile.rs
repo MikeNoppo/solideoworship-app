@@ -1,10 +1,19 @@
+use std::sync::Arc;
+
 use crate::bible::{Passage, Verse};
+use crate::format::{SlideFormat, apply_bullets};
 use crate::slide::{ContentKind, Slide, SlideDeck, SlideSection};
-use crate::song::Song;
+use crate::song::{Song, SongSlide, base_section};
 use crate::theme::{ReferenceFormat, ReferencePosition, ScriptureStyle, SongStyle};
 
 pub fn song(song: &Song, max_lines: usize) -> SlideDeck {
-    song_with_footer(song, max_lines, song.copyright(), false)
+    let mut deck = if let Some(custom) = song.slides() {
+        custom_song_deck(song.title(), custom, song.copyright(), false)
+    } else {
+        song_with_footer(song, max_lines, song.copyright(), false)
+    };
+    apply_song_format(&mut deck.slides, song.format());
+    deck
 }
 
 pub fn song_with_style(song: &Song, style: &SongStyle) -> SlideDeck {
@@ -16,13 +25,91 @@ pub fn song_with_style(song: &Song, style: &SongStyle) -> SlideDeck {
             .collect::<Vec<_>>()
             .join(" · ")
     });
+    let footer = footer.as_deref().filter(|text| !text.is_empty());
 
-    song_with_footer(
-        song,
-        usize::from(style.max_lines),
-        footer.as_deref().filter(|text| !text.is_empty()),
-        style.copyright_first_slide_only,
-    )
+    let mut deck = if let Some(custom) = song.slides() {
+        custom_song_deck(
+            song.title(),
+            custom,
+            footer,
+            style.copyright_first_slide_only,
+        )
+    } else {
+        song_with_footer(
+            song,
+            usize::from(style.max_lines),
+            footer,
+            style.copyright_first_slide_only,
+        )
+    };
+    apply_song_format(&mut deck.slides, song.format());
+    deck
+}
+
+fn apply_song_format(slides: &mut [Slide], format: &SlideFormat) {
+    if format.is_default() {
+        return;
+    }
+
+    let shared = Some(Arc::new(format.clone()));
+    for slide in slides {
+        slide.format = shared.clone();
+        slide.formatted_body = apply_bullets(&slide.body, format.body.text.bullets);
+        slide.formatted_footer = slide
+            .footer
+            .as_deref()
+            .and_then(|text| apply_bullets(text, format.footer.text.bullets));
+    }
+}
+
+fn custom_song_deck(
+    title: &str,
+    custom: &[SongSlide],
+    footer: Option<&str>,
+    footer_first_slide_only: bool,
+) -> SlideDeck {
+    let mut slides = Vec::with_capacity(custom.len());
+    let mut sections = Vec::new();
+    let mut prev_section: Option<&str> = None;
+
+    for item in custom {
+        let slide_index = slides.len();
+        let section_name = item.label.as_deref().map(base_section);
+
+        if let Some(section) = section_name
+            && !section.is_empty()
+            && prev_section != Some(section)
+        {
+            sections.push(SlideSection {
+                name: section.into(),
+                start: slide_index,
+            });
+        }
+        prev_section = section_name;
+
+        let slide_footer = if footer_first_slide_only && !slides.is_empty() {
+            None
+        } else {
+            footer.map(Box::from)
+        };
+
+        slides.push(Slide {
+            body: item.body.clone(),
+            label: item.label.clone(),
+            header: None,
+            footer: slide_footer,
+            body_box: item.body_box,
+            footer_box: item.footer_box,
+            ..Slide::default()
+        });
+    }
+
+    SlideDeck {
+        title: title.into(),
+        kind: ContentKind::Song,
+        slides,
+        sections,
+    }
 }
 
 fn song_with_footer(
@@ -122,6 +209,9 @@ impl SongSlides<'_> {
             label,
             header: None,
             footer,
+            body_box: None,
+            footer_box: None,
+            ..Slide::default()
         });
         self.lines.clear();
     }
@@ -265,6 +355,9 @@ fn verse_slide(
         label: Some(reference.into_boxed_str()),
         header,
         footer,
+        body_box: None,
+        footer_box: None,
+        ..Slide::default()
     }
 }
 
@@ -601,5 +694,79 @@ mod tests {
         );
         assert_eq!(translation_only.slides[0].header.as_deref(), Some("TB"));
         assert_eq!(translation_only.slides[0].footer, None);
+    }
+
+    #[test]
+    fn custom_song_slides_preserve_boxes_sections_and_footer_settings() {
+        use crate::slide::SlideBox;
+        use crate::song::SongSlide;
+
+        let box_a = SlideBox::new(0.1, 0.1, 0.8, 0.4);
+        let song = Song::with_slides(
+            "Custom",
+            Some("© Author"),
+            vec![
+                SongSlide {
+                    label: Some("Verse 1".into()),
+                    body: "line 1".into(),
+                    body_box: Some(box_a),
+                    footer_box: None,
+                },
+                SongSlide {
+                    label: Some("Verse 1 (2)".into()),
+                    body: "line 2".into(),
+                    body_box: None,
+                    footer_box: None,
+                },
+                SongSlide {
+                    label: Some("Chorus".into()),
+                    body: "chorus".into(),
+                    body_box: None,
+                    footer_box: None,
+                },
+            ],
+        );
+
+        let mut style = Styles::default().song;
+        style.copyright_first_slide_only = true;
+        style.license = "CCLI 9".into();
+
+        let deck = song_with_style(&song, &style);
+        assert_eq!(deck.len(), 3);
+        assert_eq!(deck.slides[0].body_box, Some(box_a));
+        assert_eq!(deck.slides[0].footer.as_deref(), Some("© Author · CCLI 9"));
+        assert_eq!(deck.slides[1].footer, None);
+        assert_eq!(deck.sections.len(), 2);
+        assert_eq!(&*deck.sections[0].name, "Verse 1");
+        assert_eq!(deck.sections[0].start, 0);
+        assert_eq!(&*deck.sections[1].name, "Chorus");
+        assert_eq!(deck.sections[1].start, 2);
+    }
+
+    #[test]
+    fn formatted_songs_share_format_arc_and_apply_bullets() {
+        use std::sync::Arc;
+
+        use crate::format::{BulletStyle, SlideFormat};
+
+        let mut format = SlideFormat::default();
+        format.body.text.bullets = BulletStyle::Disc;
+        format.footer.text.bullets = BulletStyle::Numbered;
+        let song = Song::new("Test", "one\ntwo\n\nthree", Some("© 2026")).with_format(format);
+        let deck = song_with_style(&song, &Styles::default().song);
+
+        assert_eq!(deck.len(), 2);
+        assert!(Arc::ptr_eq(
+            deck.slides[0].format.as_ref().unwrap(),
+            deck.slides[1].format.as_ref().unwrap()
+        ));
+        assert_eq!(
+            deck.slides[0].formatted_body.as_deref(),
+            Some("\u{2022} one\n\u{2022} two")
+        );
+        assert_eq!(
+            deck.slides[0].formatted_footer.as_deref(),
+            Some("1. © 2026")
+        );
     }
 }

@@ -4,7 +4,7 @@ use crate::slide::{ContentKind, SlideDeck};
 use crate::song::Song;
 use crate::theme::Styles;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ScheduleItem {
     Song(Song),
     Passage(Passage),
