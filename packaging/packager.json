@@ -1,0 +1,15 @@
+{
+  "name": "sdw-app",
+  "productName": "SolideoWorship",
+  "version": "0.0.0",
+  "identifier": "com.mikenoppo.solideoworship",
+  "publisher": "MikeNoppo",
+  "homepage": "https://github.com/MikeNoppo/solideoworship-app",
+  "description": "Worship presenter for songs, scripture and media",
+  "category": "Productivity",
+  "binaries": [{"path": "solideoworship", "main": true}],
+  "windows": {"allowDowngrades": false},
+  "nsis": {"installMode": "both", "languages": ["English", "Indonesian"], "displayLanguageSelector": true},
+  "linux": {"generateDesktopEntry": true},
+  "macos": {"minimumSystemVersion": "15.0"}
+}

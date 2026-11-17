@@ -48,6 +48,7 @@ pub fn installed(executable: &Path) -> Option<PackageFormat> {
 }
 
 fn registration(executable: &Path) -> Option<Registration> {
+    let marker = fs::read_to_string(executable.with_file_name("package-format")).ok()?;
     [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER]
         .into_iter()
         .find_map(|root| {
@@ -57,6 +58,15 @@ fn registration(executable: &Path) -> Option<Registration> {
             ]
             .into_iter()
             .find_map(|(key, format)| {
+                if marker
+                    != if format == PackageFormat::Nsis {
+                        "nsis"
+                    } else {
+                        "wix"
+                    }
+                {
+                    return None;
+                }
                 let value = read_registry(root, key, "InstallLocation")?;
                 let directory = PathBuf::from(value.to_str()?.trim_matches('"'));
                 (directory.is_absolute()
@@ -245,6 +255,12 @@ fn msiexec() -> Result<PathBuf, Error> {
 }
 
 fn quote(arg: &OsStr) -> OsString {
+    if !arg
+        .encode_wide()
+        .any(|character| matches!(character, 9 | 10 | 13 | 32 | 34))
+    {
+        return arg.to_owned();
+    }
     let mut quoted = vec![b'"' as u16];
     let mut slashes = 0;
     for character in arg.encode_wide() {
