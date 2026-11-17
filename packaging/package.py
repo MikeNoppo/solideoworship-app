@@ -17,7 +17,12 @@ FORMATS = {"windows": ["nsis", "wix"], "macos": ["app", "dmg"], "linux": ["deb",
 
 
 def run(*args, **kwargs):
-    return subprocess.run([str(arg) for arg in args], check=True, **kwargs)
+    try:
+        return subprocess.run([str(arg) for arg in args], check=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        if error.stderr:
+            sys.stderr.write(error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr)
+        raise
 
 
 def msi_version(version):

@@ -15,8 +15,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   SDW_UPDATE_PUBLIC_KEY: ${{ vars.SDW_UPDATE_PUBLIC_KEY }}
-  INNO_SETUP_URL: https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe
-  INNO_SETUP_SHA256: 8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0
 
 jobs:
   version:
@@ -49,107 +47,104 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
-  windows:
-    name: Windows installer
+  native:
+    name: Packages (${{ matrix.platform }}, ${{ matrix.arch }})
     needs: version
-    runs-on: windows-latest
-    timeout-minutes: 45
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: windows, arch: x86_64, runner: windows-2025}
+          - {platform: linux, arch: x86_64, runner: ubuntu-22.04}
+          - {platform: macos, arch: aarch64, runner: macos-15}
+          - {platform: macos, arch: x86_64, runner: macos-15-intel}
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - run: rustup toolchain install
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.13"
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev dpkg-dev file libfuse2
+      - name: Install macOS FFmpeg
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg pkg-config
       - uses: ./.github/actions/setup-windows-ffmpeg
-      - run: cargo build --release --locked -p sdw-app --bins
+        if: runner.os == 'Windows'
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - run: cargo install cargo-packager --version 0.11.8 --locked
+      - run: python -m unittest discover -s packaging -p "test_*.py"
+      - name: Package release binaries
+        run: python packaging/package.py
       - name: Check that the exe needs no MSVC runtime DLLs
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
           if (-not $dumpbin) { throw 'dumpbin.exe not found' }
-          $dependents = & $dumpbin /nologo /dependents target\release\sdw-app.exe
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
-          $dependents
-          if ($dependents -match '(?i)^\s*(vcruntime|msvcp|ucrtbase|api-ms-win-crt)') { throw 'sdw-app.exe links the MSVC runtime dynamically' }
-      - name: Install Inno Setup
-        shell: pwsh
-        run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'innosetup.exe'
-          Invoke-WebRequest -Uri $env:INNO_SETUP_URL -OutFile $installer
-          $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash
-          if ($hash -ne $env:INNO_SETUP_SHA256) { throw "Inno Setup checksum mismatch: $hash" }
-          $dir = Join-Path $env:RUNNER_TEMP 'inno-setup'
-          $setup = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$dir`"" -Wait -PassThru
-          if ($setup.ExitCode -ne 0) { throw "Inno Setup install failed with exit code $($setup.ExitCode)" }
-          "ISCC=$(Join-Path $dir 'ISCC.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Build the installer
-        shell: pwsh
-        run: '& $env:ISCC "/DAppVersion=$env:VERSION" packaging/windows/solideoworship.iss'
-      - name: Test Windows update preflight
-        shell: pwsh
-        run: |
-          $badVersion = "$env:VERSION-preflight-test"
-          & $env:ISCC "/DAppVersion=$badVersion" "/O$env:RUNNER_TEMP" packaging/windows/solideoworship.iss
-          if ($LASTEXITCODE -ne 0) { throw 'Could not build the failing preflight fixture' }
-          $setup = (Resolve-Path "target/installer/SolideoWorship-$env:VERSION-windows-x64-setup.exe").Path
-          $badSetup = Join-Path $env:RUNNER_TEMP "SolideoWorship-$badVersion-windows-x64-setup.exe"
-          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne $env:FFMPEG_BIN_DIR }) -join ';'
-
-          function Invoke-UpdateInstaller($installer, $arguments) {
-            $file = [System.IO.File]::Open($installer, 'Open', 'Read', 'Read')
-            try {
-              return (Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru).ExitCode
-            } finally {
-              $file.Dispose()
-            }
+          foreach ($exe in @('sdw-app', 'sdw-updater')) {
+            $dependents = & $dumpbin /nologo /dependents "target\release\$exe.exe"
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
+            if ($dependents -match '(?i)^\s*(vcruntime|msvcp|ucrtbase|api-ms-win-crt)') { throw "$exe links the MSVC runtime dynamically" }
           }
-
-          foreach ($scope in @('CURRENTUSER', 'ALLUSERS')) {
-            $dir = Join-Path $env:RUNNER_TEMP "SolideoWorship $scope"
-            $arguments = '/{0} /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SDWUpdate=1 /DIR="{1}"' -f $scope, $dir
-            $result = Invoke-UpdateInstaller $setup "$arguments /LANG=en"
-            if ($result -ne 0) { throw "Valid $scope preflight failed with $result" }
-            $language = Join-Path $dir 'language'
-            if ((Get-Content -Raw $language) -ne 'en') { throw "Expected English in $scope installation" }
-            $result = Invoke-UpdateInstaller $badSetup "$arguments /LANG=id"
-            if ($result -ne 7) { throw "Expected $scope preflight failure, got $result" }
-            if ((Get-Content -Raw $language) -ne 'en') { throw "Failed $scope update modified the installation" }
-            $app = Start-Process -FilePath (Join-Path $dir 'SolideoWorship.exe') -ArgumentList '--update-probe', $env:VERSION -Wait -PassThru
-            if ($app.ExitCode -ne 0) { throw "Original $scope installation could not start" }
-          }
+      - name: Test native installations and signed upgrades
+        shell: bash
+        env:
+          PACKAGE_PLATFORM: ${{ matrix.platform }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: python packaging/smoke.py "target/dist/$PACKAGE_PLATFORM-$PACKAGE_ARCH" "$VERSION" --upgrades
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: windows
-          path: target/installer/*.exe
+          name: ${{ matrix.platform }}-${{ matrix.arch }}
+          path: target/dist/${{ matrix.platform }}-${{ matrix.arch }}/*
           if-no-files-found: error
 
-  linux:
-    name: Linux tarball
+  arch:
+    name: Arch Linux package
     needs: version
-    runs-on: ubuntu-22.04
-    timeout-minutes: 45
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    timeout-minutes: 90
     steps:
+      - name: Install Arch build dependencies
+        run: pacman -Syu --noconfirm --needed base-devel rustup clang alsa-lib ffmpeg libxcb python git openssl
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install Linux system libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
-      - run: rustup toolchain install
-      - run: packaging/linux/package.sh "$VERSION"
+      - name: Build the native Pacman package
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- rustup toolchain install
+          runuser -u builder -- cargo install cargo-packager --version 0.11.8 --locked
+          runuser -u builder -- env PATH="/home/builder/.cargo/bin:$PATH" python packaging/package.py --format pacman
+      - name: Test Pacman installation
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          pacman -U --noconfirm target/dist/linux-x86_64/*.pkg.tar.zst
+          solideoworship --update-probe "$VERSION"
+          pacman -R --noconfirm solideoworship
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: linux
-          path: target/dist/*.tar.gz
+          name: arch-x86_64
+          path: target/dist/linux-x86_64/*.pkg.tar.zst
           if-no-files-found: error
 
   sign:
     name: Sign update checksums
     if: github.ref_type == 'tag'
-    needs: [version, windows, linux]
+    needs: [version, native, arch]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release-signing
@@ -174,7 +169,7 @@ jobs:
             echo "::error::The Ed25519 signing key does not match SDW_UPDATE_PUBLIC_KEY"
             exit 1
           fi
-          sha256sum -- "SolideoWorship-$VERSION-windows-x64-setup.exe" "SolideoWorship-$VERSION-linux-x86_64.tar.gz" > SHA256SUMS.txt
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha256sum -- > SHA256SUMS.txt
           openssl pkeyutl -sign -rawin -inkey "$key" -in SHA256SUMS.txt -out SHA256SUMS.txt.sig
           openssl pkeyutl -verify -rawin -inkey "$key" -in SHA256SUMS.txt -sigfile SHA256SUMS.txt.sig
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

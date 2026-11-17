@@ -4,10 +4,15 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 
 def run(*args):
-    return subprocess.run([str(arg) for arg in args], check=True, capture_output=True, text=True).stdout
+    try:
+        return subprocess.run([str(arg) for arg in args], check=True, capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError as error:
+        sys.stderr.write(error.stderr or "")
+        raise
 
 
 def dependencies(binary):
