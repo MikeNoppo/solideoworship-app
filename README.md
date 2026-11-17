@@ -35,10 +35,10 @@ SolideoWorship keeps a familiar EasyWorship-style workflow while keeping **runti
 
 ## Install
 
-Download installers from [Releases](https://github.com/MikeNoppo/solideoworship-app/releases) (builds are not code-signed yet).
+Download installers from [Releases](https://github.com/MikeNoppo/solideoworship-app/releases) (Windows installers are not Authenticode-signed).
 
 - **Windows 10+ (x64):** Run `SolideoWorship-<version>-windows-x64-setup.exe` (click **More info → Run anyway** if SmartScreen prompts).
-- **Linux (x86_64, glibc 2.35+):** Requires Wayland/X11, Vulkan/OpenGL, and `xdg-desktop-portal` or `zenity` for file dialogs.
+- **Linux (x86_64, glibc 2.35+):** Requires FFmpeg libraries compatible with Ubuntu 22.04, ALSA, Wayland/X11, Vulkan/OpenGL, and `xdg-desktop-portal` or `zenity` for file dialogs.
   ```sh
   tar xzf SolideoWorship-<version>-linux-x86_64.tar.gz
   cd SolideoWorship-<version>-linux-x86_64
@@ -46,6 +46,12 @@ Download installers from [Releases](https://github.com/MikeNoppo/solideoworship-
   ./install.sh --uninstall   # removes the app, keeps your library
   ```
 - **macOS:** No installer yet; [build from source](#building-from-source).
+
+### Updating SolideoWorship
+
+Official Windows and Linux installations check GitHub Releases at startup. Use **Check for updates** to check again. A beta installation can upgrade to a later beta or a stable release. Stable installations receive stable updates.
+
+Select **Download update**, close the projector output, then select **Install and restart**. The app verifies the release signature and package checksum, prompts you to save an edited schedule, and reopens the saved schedule after updating. Install the first release with an updater manually from GitHub Releases.
 
 ## Quick notes
 
@@ -66,6 +72,21 @@ cargo run -p sdw-app
 ## Contributing
 
 Bug reports, translations, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR and [AGENTS.md](AGENTS.md) for architecture notes.
+
+## Signing update releases
+
+Generate an Ed25519 key on a trusted machine. Keep the private key outside Git.
+
+```sh
+umask 077
+openssl genpkey -algorithm ED25519 -out release-signing.pem
+public_der=$(openssl pkey -in release-signing.pem -pubout -outform DER | od -An -v -tx1 | tr -d ' \n')
+printf '%s\n' "${public_der#302a300506032b6570032100}"
+```
+
+Set the `SDW_UPDATE_PUBLIC_KEY` repository variable to the printed 64-character hex public key. Create a GitHub Actions environment named `release-signing`, restrict it to release tags (`v*`), and set its `SDW_UPDATE_SIGNING_KEY` secret to the full PEM content. Use the same key for subsequent releases so existing installations can verify them. If the key is lost or compromised, distribute a new installer manually with a replacement public key.
+
+The tag workflow verifies the key pair, signs `SHA256SUMS.txt`, and attaches the detached signature to the draft. Confirm both platform packages and the two checksum files are attached before publishing.
 
 ## License
 
