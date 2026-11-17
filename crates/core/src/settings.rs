@@ -35,6 +35,7 @@ impl Settings {
 
         self.styles.song.theme.layout = self.output.layout;
         self.styles.scripture.theme.layout = self.output.layout;
+        self.styles.media.layout = self.output.layout;
         self
     }
 

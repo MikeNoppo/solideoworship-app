@@ -1,6 +1,7 @@
 use crate::bible::Passage;
 use crate::compile;
-use crate::slide::{ContentKind, SlideDeck};
+use crate::media::MediaRef;
+use crate::slide::{ContentKind, Slide, SlideDeck};
 use crate::song::Song;
 use crate::theme::Styles;
 
@@ -8,6 +9,7 @@ use crate::theme::Styles;
 pub enum ScheduleItem {
     Song(Song),
     Passage(Passage),
+    Media(MediaRef),
 }
 
 impl ScheduleItem {
@@ -15,6 +17,7 @@ impl ScheduleItem {
         match self {
             Self::Song(_) => ContentKind::Song,
             Self::Passage(_) => ContentKind::Scripture,
+            Self::Media(_) => ContentKind::Media,
         }
     }
 
@@ -22,6 +25,17 @@ impl ScheduleItem {
         match self {
             Self::Song(song) => compile::song_with_style(song, &styles.song),
             Self::Passage(passage) => compile::scripture_with_style(passage, &styles.scripture),
+            Self::Media(media) => SlideDeck {
+                title: Box::from(&*media.title),
+                kind: ContentKind::Media,
+                slides: vec![Slide {
+                    body: "".into(),
+                    label: Some(Box::from(&*media.title)),
+                    media: Some(media.clone()),
+                    ..Slide::default()
+                }],
+                sections: Vec::new(),
+            },
         }
     }
 }

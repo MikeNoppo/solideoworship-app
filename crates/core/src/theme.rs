@@ -1,5 +1,6 @@
 use std::ops::RangeInclusive;
 
+use crate::media::BackgroundMedia;
 use crate::settings::OutputLayout;
 pub use crate::settings::{FontSpec, FontWeight};
 use crate::slide::ContentKind;
@@ -125,6 +126,7 @@ pub const MAX_CHARS: RangeInclusive<u16> = 40..=1200;
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlideTheme {
     pub background: Rgb,
+    pub background_media: Option<BackgroundMedia>,
     pub body: Rgb,
     pub footer: Rgb,
     pub body_size: f32,
@@ -144,6 +146,7 @@ impl SlideTheme {
     pub fn song() -> Self {
         Self {
             background: Rgb::from_rgb8(20, 20, 22),
+            background_media: None,
             body: Rgb::from_rgb8(255, 255, 255),
             footer: Rgb::from_rgb8(161, 161, 170),
             body_size: 92.0,
@@ -163,6 +166,13 @@ impl SlideTheme {
     pub fn scripture() -> Self {
         Self {
             body_size: 76.0,
+            ..Self::song()
+        }
+    }
+
+    pub fn media() -> Self {
+        Self {
+            background: Rgb::from_rgb8(0, 0, 0),
             ..Self::song()
         }
     }
@@ -215,6 +225,7 @@ pub struct ScriptureStyle {
 pub struct Styles {
     pub song: SongStyle,
     pub scripture: ScriptureStyle,
+    pub media: SlideTheme,
 }
 
 impl Styles {
@@ -222,6 +233,7 @@ impl Styles {
         match kind {
             ContentKind::Song => &self.song.theme,
             ContentKind::Scripture => &self.scripture.theme,
+            ContentKind::Media => &self.media,
         }
     }
 
@@ -243,6 +255,7 @@ impl Styles {
                     .clamp(*MAX_CHARS.start(), *MAX_CHARS.end()),
                 ..self.scripture
             },
+            media: self.media.clamped(),
         }
     }
 }
@@ -267,6 +280,7 @@ impl Default for Styles {
                 reference_format: ReferenceFormat::Parentheses,
                 one_verse_per_slide: false,
             },
+            media: SlideTheme::media(),
         }
     }
 }
