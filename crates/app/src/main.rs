@@ -1289,9 +1289,6 @@ impl App {
                     return Task::none();
                 };
 
-                if choice == UnsavedChoice::Save && self.schedule_save.is_some() {
-                    return Task::none();
-                }
                 self.modal = None;
 
                 match choice {
@@ -2008,7 +2005,10 @@ impl App {
 
     fn request_schedule_save(&mut self, save_as: bool, pending: Option<Pending>) -> Task<Message> {
         self.dismiss_menus();
-        if self.schedule_save.is_some() {
+        if let Some(save) = &mut self.schedule_save {
+            if pending.is_some() {
+                save.pending = pending;
+            }
             self.flash(t().status.saving_schedule.to_owned());
             return Task::none();
         }
@@ -3528,6 +3528,44 @@ mod tests {
         assert!(app.schedule_save.is_none());
         assert!(app.schedule.is_dirty());
         assert!(app.exit_handoff.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn save_confirmation_attaches_action_to_running_save() {
+        let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
+        let id = app.schedule_save_id;
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+
+        assert!(app.modal.is_none());
+        assert_eq!(app.schedule_save.unwrap().pending, Some(Pending::New));
+        assert_eq!(app.schedule_save_id, id);
+        let _ = app.update(Message::ScheduleSaved(
+            id,
+            app.schedule.revision(),
+            Ok("sunday.sdw".into()),
+        ));
+        assert!(app.schedule.is_empty());
+    }
+
+    #[test]
+    fn attached_action_does_not_discard_edits_made_after_save_started() {
+        let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
+        let revision = app.schedule.revision();
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+        app.schedule.remove(0);
+        let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
+            revision,
+            Ok("sunday.sdw".into()),
+        ));
+        assert!(app.schedule.is_dirty());
+        assert!(app.schedule_save.is_none());
     }
 
     #[test]
