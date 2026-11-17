@@ -29,6 +29,27 @@
     "fatal_error": "SolideoWorship berhenti karena terjadi kesalahan.\n\n{error}",
     "unsupported_language": "{path} tidak berisi kode bahasa yang didukung. Kode yang bisa dipakai: {codes}."
   },
+  "update": {
+    "title": "Pembaruan SolideoWorship",
+    "check": "Cek pembaruan",
+    "checking": "Memeriksa pembaruan…",
+    "current": "SolideoWorship sudah versi terbaru.",
+    "available": "SolideoWorship {version} tersedia",
+    "download": "Unduh pembaruan",
+    "downloading": "Mengunduh dan memverifikasi pembaruan…",
+    "ready": "Pembaruan siap. SolideoWorship akan ditutup dan dibuka kembali.",
+    "install": "Pasang dan mulai ulang",
+    "close_output": "Tutup output proyektor sebelum memasang pembaruan.",
+    "check_failed": "Pemeriksaan pembaruan gagal",
+    "network": "GitHub Releases tidak dapat dijangkau. Periksa koneksi Anda dan coba lagi.",
+    "metadata": "Informasi rilis tidak valid. Coba lagi nanti.",
+    "verification": "Pembaruan tidak dapat diverifikasi. Cek pembaruan lagi atau pasang secara manual dari GitHub Releases.",
+    "busy": "Ada pekerjaan yang masih berjalan. Tunggu sebentar lalu coba lagi.",
+    "stage_failed": "Pembaruan gagal disiapkan. Periksa ruang penyimpanan dan coba lagi.",
+    "save_schedule": "SolideoWorship akan ditutup untuk memasang pembaruan. Simpan jadwal agar dapat dibuka kembali setelah pemasangan.",
+    "install_failed": "Pembaruan gagal dipasang. Tutup jendela SolideoWorship lain dan coba lagi, atau pasang secara manual dari GitHub Releases.",
+    "installed": "SolideoWorship berhasil diperbarui."
+  },
   "notice": {
     "library_title": "Library tidak bisa dibuka.",
     "library_body": "{error}. Lagu, Alkitab, dan tema tersimpan tidak tersedia; susunan acara tetap bisa dipakai.",
@@ -167,6 +188,7 @@
     "media_missing": "File media tidak ditemukan di penyimpanan library"
   },
   "status": {
+    "saving_schedule": "Sedang menyimpan jadwal…",
     "ready": "Siap",
     "selected": "{screen} dipilih untuk output",
     "no_selection": "belum ada layar output dipilih",

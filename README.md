@@ -35,17 +35,35 @@ SolideoWorship keeps a familiar EasyWorship-style workflow while keeping **runti
 
 ## Install
 
-Download installers from [Releases](https://github.com/MikeNoppo/solideoworship-app/releases) (builds are not code-signed yet).
+Download packages from [Releases](https://github.com/MikeNoppo/solideoworship-app/releases). Windows packages are not Authenticode-signed; macOS beta builds use ad hoc signatures and are not notarized.
 
-- **Windows 10+ (x64):** Run `SolideoWorship-<version>-windows-x64-setup.exe` (click **More info → Run anyway** if SmartScreen prompts).
-- **Linux (x86_64, glibc 2.35+):** Requires Wayland/X11, Vulkan/OpenGL, and `xdg-desktop-portal` or `zenity` for file dialogs.
-  ```sh
-  tar xzf SolideoWorship-<version>-linux-x86_64.tar.gz
-  cd SolideoWorship-<version>-linux-x86_64
-  ./install.sh               # installs per user into ~/.local
-  ./install.sh --uninstall   # removes the app, keeps your library
-  ```
-- **macOS:** No installer yet; [build from source](#building-from-source).
+| Platform | Package | Installation |
+| --- | --- | --- |
+| Windows 10+ x64 | `windows-x64-nsis.exe` | Run the installer; choose the current user or all users |
+| Windows 10+ x64 | `windows-x64.msi` | Run the installer; installs for all users |
+| macOS 15+ Intel / Apple Silicon | `macos-<arch>.dmg` | Drag `SolideoWorship.app` into a writable Applications folder |
+| macOS 15+ Intel / Apple Silicon | `macos-<arch>.app.tar.gz` | Extract the `.app` bundle into a writable Applications folder |
+| Linux x86_64, glibc 2.35+ | `linux-x86_64.AppImage` | Make executable and run; FFmpeg libraries are bundled |
+| Ubuntu 22.04 or compatible x86_64 | `linux-x86_64.deb` | `sudo apt install ./SolideoWorship-<version>-linux-x86_64.deb` |
+| Arch / Omarchy x86_64 | `linux-x86_64.pkg.tar.zst` | `sudo pacman -U ./SolideoWorship-<version>-linux-x86_64.pkg.tar.zst` |
+
+All names start with `SolideoWorship-<version>-`. macOS architectures are `x86_64` (Intel) and `aarch64` (Apple Silicon). Beta builds may need approval in **System Settings → Privacy & Security** on macOS or **More info → Run anyway** on Windows. Stable macOS distribution is deferred until Developer ID signing and notarization are configured.
+
+Linux needs a working Wayland/X11 session, Vulkan/OpenGL drivers, audio, and `xdg-desktop-portal` or `zenity` for file dialogs. AppImage may need FUSE 2; use `APPIMAGE_EXTRACT_AND_RUN=1 ./SolideoWorship-<version>-linux-x86_64.AppImage` if FUSE is unavailable.
+
+### Updating SolideoWorship
+
+Official NSIS, MSI, AppImage and writable macOS bundle installations check GitHub Releases at startup. Use **Check for updates** to check again. Updates preserve the installed package format and CPU architecture. A beta can upgrade to a later beta or stable release; stable installations receive stable updates.
+
+Select **Download update**, close the projector output, then select **Install and restart**. The app verifies the Ed25519 release signature and package checksum, prompts you to save an edited schedule, and reopens the saved schedule after updating. System-wide Windows installations can request administrator approval. A failed preflight leaves the installed version in place; AppImage and macOS bundle replacement also restores the previous files if the installed version fails its probe.
+
+For `.deb` and Arch packages, install the newer package with `apt` or `pacman`. No APT/Pacman repository or AUR publishing is configured yet. If an AppImage or macOS bundle is in a folder you cannot write, install the new package manually into a writable location.
+
+### Moving from beta.3 or earlier
+
+The old Inno and Linux tarball releases do not contain the updater. Install beta.4 once manually. Uninstall the old application before changing installer formats; the application data folders and saved `.sdw` files stay in place.
+
+On Windows, preserve an explicit language choice before uninstalling: copy `language` from the old application folder into `%LOCALAPPDATA%\SolideoWorship\language`. NSIS offers English and Indonesian; MSI uses the existing data-folder preference or the operating system locale. To remove an old Linux per-user installation, run `./install.sh --uninstall` from its original release archive before installing the new package.
 
 ## Quick notes
 
@@ -66,6 +84,33 @@ cargo run -p sdw-app
 ## Contributing
 
 Bug reports, translations, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR and [AGENTS.md](AGENTS.md) for architecture notes.
+
+## Signing update releases
+
+Generate an Ed25519 key on a trusted machine. Keep the private key outside Git.
+
+```sh
+umask 077
+openssl genpkey -algorithm ED25519 -out release-signing.pem
+public_der=$(openssl pkey -in release-signing.pem -pubout -outform DER | od -An -v -tx1 | tr -d ' \n')
+printf '%s\n' "${public_der#302a300506032b6570032100}"
+```
+
+Set the `SDW_UPDATE_PUBLIC_KEY` repository variable to the printed 64-character hex public key. Create a GitHub Actions environment named `release-signing`, restrict it to release tags (`v*`), and set its `SDW_UPDATE_SIGNING_KEY` secret to the full PEM content. Use the same key for subsequent releases so existing installations can verify them. If the key is lost or compromised, distribute a new installer manually with a replacement public key.
+
+Existing `SDW_UPDATE_PUBLIC_KEY` and `SDW_UPDATE_SIGNING_KEY` values continue to work after the packager migration. Cargo Packager's own signing keys are not used.
+
+The tag workflow verifies the key pair, signs `SHA256SUMS.txt` covering every final package, and attaches `SHA256SUMS.txt.sig` to the draft. Check that all packages and both checksum files are attached before publishing. Only published releases are offered by the updater. `workflow_dispatch` builds and tests packages without accessing the signing environment or publishing a release.
+
+## Building packages
+
+Install Python 3.11+ and `cargo install cargo-packager --version 0.11.8 --locked`, then run `python3 packaging/package.py` on the target OS. Windows also needs the FFmpeg SDK described in `.github/actions/setup-windows-ffmpeg/action.yml`; set `FFMPEG_BIN_DIR`, `FFMPEG_INCLUDE_DIR`, and `FFMPEG_LIB_DIR`. Linux builds need the FFmpeg development libraries, ALSA, XCB and `pkg-config`. Debian packaging additionally uses `dpkg-dev`. On Arch, run `python3 packaging/package.py --format pacman` as a regular user with `base-devel` and runtime dependencies installed. macOS builds need Homebrew FFmpeg and `pkg-config`.
+
+Artifacts are written under `target/dist/<platform>-<arch>/` (respecting `CARGO_TARGET_DIR`). The release workflow builds Debian and AppImage on Ubuntu 22.04 and builds Pacman packages separately on Arch to match FFmpeg's ABI. macOS dylibs are bundled, relinked and signed before creating the DMG and `.app.tar.gz`; archives preserve the executable modes and contain regular files only.
+
+MSI versions use `major.minor.(patch * 1000 + rank)`, where beta ranks are 1–499, release candidate ranks are 501–998, and stable is 999. This preserves upgrade ordering in Windows Installer's first three fields. Unsupported version shapes or overflows fail packaging instead of reusing an upgrade version.
+
+The release workflow tests clean installs, signed upgrades between two fixture versions, and rejection of a package whose executable fails preflight. Windows system installation tests run only on disposable Actions runners; Unix smoke tests use temporary installation directories. Run `python3 -m unittest discover -s packaging -p 'test_*.py'` for the portable packaging tests.
 
 ## License
 

@@ -1,5 +1,6 @@
 [package]
 name = "sdw-app"
+default-run = "sdw-app"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,6 +18,19 @@ serde.workspace = true
 serde_json.workspace = true
 sys-locale = "0.3"
 wgpu = { version = "27.0", default-features = false, features = ["std", "wgsl"] }
+
+ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+semver = "1"
+tempfile = "3"
+ureq = { version = "3.5", default-features = false, features = ["platform-verifier", "rustls-no-provider"] }
+
+[target.'cfg(unix)'.dependencies]
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 serde_json.workspace = true

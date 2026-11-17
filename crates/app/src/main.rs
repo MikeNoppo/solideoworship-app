@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_update;
 mod bible_manager;
 mod bible_tab;
 mod bug_report;
@@ -30,13 +31,14 @@ mod work;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime};
 
 use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
+use sdw_app::update::Restart;
 use sdw_core::settings::{UI_SCALE_DEFAULT, step_ui_scale};
 use sdw_core::slide::{ContentKind, Slide};
 use sdw_core::theme::SlideTheme;
@@ -47,6 +49,7 @@ use sdw_core::{
 use sdw_library::{MediaId, MediaSummary, SongId, SongSummary, schedule_file};
 use sdw_media::PlaybackState;
 
+use crate::app_update::{ExitHandoff, Updater};
 use crate::bible_manager::BibleManager;
 use crate::bible_tab::BibleTab;
 use crate::bug_report::BugReport;
@@ -57,7 +60,8 @@ use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
 use crate::media_engine::{MediaEngine, MediaEvent, MediaSlot, ViewportSlot};
 use crate::message::{
-    LibraryTab, Menu, Message, Notice, Pending, StartupLibrary, Step, UnsavedChoice, Zoom,
+    LibraryTab, Menu, Message, Notice, OpenedSchedule, Pending, StartupLibrary, Step,
+    UnsavedChoice, Zoom,
 };
 use crate::recovery::Recovery;
 use crate::render::slide::MediaBackdrop;
@@ -90,16 +94,40 @@ const MAX_SPLIT: f32 = 0.75;
 const SPLIT_SCALE: f32 = 1000.0;
 
 fn main() -> ExitCode {
+    let mut args = std::env::args_os().skip(1);
+    match args.next().as_deref().and_then(OsStr::to_str) {
+        Some("--update-probe") => {
+            return if args
+                .next()
+                .is_some_and(|version| version == env!("CARGO_PKG_VERSION"))
+            {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
+        }
+        Some("--apply-staged-update") if cfg!(target_os = "linux") => {
+            return sdw_app::update::run_helper();
+        }
+        _ => {}
+    }
     i18n::init(
         &paths::language_file(),
         paths::installed_language_file().as_deref(),
     );
 
-    report::run(|| {
+    let restart = Restart::from_args();
+    let handoff = ExitHandoff::default();
+    let app_handoff = handoff.clone();
+    let exit = report::run(move || {
         style::FONTS
             .into_iter()
             .fold(
-                iced::daemon(App::boot, App::update, App::view),
+                iced::daemon(
+                    move || App::boot(restart.as_ref(), app_handoff.clone()),
+                    App::update,
+                    App::view,
+                ),
                 |daemon, font| daemon.font(font),
             )
             .default_font(style::INTER)
@@ -108,6 +136,28 @@ fn main() -> ExitCode {
             .scale_factor(App::scale_factor)
             .subscription(App::subscription)
             .run()
+    });
+    if exit == ExitCode::SUCCESS
+        && let Some(handoff) = handoff.lock().expect("update handoff poisoned").take()
+        && handoff.commit().is_err()
+    {
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title(t().update.title)
+            .set_description(t().update.install_failed)
+            .show();
+        return ExitCode::FAILURE;
+    }
+    exit
+}
+
+fn open_schedule(path: PathBuf) -> Task<Outcome<OpenedSchedule>> {
+    work::background(move || {
+        let items = schedule_file::open(&path).map_err(work::describe)?;
+        let modified = fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        Ok((path, items, modified))
     })
 }
 
@@ -177,6 +227,12 @@ impl Toast {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ScheduleSave {
+    id: u64,
+    pending: Option<Pending>,
+}
+
 enum Modal {
     Editor(Box<Editor>),
     Theme(Box<ThemeDialog>),
@@ -195,6 +251,10 @@ struct App {
     control_height: f32,
     control_ready: bool,
     startup_output_done: bool,
+    updater: Updater,
+    exit_handoff: ExitHandoff,
+    resume_schedule: Option<PathBuf>,
+    resume_pending: bool,
     output: Option<window::Id>,
     output_display: Option<u32>,
     reopen_output: bool,
@@ -240,7 +300,8 @@ struct App {
     split_hovered: bool,
     splitter_drag: Option<SplitDrag>,
     modal_ticket: u64,
-    after_save: Option<Pending>,
+    schedule_save_id: u64,
+    schedule_save: Option<ScheduleSave>,
     saved_at: Option<SystemTime>,
     bible: BibleTab,
     schedule: Schedule,
@@ -259,6 +320,7 @@ struct App {
 
     media: MediaEngine,
     media_results: Vec<MediaSummary>,
+    media_imports_in_flight: usize,
     media_filter: Option<MediaKind>,
     media_search: String,
     media_click: Option<(MediaId, Instant)>,
@@ -267,15 +329,25 @@ struct App {
 }
 
 impl App {
-    fn boot() -> (Self, Task<Message>) {
+    fn boot(restart: Option<&Restart>, exit_handoff: ExitHandoff) -> (Self, Task<Message>) {
         let (id, opened) = window::open(windows::splash());
 
-        let app = Self {
+        let mut app = Self {
             splash: Some(id),
+            exit_handoff,
+            startup_output_done: restart.is_some(),
+            resume_schedule: restart.and_then(|state| state.schedule.clone()),
             store: Store::spawn(paths::library_file()),
             recovery: Recovery::new(paths::recovery_file()),
             ..Self::default()
         };
+        if let Some(restart) = restart {
+            if restart.failed {
+                app.notify(Notice::Failure(t().update.install_failed.into()));
+            } else {
+                app.flash(t().update.installed.to_owned());
+            }
+        }
         let library_opened = app.store.run(startup_library, Message::LibraryOpened);
         let recovery_path = app.recovery.path().to_path_buf();
         let recovery_loaded =
@@ -332,6 +404,9 @@ impl App {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        if self.updater.installing() && !matches!(&message, Message::WindowClosed(_)) {
+            return Task::none();
+        }
         let refreshes_captions = message.refreshes_captions();
         let task = self.handle(message);
 
@@ -388,7 +463,7 @@ impl App {
                     Some(id) => window::close(id),
                     None => Task::none(),
                 };
-                Task::batch([close_splash, self.startup_output()])
+                Task::batch([close_splash, self.startup_output(), Updater::start()])
             }
 
             Message::LibraryOpened(result) => {
@@ -447,6 +522,12 @@ impl App {
                 }
 
                 self.recovery.activate();
+                if let Some(path) = self.resume_schedule.take()
+                    && !self.schedule.is_dirty()
+                {
+                    self.resume_pending = true;
+                    return open_schedule(path).map(Message::UpdateScheduleOpened);
+                }
                 self.leave_splash()
             }
             Message::CrashLoaded(result) => {
@@ -455,6 +536,12 @@ impl App {
                     self.notify(Notice::Crash);
                 }
                 Task::none()
+            }
+            Message::Update(event) => self.update_event(event),
+            Message::UpdateScheduleOpened(result) => {
+                self.resume_pending = false;
+                let _ = self.handle(Message::ScheduleOpened(result));
+                self.leave_splash()
             }
             Message::FontsLoaded => {
                 self.fonts_loaded = true;
@@ -1205,9 +1292,9 @@ impl App {
                 self.modal = None;
 
                 match choice {
-                    UnsavedChoice::Save => {
-                        self.after_save = Some(pending);
-                        self.update(Message::ScheduleSaveRequested)
+                    UnsavedChoice::Save => self.request_schedule_save(false, Some(pending)),
+                    UnsavedChoice::Discard if pending == Pending::Update => {
+                        self.install_update(true)
                     }
                     UnsavedChoice::Discard => {
                         if pending == Pending::Quit {
@@ -1219,15 +1306,7 @@ impl App {
                 }
             }
             Message::ScheduleFilePicked(path) => match path {
-                Some(path) => work::background(move || {
-                    let items = schedule_file::open(&path).map_err(work::describe)?;
-                    let modified = fs::metadata(&path)
-                        .and_then(|metadata| metadata.modified())
-                        .ok();
-
-                    Ok((path, items, modified))
-                })
-                .map(Message::ScheduleOpened),
+                Some(path) => open_schedule(path).map(Message::ScheduleOpened),
                 None => Task::none(),
             },
             Message::ScheduleOpened(result) => {
@@ -1260,32 +1339,25 @@ impl App {
                 }
                 Task::none()
             }
-            Message::ScheduleSaveRequested => {
-                self.dismiss_menus();
-
-                match self.schedule.path() {
-                    Some(path) => self.write_schedule(SaveTarget::existing(path.to_path_buf())),
-                    None => self.update(Message::ScheduleSaveAsRequested),
+            Message::ScheduleSaveRequested => self.request_schedule_save(false, None),
+            Message::ScheduleSaveAsRequested => self.request_schedule_save(true, None),
+            Message::ScheduleSavePathChosen(id, target) => {
+                if self.schedule_save.is_none_or(|save| save.id != id) {
+                    return Task::none();
+                }
+                match target {
+                    Some(target) => self.write_schedule(id, target),
+                    None => {
+                        self.schedule_save = None;
+                        Task::none()
+                    }
                 }
             }
-            Message::ScheduleSaveAsRequested => {
-                self.dismiss_menus();
-
-                match self.control {
-                    Some(control) => files::choose_schedule_path(control, self.schedule.path())
-                        .map(Message::ScheduleSavePathChosen),
-                    None => Task::none(),
-                }
-            }
-            Message::ScheduleSavePathChosen(target) => match target {
-                Some(target) => self.write_schedule(target),
-                None => {
-                    self.after_save = None;
-                    Task::none()
-                }
-            },
-            Message::ScheduleSaved(revision, result) => {
-                let pending = self.after_save.take();
+            Message::ScheduleSaved(id, revision, result) => {
+                let Some(save) = self.schedule_save.filter(|save| save.id == id) else {
+                    return Task::none();
+                };
+                self.schedule_save = None;
 
                 match result {
                     Ok(path) => {
@@ -1295,7 +1367,7 @@ impl App {
                             !matches!(notice, Notice::Recovered | Notice::Taken(_))
                         });
 
-                        match pending {
+                        match save.pending {
                             Some(pending) if !self.schedule.is_dirty() => self.proceed(pending),
                             _ => Task::none(),
                         }
@@ -1498,6 +1570,7 @@ impl App {
                 let Some(path) = path else {
                     return Task::none();
                 };
+                self.media_imports_in_flight += 1;
                 let media_dir = paths::media_dir();
                 let thumb_dir = paths::thumb_cache_dir();
                 let store = self.store.clone();
@@ -1528,18 +1601,21 @@ impl App {
                     Err(error) => Task::done(Message::MediaImported(Err(error))),
                 })
             }
-            Message::MediaImported(result) => match result {
-                Ok(summary) => {
-                    self.media.clear_media_failures(&summary.sha256);
-                    let text = fill(t().library.media_imported, &[("title", &summary.title)]);
-                    self.show_toast(Toast::Done(text.into_boxed_str()));
-                    self.load_media()
+            Message::MediaImported(result) => {
+                self.media_imports_in_flight = self.media_imports_in_flight.saturating_sub(1);
+                match result {
+                    Ok(summary) => {
+                        self.media.clear_media_failures(&summary.sha256);
+                        let text = fill(t().library.media_imported, &[("title", &summary.title)]);
+                        self.show_toast(Toast::Done(text.into_boxed_str()));
+                        self.load_media()
+                    }
+                    Err(error) => {
+                        self.library_error = Some(error);
+                        Task::none()
+                    }
                 }
-                Err(error) => {
-                    self.library_error = Some(error);
-                    Task::none()
-                }
-            },
+            }
             Message::MediaPreviewed(id) => {
                 let is_double = self
                     .media_click
@@ -1805,6 +1881,7 @@ impl App {
             || !self.displays_loaded
             || !self.library_ready
             || !self.recovery_loaded
+            || self.resume_pending
             || !self.fonts_loaded
             || !self.splash_elapsed
         {
@@ -1904,21 +1981,60 @@ impl App {
                 None => Task::none(),
             },
             Pending::Quit => {
-                if let Some(scale) = self.zoom_save_pending.take() {
-                    let _ = self.save_ui_scale(scale);
-                }
-                self.sync_recovery();
-                self.store.flush(QUIT_FLUSH);
+                self.flush_shutdown();
+                self.close_control()
+            }
+            Pending::Update => self.install_update(false),
+        }
+    }
 
-                match self.control {
-                    Some(control) => window::close(control),
-                    None => iced::exit(),
-                }
+    fn flush_shutdown(&mut self) -> bool {
+        if let Some(scale) = self.zoom_save_pending.take() {
+            let _ = self.save_ui_scale(scale);
+        }
+        self.sync_recovery();
+        self.store.flush(QUIT_FLUSH)
+    }
+
+    fn close_control(&self) -> Task<Message> {
+        match self.control {
+            Some(control) => window::close(control),
+            None => iced::exit(),
+        }
+    }
+
+    fn request_schedule_save(&mut self, save_as: bool, pending: Option<Pending>) -> Task<Message> {
+        self.dismiss_menus();
+        if let Some(save) = &mut self.schedule_save {
+            if pending.is_some() {
+                save.pending = pending;
+            }
+            self.flash(t().status.saving_schedule.to_owned());
+            return Task::none();
+        }
+        let target = self
+            .schedule
+            .path()
+            .filter(|_| !save_as)
+            .map(|path| SaveTarget::existing(path.to_path_buf()));
+        if self.control.is_none() && target.is_none() {
+            return Task::none();
+        }
+
+        self.schedule_save_id += 1;
+        let id = self.schedule_save_id;
+        self.schedule_save = Some(ScheduleSave { id, pending });
+        match target {
+            Some(target) => self.write_schedule(id, target),
+            None => {
+                let control = self.control.expect("save dialog requires a control window");
+                files::choose_schedule_path(control, self.schedule.path())
+                    .map(move |target| Message::ScheduleSavePathChosen(id, target))
             }
         }
     }
 
-    fn write_schedule(&self, target: SaveTarget) -> Task<Message> {
+    fn write_schedule(&self, id: u64, target: SaveTarget) -> Task<Message> {
         let items = self.schedule.items();
         let revision = self.schedule.revision();
 
@@ -1936,6 +2052,7 @@ impl App {
         })
         .map(move |result| {
             Message::ScheduleSaved(
+                id,
                 revision,
                 result.unwrap_or_else(|error| Err(SaveFailure::Failed(error))),
             )
@@ -3352,13 +3469,115 @@ mod tests {
     }
 
     #[test]
+    fn cancelling_update_confirmation_keeps_the_dirty_schedule() {
+        let mut app = dirty_app();
+
+        let _ = app.guard(Pending::Update);
+        assert_eq!(pending(&app), Some(Pending::Update));
+
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Cancel));
+        assert!(app.modal.is_none());
+        assert!(app.schedule.is_dirty());
+        assert!(app.exit_handoff.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn another_save_completion_leaves_the_confirmed_update_pending() {
+        let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
+        let old_id = app.schedule_save_id;
+        let _ = app.update(Message::ScheduleSavePathChosen(old_id, None));
+        let _ = app.request_schedule_save(false, Some(Pending::Update));
+
+        let _ = app.update(Message::ScheduleSaved(
+            old_id,
+            app.schedule.revision(),
+            Ok("other.sdw".into()),
+        ));
+
+        assert!(app.schedule.is_dirty());
+        assert_eq!(app.schedule_save.unwrap().pending, Some(Pending::Update));
+    }
+
+    #[test]
+    fn update_waits_for_each_media_import_result() {
+        let mut app = App::default();
+        let _ = app.update(Message::MediaImportPicked(Some("first.mp4".into())));
+        let _ = app.update(Message::MediaImportPicked(Some("second.mp4".into())));
+        assert!(app.update_work_in_flight());
+
+        let _ = app.update(Message::MediaImported(Err("first failed".into())));
+        assert!(app.update_work_in_flight());
+        let _ = app.update(Message::MediaImported(Err("second failed".into())));
+        assert!(!app.update_work_in_flight());
+    }
+
+    #[test]
+    fn failed_schedule_save_cancels_update_restart() {
+        let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, Some(Pending::Update));
+
+        let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
+            app.schedule.revision(),
+            Err(crate::files::SaveFailure::Failed("save failed".into())),
+        ));
+
+        assert!(app.schedule_save.is_none());
+        assert!(app.schedule.is_dirty());
+        assert!(app.exit_handoff.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn save_confirmation_attaches_action_to_running_save() {
+        let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
+        let id = app.schedule_save_id;
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+
+        assert!(app.modal.is_none());
+        assert_eq!(app.schedule_save.unwrap().pending, Some(Pending::New));
+        assert_eq!(app.schedule_save_id, id);
+        let _ = app.update(Message::ScheduleSaved(
+            id,
+            app.schedule.revision(),
+            Ok("sunday.sdw".into()),
+        ));
+        assert!(app.schedule.is_empty());
+    }
+
+    #[test]
+    fn attached_action_does_not_discard_edits_made_after_save_started() {
+        let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
+        let revision = app.schedule.revision();
+        let _ = app.update(Message::ScheduleNewRequested);
+        let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
+        app.schedule.remove(0);
+        let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
+            revision,
+            Ok("sunday.sdw".into()),
+        ));
+        assert!(app.schedule.is_dirty());
+        assert!(app.schedule_save.is_none());
+    }
+
+    #[test]
     fn successful_save_continues_pending_action() {
         let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
         let _ = app.update(Message::ScheduleNewRequested);
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
         let revision = app.schedule.revision();
 
         let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
             revision,
             Ok(PathBuf::from("sunday.sdw")),
         ));
@@ -3369,26 +3588,31 @@ mod tests {
     #[test]
     fn failed_save_cancels_pending_action() {
         let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
         let _ = app.update(Message::ScheduleNewRequested);
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
         let revision = app.schedule.revision();
 
         let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
             revision,
             Err(SaveFailure::Failed("broken".into())),
         ));
 
         assert!(!app.schedule.is_empty());
-        assert!(app.after_save.is_none());
+        assert!(app.schedule_save.is_none());
         assert_eq!(app.notices, [Notice::Failure("broken".into())]);
     }
 
     #[test]
     fn taken_file_name_is_explained_with_a_save_as_banner() {
         let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
         let revision = app.schedule.revision();
 
         let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
             revision,
             Err(SaveFailure::Taken("sunday.sdw".into())),
         ));
@@ -3401,13 +3625,14 @@ mod tests {
     #[test]
     fn enter_saves_from_the_unsaved_prompt() {
         let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
         let _ = app.update(Message::ScheduleNewRequested);
         assert!(app.captions.unsaved_saved.contains(t().unsaved.never_saved));
 
         let _ = app.update(Message::ModalSubmitted);
 
         assert!(app.modal.is_none());
-        assert_eq!(app.after_save, Some(Pending::New));
+        assert_eq!(app.schedule_save.unwrap().pending, Some(Pending::New));
     }
 
     #[test]
@@ -3425,9 +3650,12 @@ mod tests {
     #[test]
     fn saving_records_when_it_happened() {
         let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
+        let _ = app.request_schedule_save(false, None);
         let revision = app.schedule.revision();
 
         let _ = app.update(Message::ScheduleSaved(
+            app.schedule_save_id,
             revision,
             Ok(PathBuf::from("sunday.sdw")),
         ));
@@ -3438,12 +3666,13 @@ mod tests {
     #[test]
     fn cancelling_save_location_cancels_pending_action() {
         let mut app = dirty_app();
+        app.control = Some(window::Id::unique());
         let _ = app.update(Message::ScheduleNewRequested);
         let _ = app.update(Message::Unsaved(UnsavedChoice::Save));
 
-        let _ = app.update(Message::ScheduleSavePathChosen(None));
+        let _ = app.update(Message::ScheduleSavePathChosen(app.schedule_save_id, None));
 
-        assert!(app.after_save.is_none());
+        assert!(app.schedule_save.is_none());
         assert!(!app.schedule.is_empty());
     }
 

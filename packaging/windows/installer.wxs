@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?define Win64 = "yes"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="SolideoWorship" Language="1033" Version="{{version}}" Manufacturer="MikeNoppo" UpgradeCode="{{upgrade_code}}">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"/>
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="!(loc.DowngradeErrorMessage)"/>
+    <MediaTemplate EmbedCab="yes"/>
+    <Property Id="ARPNOREPAIR" Value="yes"/>
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR"/>
+    <Property Id="INSTALLDIR">
+      <RegistrySearch Id="PreviousDirectory" Root="HKLM" Key="Software\MikeNoppo\SolideoWorship\MSI" Name="InstallLocation" Type="raw" Win64="yes"/>
+    </Property>
+    {{#if license}}<WixVariable Id="WixUILicenseRtf" Value="{{license}}"/>{{/if}}
+    <UIRef Id="WixUI_InstallDir"/>
+    {{#if icon_path}}
+    <Icon Id="ProductIcon" SourceFile="{{icon_path}}"/>
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon"/>
+    {{/if}}
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder"><Directory Id="INSTALLDIR" Name="SolideoWorship"/></Directory>
+      <Directory Id="ProgramMenuFolder"/>
+    </Directory>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="Path" Guid="{{path_component_guid}}" Win64="yes">
+        <File Id="Path" Source="{{app_exe_source}}" KeyPath="yes"/>
+        <Shortcut Id="StartMenu" Directory="ProgramMenuFolder" Name="SolideoWorship" Advertise="yes" WorkingDirectory="INSTALLDIR"/>
+      </Component>
+      <Component Id="Registration" Guid="*" Win64="yes">
+        <RegistryValue Root="HKLM" Key="Software\MikeNoppo\SolideoWorship\MSI" Name="InstallLocation" Type="string" Value="[INSTALLDIR]" KeyPath="yes"/>
+      </Component>
+      {{#each binaries as |bin|}}
+      <Component Id="{{bin.id}}" Guid="{{bin.guid}}" Win64="yes"><File Id="Bin_{{bin.id}}" Source="{{bin.path}}" KeyPath="yes"/></Component>
+      {{/each}}
+      {{resources}}
+    </DirectoryRef>
+    <Feature Id="MainProgram" Title="SolideoWorship" Level="1" Absent="disallow">
+      <ComponentRef Id="Path"/>
+      <ComponentRef Id="Registration"/>
+      {{#each binaries as |bin|}}<ComponentRef Id="{{bin.id}}"/>{{/each}}
+      {{#each resource_file_ids}}<ComponentRef Id="{{this}}"/>{{/each}}
+    </Feature>
+  </Product>
+</Wix>

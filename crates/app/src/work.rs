@@ -73,18 +73,15 @@ impl Store {
         let _ = self.jobs.send(Box::new(move |_| job()));
     }
 
-    pub fn flush(&self, timeout: Duration) {
+    pub fn flush(&self, timeout: Duration) -> bool {
         let (done, finished) = mpsc::channel();
 
-        if self
-            .jobs
+        self.jobs
             .send(Box::new(move |_| {
                 let _ = done.send(());
             }))
             .is_ok()
-        {
-            let _ = finished.recv_timeout(timeout);
-        }
+            && finished.recv_timeout(timeout).is_ok()
     }
 
     pub fn run<T, M>(

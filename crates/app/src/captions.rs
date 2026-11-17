@@ -168,6 +168,10 @@ impl Captions {
             let (title, body) = match pending {
                 Pending::New => (fill(unsaved.title, &name), unsaved.on_new.to_owned()),
                 Pending::Open => (fill(unsaved.title, &name), unsaved.on_open.to_owned()),
+                Pending::Update => (
+                    fill(unsaved.title, &name),
+                    t().update.save_schedule.to_owned(),
+                ),
                 Pending::Quit => (unsaved.quit_title.to_owned(), fill(unsaved.on_quit, &name)),
             };
             self.unsaved_title = title.into_boxed_str();
