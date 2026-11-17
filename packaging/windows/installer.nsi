@@ -78,9 +78,9 @@ Section
   {{#each binaries}}
   File "/oname={{this}}" "{{@key}}"
   {{/each}}
-  IfFileExists "$OUTDIR\{{main_binary_name}}.exe" 0 probe_missing
+  IfFileExists "$OUTDIR\\{{main_binary_name}}.exe" 0 probe_missing
   ClearErrors
-  ExecWait '"$OUTDIR\{{main_binary_name}}.exe" --update-probe "{{version}}"' $0
+  ExecWait '"$OUTDIR\\{{main_binary_name}}.exe" --update-probe "{{version}}"' $0
   IfErrors probe_launch_failed
   ${If} $0 != 0
     SetErrorLevel $0
@@ -88,14 +88,14 @@ Section
   ${EndIf}
   SetOutPath $INSTDIR
   ClearErrors
-  CopyFiles /SILENT "$PLUGINSDIR\{{main_binary_name}}.exe" "$INSTDIR\{{main_binary_name}}.exe"
+  CopyFiles /SILENT "$PLUGINSDIR\\{{main_binary_name}}.exe" "$INSTDIR\\{{main_binary_name}}.exe"
   IfErrors failed
   {{#each resources}}
-  CopyFiles /SILENT "$PLUGINSDIR\{{this}}" "$INSTDIR\{{this}}"
+  CopyFiles /SILENT "$PLUGINSDIR\\{{this}}" "$INSTDIR\\{{this}}"
   IfErrors failed
   {{/each}}
   {{#each binaries}}
-  CopyFiles /SILENT "$PLUGINSDIR\{{this}}" "$INSTDIR\{{this}}"
+  CopyFiles /SILENT "$PLUGINSDIR\\{{this}}" "$INSTDIR\\{{this}}"
   IfErrors failed
   {{/each}}
   IfFileExists "$INSTDIR\language" language_done
@@ -116,7 +116,7 @@ Section
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\SolideoWorship" "$MultiUser.InstallMode" 1
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\SolideoWorship" "NoModify" 1
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\SolideoWorship" "NoRepair" 1
-  CreateShortcut "$SMPROGRAMS\SolideoWorship.lnk" "$INSTDIR\{{main_binary_name}}.exe"
+  CreateShortcut "$SMPROGRAMS\SolideoWorship.lnk" "$INSTDIR\\{{main_binary_name}}.exe"
   Goto done
   probe_missing:
   SetErrorLevel 80
@@ -134,12 +134,12 @@ Section
   done:
 SectionEnd
 Section Uninstall
-  Delete "$INSTDIR\{{main_binary_name}}.exe"
+  Delete "$INSTDIR\\{{main_binary_name}}.exe"
   {{#each resources}}
-  Delete "$INSTDIR\{{this}}"
+  Delete "$INSTDIR\\{{this}}"
   {{/each}}
   {{#each binaries}}
-  Delete "$INSTDIR\{{this}}"
+  Delete "$INSTDIR\\{{this}}"
   {{/each}}
   Delete "$INSTDIR\language"
   Delete "$INSTDIR\uninstall.exe"
