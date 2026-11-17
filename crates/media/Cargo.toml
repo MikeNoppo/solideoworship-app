@@ -14,6 +14,6 @@ ac-ffmpeg = { version = "0.19.0", optional = true }
 cpal = { version = "0.18", optional = true }
 fast_image_resize = "6.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-lru = "0.16"
+lru = "0.19"
 sdw-core.workspace = true
 sha2 = "0.11"
