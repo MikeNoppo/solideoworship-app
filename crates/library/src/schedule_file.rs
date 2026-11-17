@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::{fmt, fs, io};
 
 use sdw_core::bible::{Book, Passage, Reference, Verse};
-use sdw_core::{ScheduleItem, Song};
+use sdw_core::{MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, Song};
 use serde::{Deserialize, Serialize};
 
 use crate::songs::{
@@ -10,7 +11,7 @@ use crate::songs::{
 };
 
 const FORMAT: &str = "solideoworship-schedule";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Debug)]
 pub enum ScheduleFileError {
@@ -55,9 +56,17 @@ impl From<io::Error> for ScheduleFileError {
 }
 
 pub fn save(path: &Path, items: &[ScheduleItem]) -> Result<(), ScheduleFileError> {
+    let version = if items
+        .iter()
+        .any(|item| matches!(item, ScheduleItem::Media(_)))
+    {
+        VERSION
+    } else {
+        1
+    };
     let file = FileDto {
         format: FORMAT.to_owned(),
-        version: VERSION,
+        version,
         items: items.iter().map(ItemDto::from).collect(),
     };
     let json = serde_json::to_string_pretty(&file).map_err(io::Error::from)?;
@@ -142,6 +151,15 @@ enum ItemDto {
         translation: String,
         text: Vec<VerseDto>,
     },
+    Media {
+        sha256: String,
+        ext: String,
+        title: String,
+        kind: String,
+        width: Option<u32>,
+        height: Option<u32>,
+        duration_ms: Option<u64>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -178,6 +196,15 @@ impl From<&ScheduleItem> for ItemDto {
                         .collect(),
                 }
             }
+            ScheduleItem::Media(media) => Self::Media {
+                sha256: media.sha256.as_str().to_owned(),
+                ext: media.ext.as_str().to_owned(),
+                title: media.title.to_string(),
+                kind: media.kind.as_str().to_owned(),
+                width: media.width,
+                height: media.height,
+                duration_ms: media.duration_ms,
+            },
         }
     }
 }
@@ -225,6 +252,29 @@ impl ItemDto {
                     .collect();
 
                 Passage::new(reference, &translation, verses).map(ScheduleItem::Passage)
+            }
+            Self::Media {
+                sha256,
+                ext,
+                title,
+                kind,
+                width,
+                height,
+                duration_ms,
+            } => {
+                let trimmed = title.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                Some(ScheduleItem::Media(MediaRef {
+                    sha256: MediaHash::parse(&sha256)?,
+                    ext: MediaExt::parse(&ext)?,
+                    title: Arc::from(trimmed),
+                    kind: MediaKind::parse(&kind)?,
+                    width,
+                    height,
+                    duration_ms,
+                }))
             }
         }
     }
@@ -336,10 +386,37 @@ mod tests {
         assert!(matches!(
             open_text(
                 "schedule-newer",
-                r#"{"format":"solideoworship-schedule","version":2,"items":[]}"#
+                r#"{"format":"solideoworship-schedule","version":3,"items":[]}"#
             ),
-            Err(ScheduleFileError::NewerVersion(2))
+            Err(ScheduleFileError::NewerVersion(3))
         ));
+    }
+
+    #[test]
+    fn media_schedule_uses_version_2_and_round_trips_references_without_bytes() {
+        use sdw_core::{MediaExt, MediaHash, MediaKind, MediaRef};
+        use std::sync::Arc;
+
+        let dir = TempDir::new("schedule-media");
+        let path = dir.path().join("media.sdw");
+        let items = vec![ScheduleItem::Media(MediaRef {
+            sha256: MediaHash::parse(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .unwrap(),
+            ext: MediaExt::parse("mp4").unwrap(),
+            title: Arc::from("Worship Loop"),
+            kind: MediaKind::Video,
+            width: Some(1920),
+            height: Some(1080),
+            duration_ms: Some(15_000),
+        })];
+
+        save(&path, &items).unwrap();
+        let json = fs::read_to_string(&path).unwrap();
+        assert!(json.contains("\"version\": 2"));
+        assert!(json.contains("\"type\": \"media\""));
+        assert_eq!(open(&path).unwrap(), items);
     }
 
     #[test]

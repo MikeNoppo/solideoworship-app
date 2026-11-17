@@ -1,5 +1,6 @@
 mod bible;
 mod error;
+mod media;
 mod migrate;
 pub mod schedule_file;
 mod settings;
@@ -14,6 +15,9 @@ use rusqlite::Connection;
 
 pub use bible::{BibleBook, BibleId, BibleSummary, ImportReport};
 pub use error::{Error, StorageError};
+pub use media::{
+    MediaId, MediaSummary, NewMedia, cas_file_path, store_file_in_cas, thumb_file_path,
+};
 pub use songs::{SongId, SongSummary};
 
 pub struct Library {
