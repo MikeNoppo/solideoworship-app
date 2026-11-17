@@ -134,6 +134,9 @@ def test_upgrades(directory):
     private = directory / "test-key.der"
     private.write_bytes(bytes.fromhex("302e020100300506032b657004220420") + bytes([7]) * 32)
     public = run("openssl", "pkey", "-inform", "DER", "-in", private, "-pubout", "-outform", "DER", capture_output=True).stdout[-32:].hex()
+    env = os.environ.copy()
+    env["SDW_UPDATE_PUBLIC_KEY"] = public
+    run("cargo", "test", "-p", "sdw-app", "--lib", "--locked", "--release", env=env, cwd=ROOT)
     for fmt in formats:
         packages = [fixture(directory / f"{fmt}-{index}", f"0.1.0-beta.{100 + index}", fmt, broken=index == 2) for index in range(3)]
         installed = directory / f"{fmt} installation"

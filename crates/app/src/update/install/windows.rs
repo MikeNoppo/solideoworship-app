@@ -6,7 +6,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::process::Command;
 use std::ptr;
 
@@ -153,11 +153,15 @@ pub fn install(
             )?
         }
         PackageFormat::Wix => {
+            let source = msi_path(&package_path);
+            if source.canonicalize().map_err(|_| Error::Verification)? != package_path {
+                return Err(Error::Verification);
+            }
             let extracted = staged.join("preflight");
             fs::create_dir(&extracted).map_err(|_| Error::Install)?;
             let status = Command::new(msiexec()?)
                 .arg("/a")
-                .arg(&package_path)
+                .arg(&source)
                 .args(["/qn", "/norestart"])
                 .raw_arg(msi_property("TARGETDIR", &extracted))
                 .status()
@@ -171,7 +175,7 @@ pub fn install(
                 &msiexec()?,
                 &[
                     "/i".into(),
-                    package_path.into_os_string(),
+                    source.into_os_string(),
                     "/passive".into(),
                     "/norestart".into(),
                 ],
@@ -230,9 +234,23 @@ fn parameters(args: &[OsString], property: Option<(&str, &Path)>) -> OsString {
 fn msi_property(name: &str, value: &Path) -> OsString {
     let mut property = OsString::from(name);
     property.push("=\"");
-    property.push(value);
+    property.push(msi_path(value));
     property.push("\"");
     property
+}
+
+fn msi_path(path: &Path) -> PathBuf {
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path.to_owned();
+    };
+    let mut result = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:", char::from(drive))),
+        Prefix::VerbatimUNC(server, share) => PathBuf::from(r"\\").join(server).join(share),
+        _ => return path.to_owned(),
+    };
+    result.extend(components);
+    result
 }
 
 fn launch_installer(
@@ -377,6 +395,26 @@ fn wide(value: impl AsRef<OsStr>) -> Vec<u16> {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn msi_paths_preserve_drive_unc_and_unicode_without_verbatim_prefixes() {
+        for (source, expected) in [
+            (
+                r"\\?\C:\Users\José\Update Cache\package.msi",
+                r"C:\Users\José\Update Cache\package.msi",
+            ),
+            (
+                r"\\?\UNC\server\share\Update Cache\package.msi",
+                r"\\server\share\Update Cache\package.msi",
+            ),
+            (
+                r"C:\Update Cache\package.msi",
+                r"C:\Update Cache\package.msi",
+            ),
+        ] {
+            assert_eq!(msi_path(Path::new(source)), Path::new(expected));
+        }
+    }
 
     #[test]
     fn msi_properties_quote_the_value_without_escaping_directory_separators() {
