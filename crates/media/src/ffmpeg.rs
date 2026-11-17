@@ -1354,6 +1354,49 @@ mod tests {
     }
 
     #[test]
+    fn mono_pcm_audio_resamples_and_drains_without_decoder_errors() {
+        let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-mono-pcm-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let audio = dir.join("silence.wav");
+        fs::write(&audio, include_bytes!("../tests/fixtures/silence.wav")).unwrap();
+        let (harness, sink) = SinkHarness::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let player =
+            MediaPlayer::open_with_audio_output(audio, false, true, false, sink, move |consumer| {
+                tx.send(consumer).unwrap();
+                Some((48_000, 2, ()))
+            })
+            .unwrap();
+        let mut consumer = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        player.play();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut output = [0.0; 4_800];
+        let mut samples = 0;
+        loop {
+            let errors = harness.errors.lock().unwrap();
+            assert!(errors.is_empty(), "decoder errors: {errors:?}");
+            drop(errors);
+            samples += consumer.pop_into(&mut output, 2);
+            if harness
+                .statuses
+                .lock()
+                .unwrap()
+                .last()
+                .is_some_and(|status| {
+                    status.state == PlaybackState::Paused && status.position_ms == 2_000
+                })
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "audio did not finish playing");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(samples, 48_000 * 2 * 2);
+        drop(player);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn normalizes_tagged_full_range_video_before_uploading_planes() {
         use super::{FramePool, copy_video_frame, decode_first_video_frame, open_demuxer};
         use crate::{ColorMatrix, ColorRange};

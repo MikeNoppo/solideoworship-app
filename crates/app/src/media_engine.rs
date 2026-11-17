@@ -1471,25 +1471,11 @@ mod tests {
         let dir = env::temp_dir().join(format!("sdw-media-engine-autoplay-{}", process::id()));
         fs::create_dir_all(&dir).unwrap();
         let clip = dir.join("silence.wav");
-        let sample_rate = 8_000_u32;
-        let data_bytes = sample_rate * 2 * 2;
-        let mut wav = [
-            b"RIFF".as_slice(),
-            &(36 + data_bytes).to_le_bytes(),
-            b"WAVEfmt ",
-            &16_u32.to_le_bytes(),
-            &1_u16.to_le_bytes(),
-            &1_u16.to_le_bytes(),
-            &sample_rate.to_le_bytes(),
-            &(sample_rate * 2).to_le_bytes(),
-            &2_u16.to_le_bytes(),
-            &16_u16.to_le_bytes(),
-            b"data",
-            &data_bytes.to_le_bytes(),
-        ]
-        .concat();
-        wav.resize(wav.len() + data_bytes as usize, 0);
-        fs::write(&clip, wav).unwrap();
+        fs::write(
+            &clip,
+            include_bytes!("../../media/tests/fixtures/silence.wav"),
+        )
+        .unwrap();
 
         let target = VideoTarget {
             sha256: MediaHash::parse(
@@ -1537,6 +1523,9 @@ mod tests {
             loop {
                 let events = std::mem::take(&mut engine.bus.state.lock().unwrap().pending);
                 for event in events {
+                    if let MediaEvent::Error { message, .. } = &event {
+                        panic!("player failed: {message}");
+                    }
                     if let MediaEvent::Status { status, .. } = event
                         && status.looping
                     {

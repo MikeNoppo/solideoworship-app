@@ -253,12 +253,18 @@ int ffw_audio_resampler_push_frame(AudioResampler* resampler, const AVFrame* fra
     resampler->tmp_frame->nb_samples = 0;
     resampler->offset = 0;
 
-    ret = swr_convert_frame(resampler->resample_context, resampler->tmp_frame, frame);
+    ret = swr_convert(
+        resampler->resample_context,
+        resampler->tmp_frame->extended_data,
+        required_capacity,
+        frame ? (const uint8_t**)frame->extended_data : NULL,
+        frame ? frame->nb_samples : 0);
 
     if (ret < 0) {
         return ret;
     }
 
+    resampler->tmp_frame->nb_samples = ret;
     resampler->tmp_frame->pts = resampler->output_samples + resampler->output_pts_offset;
     resampler->output_samples += resampler->tmp_frame->nb_samples;
 
