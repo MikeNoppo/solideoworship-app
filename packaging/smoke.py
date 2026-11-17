@@ -150,6 +150,11 @@ def test_nsis_preflight():
     with tempfile.TemporaryDirectory(prefix="sdw preflight ") as directory:
         directory = Path(directory)
         package = fixture(directory, version, "nsis")
+        run(r"C:\Program Files\7-Zip\7z.exe", "l", package)
+        generated = directory / "out/.cargo-packager/nsis/x64/installer.nsi"
+        for line in generated.read_text(encoding="utf-16").splitlines():
+            if any(word in line for word in ["SetOutPath", "File ", "IfFileExists", "ExecWait"]):
+                print(line, flush=True)
         installed = directory / "installed"
         windows_install(package, installed, "nsis", "CurrentUser")
         probe(installed / "SolideoWorship.exe", version)
