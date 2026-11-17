@@ -26,7 +26,10 @@ use sdw_core::MediaKind;
 use crate::MediaError;
 use crate::audio::{AudioConsumer, AudioOutput, AudioProducer, AudioRingBuffer};
 use crate::image::{fit_within, temp_thumb_path};
-use crate::video::{FramePool, PixelFormat, PlaybackState, PlaybackStatus, VideoFrame};
+use crate::video::{
+    ColorMatrix, ColorRange, FramePool, PixelFormat, PlaybackState, PlaybackStatus, VideoColor,
+    VideoFrame,
+};
 
 const AUDIO_RING_SAMPLES: usize = 65_536;
 const TARGET_AUDIO_CHANNELS: u32 = 2;
@@ -1062,6 +1065,43 @@ fn frame_pts_ms(frame: &FfVideoFrame) -> u64 {
         .unwrap_or(0)
 }
 
+fn infer_video_color(fmt_name: &str, width: usize, height: usize) -> VideoColor {
+    if fmt_name == "yuvj420p" {
+        return VideoColor {
+            matrix: ColorMatrix::Bt601,
+            range: ColorRange::Full,
+        };
+    }
+    if fmt_name.starts_with("yuvj") {
+        return VideoColor {
+            matrix: ColorMatrix::Bt601,
+            range: ColorRange::Limited,
+        };
+    }
+    if fmt_name.starts_with("rgb")
+        || fmt_name.starts_with("bgr")
+        || fmt_name.starts_with("argb")
+        || fmt_name.starts_with("abgr")
+        || fmt_name.starts_with("gbr")
+        || fmt_name.starts_with("gray")
+        || fmt_name == "pal8"
+    {
+        return VideoColor {
+            matrix: ColorMatrix::Bt601,
+            range: ColorRange::Limited,
+        };
+    }
+    let matrix = if width >= 1280 || height >= 720 {
+        ColorMatrix::Bt709
+    } else {
+        ColorMatrix::Bt601
+    };
+    VideoColor {
+        matrix,
+        range: ColorRange::Limited,
+    }
+}
+
 fn copy_video_frame(
     raw: &FfVideoFrame,
     scaler_slot: &mut Option<(FfPixelFormat, usize, usize, VideoFrameScaler)>,
@@ -1077,11 +1117,13 @@ fn copy_video_frame(
 
     let pts_ms = frame_pts_ms(raw);
     let src_fmt = raw.pixel_format();
+    let fmt_name = src_fmt.name();
+    let color = infer_video_color(fmt_name, w, h);
 
     let converted_holder;
     let (frame_ref, target_fmt) = if src_fmt == nv12_fmt {
         (raw, PixelFormat::Nv12)
-    } else if src_fmt == yuv420p_fmt {
+    } else if src_fmt == yuv420p_fmt || fmt_name == "yuvj420p" {
         (raw, PixelFormat::Yuv420p)
     } else {
         let needs_rebuild = scaler_slot
@@ -1126,7 +1168,7 @@ fn copy_video_frame(
         }
     }
 
-    Some(writer.finish(pts_ms))
+    Some(writer.finish_with_color(pts_ms, color))
 }
 
 fn copy_plane(
@@ -1600,5 +1642,39 @@ mod tests {
         drop(player);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn infers_color_matrix_and_range_from_format_and_dimensions() {
+        use super::{ColorMatrix, ColorRange, VideoColor, infer_video_color};
+
+        assert_eq!(
+            infer_video_color("yuvj420p", 1920, 1080),
+            VideoColor {
+                matrix: ColorMatrix::Bt601,
+                range: ColorRange::Full,
+            }
+        );
+        assert_eq!(
+            infer_video_color("rgba", 1920, 1080),
+            VideoColor {
+                matrix: ColorMatrix::Bt601,
+                range: ColorRange::Limited,
+            }
+        );
+        assert_eq!(
+            infer_video_color("nv12", 1920, 1080),
+            VideoColor {
+                matrix: ColorMatrix::Bt709,
+                range: ColorRange::Limited,
+            }
+        );
+        assert_eq!(
+            infer_video_color("yuv420p", 720, 480),
+            VideoColor {
+                matrix: ColorMatrix::Bt601,
+                range: ColorRange::Limited,
+            }
+        );
     }
 }

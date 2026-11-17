@@ -10,6 +10,26 @@ pub enum PixelFormat {
     Yuv420p,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorMatrix {
+    #[default]
+    Bt709,
+    Bt601,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorRange {
+    #[default]
+    Limited,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VideoColor {
+    pub matrix: ColorMatrix,
+    pub range: ColorRange,
+}
+
 impl PixelFormat {
     pub fn buffer_len(self, width: u32, height: u32) -> Option<(usize, usize, usize)> {
         let w = usize::try_from(width).ok()?;
@@ -127,9 +147,14 @@ impl VideoFrameWriter {
     }
 
     pub fn finish(self, pts_ms: u64) -> Arc<VideoFrame> {
+        self.finish_with_color(pts_ms, VideoColor::default())
+    }
+
+    pub fn finish_with_color(self, pts_ms: u64, color: VideoColor) -> Arc<VideoFrame> {
         Arc::new(VideoFrame {
             id: NEXT_FRAME_ID.fetch_add(1, Ordering::Relaxed),
             pts_ms,
+            color,
             buffer: Some(self.buffer),
             pool: Some(self.pool),
         })
@@ -140,6 +165,7 @@ impl VideoFrameWriter {
 pub struct VideoFrame {
     id: u64,
     pts_ms: u64,
+    color: VideoColor,
     buffer: Option<FrameBuffer>,
     pool: Option<Arc<FramePool>>,
 }
@@ -153,6 +179,10 @@ impl VideoFrame {
         self.buffer
             .as_ref()
             .map_or(PixelFormat::Nv12, |buf| buf.format)
+    }
+
+    pub fn color(&self) -> VideoColor {
+        self.color
     }
 
     pub fn width(&self) -> u32 {

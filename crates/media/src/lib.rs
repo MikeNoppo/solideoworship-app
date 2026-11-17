@@ -15,4 +15,7 @@ pub use image::{
     ByteLruCache, CachedBytes, DecodedRgba, ImageCache, ImageCacheKey, ImageTier,
     decode_image_capped, generate_image_thumbnail,
 };
-pub use video::{FramePool, PixelFormat, PlaybackState, PlaybackStatus, SeekDebouncer, VideoFrame};
+pub use video::{
+    ColorMatrix, ColorRange, FramePool, PixelFormat, PlaybackState, PlaybackStatus, SeekDebouncer,
+    VideoColor, VideoFrame,
+};
