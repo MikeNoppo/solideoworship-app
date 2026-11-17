@@ -12,7 +12,7 @@ use sdw_media::ImageCacheKey;
 
 use crate::display::Display;
 use crate::files::{SaveFailure, SaveTarget};
-use crate::media_engine::{DecodedImage, MediaEvent, MediaSlot};
+use crate::media_engine::{DecodedImage, MediaEvent, MediaSlot, OpenedPlayer};
 use crate::report::CrashRecord;
 use crate::theme_dialog;
 use crate::work::Outcome;
@@ -227,6 +227,7 @@ pub enum Message {
     MediaSetBackground(ContentKind, MediaId),
     MediaClearBackground(ContentKind),
     MediaImageDecoded(ImageCacheKey, Outcome<DecodedImage>),
+    MediaPlayerOpened(MediaSlot, u64, Outcome<OpenedPlayer>),
     MediaEngineEvent(MediaEvent),
     MediaPlayToggle(MediaSlot),
     MediaStop(MediaSlot),
@@ -268,6 +269,7 @@ impl Message {
             | Self::BibleManager(..)
             | Self::BugReport(..)
             | Self::MediaImageDecoded(..)
+            | Self::MediaPlayerOpened(..)
             | Self::MediaEngineEvent(..) => false,
             Self::SplashOpened
             | Self::SplashElapsed

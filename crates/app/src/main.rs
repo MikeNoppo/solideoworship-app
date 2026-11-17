@@ -1243,6 +1243,7 @@ impl App {
                             )],
                         );
                         self.schedule.load(path, items, &self.settings.styles);
+                        self.media.clear_all_failures();
                         self.saved_at = modified;
                         self.notices.retain(|notice| {
                             !matches!(notice, Notice::Recovered | Notice::Taken(_))
@@ -1518,6 +1519,7 @@ impl App {
             }
             Message::MediaImported(result) => match result {
                 Ok(summary) => {
+                    self.media.clear_media_failures(&summary.sha256);
                     let text = fill(t().library.media_imported, &[("title", &summary.title)]);
                     self.show_toast(Toast::Done(text.into_boxed_str()));
                     self.load_media()
@@ -1563,6 +1565,7 @@ impl App {
             ),
             Message::MediaDeleted(result) => match result {
                 Ok(Some(summary)) => {
+                    self.media.evict_media(&summary.sha256);
                     let text = fill(t().library.media_deleted, &[("title", &summary.title)]);
                     self.show_toast(Toast::Done(text.into_boxed_str()));
                     let clear_bg_task = self.clear_deleted_backgrounds(&summary.sha256);
@@ -1617,7 +1620,13 @@ impl App {
             Message::MediaImageDecoded(key, result) => {
                 match result {
                     Ok(decoded) => self.media.store_decoded_image(decoded),
-                    Err(_) => self.media.clear_in_flight(&key),
+                    Err(_) => self.media.mark_image_failed(key),
+                }
+                Task::none()
+            }
+            Message::MediaPlayerOpened(slot, generation, result) => {
+                if let Some(error) = self.media.finish_open(slot, generation, result) {
+                    self.flash(error.to_string());
                 }
                 Task::none()
             }
@@ -2477,7 +2486,7 @@ impl App {
             let theme = self.settings.styles.theme(preview.deck().kind);
             media_engine::plan_slot_media(slide, theme)
         });
-        let (preview_missing, preview_err) = media_engine::prepare_slot_sync(
+        let preview_missing = media_engine::prepare_slot_sync(
             &mut self.media,
             MediaSlot::Preview,
             preview_plan,
@@ -2489,9 +2498,6 @@ impl App {
             &mut tasks,
         );
         self.preview_media_missing = preview_missing;
-        if let Some(err) = preview_err {
-            self.flash(err.to_string());
-        }
 
         let live_visible = self.output.is_some()
             && matches!(self.output_state, OutputState::Show | OutputState::Clear);
@@ -2502,7 +2508,7 @@ impl App {
             let theme = self.scene_theme();
             media_engine::plan_slot_media(slide, theme)
         };
-        let (live_missing, live_err) = media_engine::prepare_slot_sync(
+        let live_missing = media_engine::prepare_slot_sync(
             &mut self.media,
             MediaSlot::Live,
             live_plan,
@@ -2517,9 +2523,6 @@ impl App {
         self.live_media_missing = live_missing;
         if live_missing && !was_live_missing {
             self.flash(t().slides.media_missing.to_owned());
-        }
-        if let Some(err) = live_err {
-            self.flash(err.to_string());
         }
 
         Task::batch(tasks)

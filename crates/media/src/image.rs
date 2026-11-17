@@ -108,6 +108,12 @@ impl<K: Hash + Eq, V: CachedBytes + Clone> ByteLruCache<K, V> {
         true
     }
 
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        let evicted = self.entries.pop(key)?;
+        self.used_bytes = self.used_bytes.saturating_sub(evicted.byte_len());
+        Some(evicted)
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
         self.used_bytes = 0;

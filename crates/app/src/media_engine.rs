@@ -187,6 +187,34 @@ impl MediaSink for SlotSink {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct OpenedPlayer {
+    player: Arc<Mutex<Option<MediaPlayer>>>,
+    opened_target: VideoTarget,
+}
+
+impl OpenedPlayer {
+    fn new(player: MediaPlayer, opened_target: VideoTarget) -> Self {
+        Self {
+            player: Arc::new(Mutex::new(Some(player))),
+            opened_target,
+        }
+    }
+
+    fn take(&self) -> Option<MediaPlayer> {
+        self.player.lock().ok().and_then(|mut slot| slot.take())
+    }
+}
+
+struct PendingOpen {
+    generation: u64,
+    target: VideoTarget,
+    seek_ms: Option<u64>,
+    buffered_frame: Option<Arc<VideoFrame>>,
+    buffered_status: Option<PlaybackStatus>,
+    buffered_error: Option<Box<str>>,
+}
+
 struct SlotPlayer {
     target: VideoTarget,
     synced_looping: bool,
@@ -209,7 +237,10 @@ pub struct DecodedImage {
 pub struct MediaEngine {
     images: ByteLruCache<ImageCacheKey, CachedHandle>,
     in_flight: HashSet<ImageCacheKey>,
+    failed_images: HashSet<ImageCacheKey>,
     slots: HashMap<MediaSlot, SlotPlayer>,
+    pending_opens: HashMap<MediaSlot, PendingOpen>,
+    failed_videos: HashSet<(MediaHash, MediaExt)>,
     next_generation: u64,
     bus: Arc<MediaEventBus>,
 }
@@ -225,7 +256,10 @@ impl MediaEngine {
         Self {
             images: ByteLruCache::new(IMAGE_CACHE_MAX_BYTES),
             in_flight: HashSet::new(),
+            failed_images: HashSet::new(),
             slots: HashMap::new(),
+            pending_opens: HashMap::new(),
+            failed_videos: HashSet::new(),
             next_generation: 1,
             bus: MediaEventBus::new(1),
         }
@@ -237,6 +271,7 @@ impl MediaEngine {
 
     pub fn store_decoded_image(&mut self, decoded: DecodedImage) {
         self.in_flight.remove(&decoded.key);
+        self.failed_images.remove(&decoded.key);
         self.images.insert(
             decoded.key,
             CachedHandle {
@@ -246,47 +281,71 @@ impl MediaEngine {
         );
     }
 
-    pub fn clear_in_flight(&mut self, key: &ImageCacheKey) {
-        self.in_flight.remove(key);
+    pub fn mark_image_failed(&mut self, key: ImageCacheKey) {
+        self.in_flight.remove(&key);
+        self.failed_images.insert(key);
     }
 
+    pub fn clear_media_failures(&mut self, sha256: &MediaHash) {
+        self.failed_images.remove(&ImageCacheKey {
+            sha256: sha256.clone(),
+            tier: ImageTier::Thumb,
+        });
+        self.failed_images.remove(&ImageCacheKey {
+            sha256: sha256.clone(),
+            tier: ImageTier::Stage,
+        });
+        self.failed_videos.retain(|(hash, _)| hash != sha256);
+    }
+
+    pub fn clear_all_failures(&mut self) {
+        self.failed_images.clear();
+        self.failed_videos.clear();
+    }
+
+    pub fn evict_media(&mut self, sha256: &MediaHash) {
+        self.clear_media_failures(sha256);
+        self.images.remove(&ImageCacheKey {
+            sha256: sha256.clone(),
+            tier: ImageTier::Thumb,
+        });
+        self.images.remove(&ImageCacheKey {
+            sha256: sha256.clone(),
+            tier: ImageTier::Stage,
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn request_image<M: Send + 'static>(
         &mut self,
         media_dir: &Path,
         thumb_dir: &Path,
         sha256: MediaHash,
         ext: MediaExt,
+        kind: MediaKind,
         tier: ImageTier,
         on_done: impl FnMut(Result<DecodedImage, Box<str>>) -> M + Send + 'static,
     ) -> Option<Task<M>> {
+        if kind == MediaKind::Audio || (tier == ImageTier::Stage && kind != MediaKind::Image) {
+            return None;
+        }
+
         let key = ImageCacheKey {
             sha256: sha256.clone(),
             tier,
         };
-        if self.images.get(&key).is_some() || !self.in_flight.insert(key.clone()) {
+        if self.images.get(&key).is_some()
+            || self.failed_images.contains(&key)
+            || !self.in_flight.insert(key.clone())
+        {
             return None;
         }
 
-        let path = match tier {
-            ImageTier::Thumb => {
-                let thumb = sdw_library::thumb_file_path(thumb_dir, &sha256);
-                if thumb.is_file() {
-                    thumb
-                } else {
-                    cas_file_path(media_dir, &sha256, &ext)
-                }
-            }
-            ImageTier::Stage => cas_file_path(media_dir, &sha256, &ext),
-        };
-
-        let (max_w, max_h) = match tier {
-            ImageTier::Thumb => (320, 320),
-            ImageTier::Stage => (STAGE_MAX_WIDTH, STAGE_MAX_HEIGHT),
-        };
-
+        let media_dir = media_dir.to_path_buf();
+        let thumb_dir = thumb_dir.to_path_buf();
         let task = crate::work::background(move || {
-            let decoded = decode_image_capped(&path, max_w, max_h)
-                .map_err(|err| err.to_string().into_boxed_str())?;
+            let decoded =
+                load_or_generate_image(&media_dir, &thumb_dir, &sha256, &ext, kind, tier)?;
             let bytes = decoded.byte_len();
             let raw = iced::advanced::graphics::core::Bytes::from_owner(decoded.pixels);
             let handle = Handle::from_rgba(decoded.width, decoded.height, raw);
@@ -297,21 +356,30 @@ impl MediaEngine {
         Some(task)
     }
 
-    pub fn sync_slot(
+    fn retire_slot(&mut self, slot: MediaSlot) {
+        if let Some(old) = self.slots.remove(&slot) {
+            retire_player(old.player);
+        }
+    }
+
+    pub fn sync_slot<M: Send + 'static>(
         &mut self,
         slot: MediaSlot,
         media_dir: &Path,
         target: Option<VideoTarget>,
-    ) -> Result<(), Box<str>> {
+        on_opened: impl FnOnce(MediaSlot, u64, Outcome<OpenedPlayer>) -> M + Send + 'static,
+    ) -> Option<Task<M>> {
         let Some(target) = target else {
-            self.slots.remove(&slot);
-            return Ok(());
+            self.pending_opens.remove(&slot);
+            self.retire_slot(slot);
+            return None;
         };
 
         if let Some(existing) = self.slots.get_mut(&slot)
             && existing.target.sha256 == target.sha256
             && existing.target.ext == target.ext
         {
+            self.pending_opens.remove(&slot);
             if existing.synced_looping != target.looping {
                 existing.player.set_looping(target.looping);
                 existing.synced_looping = target.looping;
@@ -324,12 +392,42 @@ impl MediaEngine {
                 existing.target.muted = target.muted;
                 existing.status.muted = target.muted;
             }
-            return Ok(());
+            return None;
         }
 
-        self.slots.remove(&slot);
+        if let Some(pending) = self.pending_opens.get_mut(&slot)
+            && pending.target.sha256 == target.sha256
+            && pending.target.ext == target.ext
+        {
+            pending.target.looping = target.looping;
+            pending.target.muted = target.muted;
+            pending.target.auto_play = target.auto_play;
+            return None;
+        }
+
+        if self
+            .failed_videos
+            .contains(&(target.sha256.clone(), target.ext.clone()))
+        {
+            self.pending_opens.remove(&slot);
+            self.retire_slot(slot);
+            return None;
+        }
+
+        self.retire_slot(slot);
         let generation = self.next_generation;
         self.next_generation = self.next_generation.wrapping_add(1);
+        self.pending_opens.insert(
+            slot,
+            PendingOpen {
+                generation,
+                target: target.clone(),
+                seek_ms: None,
+                buffered_frame: None,
+                buffered_status: None,
+                buffered_error: None,
+            },
+        );
 
         let path = cas_file_path(media_dir, &target.sha256, &target.ext);
         let sink = SlotSink {
@@ -337,48 +435,121 @@ impl MediaEngine {
             generation,
             bus: Arc::clone(&self.bus),
         };
-        let player = MediaPlayer::open(path, target.looping, target.muted, target.auto_play, sink)
-            .map_err(|err| err.to_string().into_boxed_str())?;
-        let duration_ms = player.probe().duration_ms;
+        let mut on_opened = Some(on_opened);
+        let task = crate::work::background(move || {
+            let player =
+                MediaPlayer::open(path, target.looping, target.muted, target.auto_play, sink)
+                    .map_err(|err| err.to_string().into_boxed_str())?;
+            Ok(OpenedPlayer::new(player, target))
+        })
+        .map(move |res| {
+            let callback = on_opened
+                .take()
+                .expect("MediaPlayerOpened mapper called more than once");
+            callback(slot, generation, res)
+        });
 
-        self.slots.insert(
-            slot,
-            SlotPlayer {
-                synced_looping: target.looping,
-                synced_muted: target.muted,
-                target: target.clone(),
-                generation,
-                player,
-                frame: None,
-                status: PlaybackStatus {
-                    duration_ms,
-                    muted: target.muted,
-                    looping: target.looping,
-                    ..PlaybackStatus::default()
-                },
-                error: None,
-                seek_debouncer: SeekDebouncer::new(SEEK_DEBOUNCE),
-            },
-        );
-
-        Ok(())
+        Some(task)
     }
 
-    pub fn play(&self, slot: MediaSlot) {
+    pub fn finish_open(
+        &mut self,
+        slot: MediaSlot,
+        generation: u64,
+        result: Outcome<OpenedPlayer>,
+    ) -> Option<Box<str>> {
+        let Some(current_gen) = self.pending_opens.get(&slot).map(|p| p.generation) else {
+            if let Ok(opened) = result
+                && let Some(player) = opened.take()
+            {
+                retire_player(player);
+            }
+            return None;
+        };
+        if current_gen != generation {
+            if let Ok(opened) = result
+                && let Some(player) = opened.take()
+            {
+                retire_player(player);
+            }
+            return None;
+        }
+
+        let pending = self.pending_opens.remove(&slot)?;
+        match result {
+            Ok(opened) => {
+                let player = opened.take()?;
+                if pending.target.looping != opened.opened_target.looping {
+                    player.set_looping(pending.target.looping);
+                }
+                if pending.target.muted != opened.opened_target.muted {
+                    player.set_muted(pending.target.muted);
+                }
+                if let Some(ms) = pending.seek_ms {
+                    player.seek(ms);
+                }
+                if pending.target.auto_play != opened.opened_target.auto_play {
+                    if pending.target.auto_play {
+                        player.play();
+                    } else {
+                        player.pause();
+                    }
+                }
+
+                self.retire_slot(slot);
+                let duration_ms = player.probe().duration_ms;
+                let status = pending.buffered_status.unwrap_or(PlaybackStatus {
+                    duration_ms,
+                    muted: pending.target.muted,
+                    looping: pending.target.looping,
+                    ..PlaybackStatus::default()
+                });
+                self.slots.insert(
+                    slot,
+                    SlotPlayer {
+                        synced_looping: pending.target.looping,
+                        synced_muted: pending.target.muted,
+                        target: pending.target,
+                        generation,
+                        player,
+                        frame: pending.buffered_frame,
+                        status,
+                        error: pending.buffered_error,
+                        seek_debouncer: SeekDebouncer::new(SEEK_DEBOUNCE),
+                    },
+                );
+                None
+            }
+            Err(err) => {
+                self.failed_videos
+                    .insert((pending.target.sha256, pending.target.ext));
+                Some(err)
+            }
+        }
+    }
+
+    pub fn play(&mut self, slot: MediaSlot) {
         if let Some(player) = self.slots.get(&slot) {
             player.player.play();
+        } else if let Some(pending) = self.pending_opens.get_mut(&slot) {
+            pending.target.auto_play = true;
         }
     }
 
-    pub fn pause(&self, slot: MediaSlot) {
+    pub fn pause(&mut self, slot: MediaSlot) {
         if let Some(player) = self.slots.get(&slot) {
             player.player.pause();
+        } else if let Some(pending) = self.pending_opens.get_mut(&slot) {
+            pending.target.auto_play = false;
         }
     }
 
-    pub fn stop(&self, slot: MediaSlot) {
+    pub fn stop(&mut self, slot: MediaSlot) {
         if let Some(player) = self.slots.get(&slot) {
             player.player.stop();
+        } else if let Some(pending) = self.pending_opens.get_mut(&slot) {
+            pending.target.auto_play = false;
+            pending.seek_ms = Some(0);
         }
     }
 
@@ -406,9 +577,11 @@ impl MediaEngine {
         }
     }
 
-    pub fn seek_immediate(&self, slot: MediaSlot, target_ms: u64) {
+    pub fn seek_immediate(&mut self, slot: MediaSlot, target_ms: u64) {
         if let Some(entry) = self.slots.get(&slot) {
             entry.player.seek(target_ms);
+        } else if let Some(pending) = self.pending_opens.get_mut(&slot) {
+            pending.seek_ms = Some(target_ms);
         }
     }
 
@@ -417,6 +590,8 @@ impl MediaEngine {
             entry.target.muted = muted;
             entry.status.muted = muted;
             entry.player.set_muted(muted);
+        } else if let Some(pending) = self.pending_opens.get_mut(&slot) {
+            pending.target.muted = muted;
         }
     }
 
@@ -425,6 +600,8 @@ impl MediaEngine {
             entry.target.looping = looping;
             entry.status.looping = looping;
             entry.player.set_looping(looping);
+        } else if let Some(pending) = self.pending_opens.get_mut(&slot) {
+            pending.target.looping = looping;
         }
     }
 
@@ -437,11 +614,14 @@ impl MediaEngine {
     }
 
     pub fn slot_sha256(&self, slot: MediaSlot) -> Option<&MediaHash> {
-        self.slots.get(&slot).map(|entry| &entry.target.sha256)
+        self.slots
+            .get(&slot)
+            .map(|entry| &entry.target.sha256)
+            .or_else(|| self.pending_opens.get(&slot).map(|p| &p.target.sha256))
     }
 
     pub fn has_active_player(&self) -> bool {
-        !self.slots.is_empty()
+        !self.slots.is_empty() || !self.pending_opens.is_empty()
     }
 
     pub fn apply_event(&mut self, event: MediaEvent) {
@@ -455,6 +635,10 @@ impl MediaEngine {
                     && entry.generation == generation
                 {
                     entry.frame = Some(frame);
+                } else if let Some(pending) = self.pending_opens.get_mut(&slot)
+                    && pending.generation == generation
+                {
+                    pending.buffered_frame = Some(frame);
                 }
             }
             MediaEvent::Status {
@@ -466,6 +650,10 @@ impl MediaEngine {
                     && entry.generation == generation
                 {
                     entry.status = status;
+                } else if let Some(pending) = self.pending_opens.get_mut(&slot)
+                    && pending.generation == generation
+                {
+                    pending.buffered_status = Some(status);
                 }
             }
             MediaEvent::Error {
@@ -477,6 +665,10 @@ impl MediaEngine {
                     && entry.generation == generation
                 {
                     entry.error = Some(message);
+                } else if let Some(pending) = self.pending_opens.get_mut(&slot)
+                    && pending.generation == generation
+                {
+                    pending.buffered_error = Some(message);
                 }
             }
         }
@@ -604,6 +796,7 @@ impl MediaEngine {
                 thumb_dir,
                 item.sha256.clone(),
                 item.ext.clone(),
+                item.kind,
                 ImageTier::Thumb,
                 move |result| Message::MediaImageDecoded(key.clone(), result),
             ) {
@@ -647,17 +840,25 @@ pub fn prepare_slot_sync(
     force_muted: bool,
     require_standalone_for_video: bool,
     tasks: &mut Vec<Task<Message>>,
-) -> (bool, Option<Box<str>>) {
+) -> bool {
     let Some(plan) = plan else {
-        let err = media_engine.sync_slot(slot, media_dir, None).err();
-        return (false, err);
+        if let Some(task) =
+            media_engine.sync_slot(slot, media_dir, None, Message::MediaPlayerOpened)
+        {
+            tasks.push(task);
+        }
+        return false;
     };
 
     let has_cas = cas_file_path(media_dir, &plan.sha256, &plan.ext).is_file();
     let missing = (plan.is_standalone || !require_standalone_for_video) && !has_cas;
     if plan.is_standalone && !has_cas {
-        let err = media_engine.sync_slot(slot, media_dir, None).err();
-        return (true, err);
+        if let Some(task) =
+            media_engine.sync_slot(slot, media_dir, None, Message::MediaPlayerOpened)
+        {
+            tasks.push(task);
+        }
+        return true;
     }
 
     let request_stage =
@@ -682,6 +883,7 @@ pub fn prepare_slot_sync(
                 thumb_dir,
                 plan.sha256.clone(),
                 plan.ext.clone(),
+                plan.kind,
                 tier,
                 move |result| Message::MediaImageDecoded(key.clone(), result),
             ) {
@@ -704,8 +906,57 @@ pub fn prepare_slot_sync(
             None
         };
 
-    let err = media_engine.sync_slot(slot, media_dir, target).err();
-    (missing, err)
+    if let Some(task) = media_engine.sync_slot(slot, media_dir, target, Message::MediaPlayerOpened)
+    {
+        tasks.push(task);
+    }
+    missing
+}
+
+fn retire_player(player: MediaPlayer) {
+    player.silence_for_close();
+    let _ = std::thread::Builder::new()
+        .name("sdw-media-close".to_owned())
+        .spawn(move || drop(player));
+}
+
+fn load_or_generate_image(
+    media_dir: &Path,
+    thumb_dir: &Path,
+    sha256: &MediaHash,
+    ext: &MediaExt,
+    kind: MediaKind,
+    tier: ImageTier,
+) -> Outcome<sdw_media::DecodedRgba> {
+    match tier {
+        ImageTier::Stage => {
+            if kind != MediaKind::Image {
+                return Err("stage image requested for non-image media".into());
+            }
+            let cas = cas_file_path(media_dir, sha256, ext);
+            decode_image_capped(&cas, STAGE_MAX_WIDTH, STAGE_MAX_HEIGHT)
+                .map_err(|err| err.to_string().into_boxed_str())
+        }
+        ImageTier::Thumb => {
+            let thumb = thumb_file_path(thumb_dir, sha256);
+            if thumb.is_file() {
+                return decode_image_capped(&thumb, 320, 320)
+                    .map_err(|err| err.to_string().into_boxed_str());
+            }
+            let cas = cas_file_path(media_dir, sha256, ext);
+            match kind {
+                MediaKind::Image => decode_image_capped(&cas, 320, 320)
+                    .map_err(|err| err.to_string().into_boxed_str()),
+                MediaKind::Video => {
+                    sdw_media::generate_video_thumbnail(&cas, &thumb, 320)
+                        .map_err(|err| err.to_string().into_boxed_str())?;
+                    decode_image_capped(&thumb, 320, 320)
+                        .map_err(|err| err.to_string().into_boxed_str())
+                }
+                MediaKind::Audio => Err("audio media has no thumbnail".into()),
+            }
+        }
+    }
 }
 
 pub fn resolve_slide_media_config<'a>(
@@ -792,9 +1043,18 @@ pub fn prepare_media_import(src: &Path, media_dir: &Path, thumb_dir: &Path) -> O
 
 #[cfg(test)]
 mod tests {
-    use iced::futures::channel::mpsc;
+    use std::process::Command;
+    use std::sync::Arc;
+    use std::{env, fs, process};
 
-    use super::{MediaEvent, MediaEventBus, MediaSlot};
+    use iced::futures::channel::mpsc;
+    use sdw_core::{MediaExt, MediaHash, MediaKind};
+    use sdw_library::{cas_file_path, thumb_file_path};
+    use sdw_media::{ImageCacheKey, ImageTier, PlaybackState, PlaybackStatus};
+
+    use super::{
+        MediaEngine, MediaEvent, MediaEventBus, MediaSlot, VideoTarget, load_or_generate_image,
+    };
 
     #[test]
     fn event_bus_recovers_and_buffers_when_stream_receiver_drops() {
@@ -816,5 +1076,223 @@ mod tests {
             &buffered[0],
             MediaEvent::Error { message, .. } if message.as_ref() == "frame0-buffered"
         ));
+    }
+
+    #[test]
+    fn failed_image_decode_is_not_retried_until_failures_are_cleared() {
+        let dir = env::temp_dir().join(format!("sdw-media-engine-fail-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let media_dir = dir.join("cas");
+        let thumb_dir = dir.join("thumbs");
+        fs::create_dir_all(&media_dir).unwrap();
+        fs::create_dir_all(&thumb_dir).unwrap();
+
+        let sha =
+            MediaHash::parse("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                .unwrap();
+        let ext = MediaExt::parse("png").unwrap();
+        let key = ImageCacheKey {
+            sha256: sha.clone(),
+            tier: ImageTier::Thumb,
+        };
+
+        let mut engine = MediaEngine::new();
+        assert!(
+            engine
+                .request_image(
+                    &media_dir,
+                    &thumb_dir,
+                    sha.clone(),
+                    ext.clone(),
+                    MediaKind::Image,
+                    ImageTier::Thumb,
+                    |_| (),
+                )
+                .is_some()
+        );
+        engine.mark_image_failed(key);
+
+        assert!(
+            engine
+                .request_image(
+                    &media_dir,
+                    &thumb_dir,
+                    sha.clone(),
+                    ext.clone(),
+                    MediaKind::Image,
+                    ImageTier::Thumb,
+                    |_| (),
+                )
+                .is_none()
+        );
+
+        engine.clear_media_failures(&sha);
+        assert!(
+            engine
+                .request_image(
+                    &media_dir,
+                    &thumb_dir,
+                    sha,
+                    ext,
+                    MediaKind::Image,
+                    ImageTier::Thumb,
+                    |_| (),
+                )
+                .is_some()
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_video_thumbnail_regenerates_via_ffmpeg_instead_of_image_decoder() {
+        let dir = env::temp_dir().join(format!("sdw-media-engine-vthumb-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let media_dir = dir.join("cas");
+        let thumb_dir = dir.join("thumbs");
+        fs::create_dir_all(&media_dir).unwrap();
+        fs::create_dir_all(&thumb_dir).unwrap();
+
+        let sha =
+            MediaHash::parse("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                .unwrap();
+        let ext = MediaExt::parse("mp4").unwrap();
+        let cas = cas_file_path(&media_dir, &sha, &ext);
+        fs::create_dir_all(cas.parent().unwrap()).unwrap();
+
+        let ok = Command::new("ffmpeg")
+            .args([
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=160x90:rate=10:duration=0.3",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(&cas)
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let thumb = thumb_file_path(&thumb_dir, &sha);
+        assert!(!thumb.exists());
+
+        let decoded = load_or_generate_image(
+            &media_dir,
+            &thumb_dir,
+            &sha,
+            &ext,
+            MediaKind::Video,
+            ImageTier::Thumb,
+        )
+        .unwrap();
+        assert_eq!((decoded.width, decoded.height), (160, 90));
+        assert!(thumb.is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_slot_deduplicates_pending_open_and_buffers_early_events() {
+        let dir = env::temp_dir().join(format!("sdw-media-engine-sync-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let media_dir = dir.join("cas");
+        fs::create_dir_all(&media_dir).unwrap();
+
+        let sha =
+            MediaHash::parse("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+                .unwrap();
+        let ext = MediaExt::parse("mp4").unwrap();
+        let target = VideoTarget {
+            sha256: sha.clone(),
+            ext: ext.clone(),
+            looping: false,
+            muted: true,
+            auto_play: false,
+        };
+
+        let mut engine = MediaEngine::new();
+        assert!(
+            engine
+                .sync_slot(
+                    MediaSlot::Preview,
+                    &media_dir,
+                    Some(target.clone()),
+                    |_, _, _| ()
+                )
+                .is_some()
+        );
+        assert!(engine.has_active_player());
+        assert_eq!(engine.slot_sha256(MediaSlot::Preview), Some(&sha));
+
+        let mut updated = target;
+        updated.looping = true;
+        updated.auto_play = true;
+        assert!(
+            engine
+                .sync_slot(MediaSlot::Preview, &media_dir, Some(updated), |_, _, _| ())
+                .is_none()
+        );
+
+        let generation = engine
+            .pending_opens
+            .get(&MediaSlot::Preview)
+            .unwrap()
+            .generation;
+        engine.apply_event(MediaEvent::Status {
+            slot: MediaSlot::Preview,
+            generation,
+            status: PlaybackStatus {
+                state: PlaybackState::Playing,
+                position_ms: 120,
+                duration_ms: Some(1_000),
+                muted: true,
+                looping: true,
+            },
+        });
+        assert!(
+            engine
+                .pending_opens
+                .get(&MediaSlot::Preview)
+                .unwrap()
+                .buffered_status
+                .is_some()
+        );
+
+        assert!(
+            engine
+                .finish_open(MediaSlot::Preview, generation, Err("missing file".into()))
+                .is_some()
+        );
+        assert!(!engine.has_active_player());
+
+        assert!(
+            engine
+                .sync_slot(
+                    MediaSlot::Preview,
+                    &media_dir,
+                    Some(VideoTarget {
+                        sha256: sha.clone(),
+                        ext,
+                        looping: false,
+                        muted: true,
+                        auto_play: false,
+                    }),
+                    |_, _, _| (),
+                )
+                .is_none()
+        );
+
+        engine.clear_media_failures(&sha);
+        assert!(Arc::strong_count(&engine.bus) >= 1);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
