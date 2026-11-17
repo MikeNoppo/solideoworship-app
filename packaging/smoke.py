@@ -36,10 +36,19 @@ def test_release(dist, version):
         directory = Path(directory)
         if system == "windows":
             os.environ["PATH"] = os.pathsep.join(path for path in os.environ["PATH"].split(os.pathsep) if path != os.environ["FFMPEG_BIN_DIR"])
+            payload = directory / "payload"
+            payload.mkdir()
+            target = dist.parent.parent
+            shutil.copy2(target / "release/sdw-app.exe", payload / "SolideoWorship.exe")
+            for dll in Path(os.environ["FFMPEG_BIN_DIR"]).glob("*.dll"):
+                shutil.copy2(dll, payload / dll.name)
+            print("Testing the Windows executable with its bundled FFmpeg DLLs", flush=True)
+            probe(payload / "SolideoWorship.exe", version)
             for fmt, pattern in [("nsis", "*.exe"), ("wix", "*.msi")]:
                 package = next(dist.glob(pattern)).resolve()
                 for scope in (["CurrentUser", "AllUsers"] if fmt == "nsis" else ["AllUsers"]):
                     installed = directory / f"{fmt} {scope}"
+                    print(f"Testing {fmt} installation ({scope})", flush=True)
                     windows_install(package, installed, fmt, scope)
                     probe(installed / "SolideoWorship.exe", version)
                     windows_remove(installed, package, fmt, scope)

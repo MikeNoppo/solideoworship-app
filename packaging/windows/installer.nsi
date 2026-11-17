@@ -72,9 +72,11 @@ Section
   {{#each binaries}}
   File "/oname={{this}}" "{{@key}}"
   {{/each}}
+  ClearErrors
   ExecWait '"$PLUGINSDIR\payload\{{main_binary_name}}.exe" --update-probe "{{version}}"' $0
+  IfErrors probe_launch_failed
   ${If} $0 != 0
-    SetErrorLevel 7
+    SetErrorLevel $0
     Quit
   ${EndIf}
   SetOutPath $INSTDIR
@@ -109,6 +111,9 @@ Section
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\SolideoWorship" "NoRepair" 1
   CreateShortcut "$SMPROGRAMS\SolideoWorship.lnk" "$INSTDIR\{{main_binary_name}}.exe"
   Goto done
+  probe_launch_failed:
+  SetErrorLevel 7
+  Quit
   failed:
   SetErrorLevel 8
   Quit
