@@ -61,6 +61,7 @@ pub fn install(
     let mut output = File::create_new(&new).map_err(|_| Error::Install)?;
     io::copy(&mut file, &mut output).map_err(|_| Error::Install)?;
     output.sync_all().map_err(|_| Error::Install)?;
+    drop(output);
     fs::set_permissions(&new, fs::Permissions::from_mode(0o755)).map_err(|_| Error::Install)?;
     installed(&new).ok_or(Error::Verification)?;
     let probe = |path: &Path| {
