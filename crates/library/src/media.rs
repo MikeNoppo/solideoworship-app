@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fs, io, process};
 
 use rusqlite::types::Type;
@@ -81,9 +82,12 @@ pub fn store_file_in_cas(
     Ok(dest)
 }
 
+static NEXT_CAS_TEMP: AtomicU64 = AtomicU64::new(0);
+
 fn temp_cas_path(dest: &Path) -> PathBuf {
+    let seq = NEXT_CAS_TEMP.fetch_add(1, Ordering::Relaxed);
     let mut name = OsString::from(dest.as_os_str());
-    name.push(format!(".{}.tmp", process::id()));
+    name.push(format!(".{}.{seq}.tmp", process::id()));
     PathBuf::from(name)
 }
 

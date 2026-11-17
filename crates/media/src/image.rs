@@ -5,6 +5,7 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer};
@@ -199,9 +200,12 @@ pub fn generate_image_thumbnail(
     Ok((src_w, src_h))
 }
 
+static NEXT_THUMB_TEMP: AtomicU64 = AtomicU64::new(0);
+
 pub(crate) fn temp_thumb_path(dest: &Path) -> PathBuf {
+    let seq = NEXT_THUMB_TEMP.fetch_add(1, Ordering::Relaxed);
     let mut name = OsString::from(dest.as_os_str());
-    name.push(format!(".{}.tmp", process::id()));
+    name.push(format!(".{}.{seq}.tmp", process::id()));
     PathBuf::from(name)
 }
 
