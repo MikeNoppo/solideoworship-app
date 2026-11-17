@@ -358,7 +358,9 @@ mod tests {
     #[test]
     #[ignore = "requires disposable native installations from packaging/smoke.py"]
     fn native_package_update() {
-        let executable = PathBuf::from(env::var_os("SDW_TEST_EXECUTABLE").unwrap());
+        let executable = PathBuf::from(env::var_os("SDW_TEST_EXECUTABLE").unwrap())
+            .canonicalize()
+            .unwrap();
         assert!(
             env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
                 || (!cfg!(windows)
