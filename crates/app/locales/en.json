@@ -29,6 +29,27 @@
     "fatal_error": "SolideoWorship stopped because of an error.\n\n{error}",
     "unsupported_language": "{path} does not contain a supported language code. Expected one of: {codes}."
   },
+  "update": {
+    "title": "SolideoWorship Update",
+    "check": "Check for updates",
+    "checking": "Checking for updates…",
+    "current": "SolideoWorship is up to date.",
+    "available": "SolideoWorship {version} is available",
+    "download": "Download update",
+    "downloading": "Downloading and verifying the update…",
+    "ready": "The update is ready. SolideoWorship will close and reopen.",
+    "install": "Install and restart",
+    "close_output": "Close the projector output before installing.",
+    "check_failed": "Could not check for updates",
+    "network": "Could not reach GitHub Releases. Check your connection and try again.",
+    "metadata": "Release details are invalid. Try again later.",
+    "verification": "The update could not be verified. Check for updates again or install manually from GitHub Releases.",
+    "busy": "An operation is still in progress. Wait a moment and try again.",
+    "stage_failed": "Could not prepare the update. Check available disk space and try again.",
+    "save_schedule": "SolideoWorship will close to install the update. Save your schedule to reopen it after installing.",
+    "install_failed": "Could not install the update. Close any other SolideoWorship windows and try again, or install manually from GitHub Releases.",
+    "installed": "SolideoWorship was updated."
+  },
   "notice": {
     "library_title": "The library could not be opened.",
     "library_body": "{error}. Songs, Bibles and saved themes are unavailable; schedules still work.",
@@ -167,6 +188,7 @@
     "media_missing": "Media file missing from library storage"
   },
   "status": {
+    "saving_schedule": "Saving the schedule…",
     "ready": "Ready",
     "selected": "{screen} selected for output",
     "no_selection": "no output screen selected",

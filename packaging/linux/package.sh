@@ -11,7 +11,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 
 cd "$root"
-cargo build --release --locked -p sdw-app
+cargo build --release --locked -p sdw-app --bin sdw-app
 
 target=$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
 

@@ -74,6 +74,7 @@ pub enum Pending {
     New,
     Open,
     Quit,
+    Update,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +103,8 @@ impl From<Settings> for StartupLibrary {
     }
 }
 
+pub type OpenedSchedule = (PathBuf, Vec<ScheduleItem>, Option<SystemTime>);
+
 #[derive(Debug, Clone)]
 pub enum Message {
     AnimationFrame(Instant),
@@ -112,6 +115,8 @@ pub enum Message {
     RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
     CrashLoaded(Outcome<Option<CrashRecord>>),
     FontsLoaded,
+    Update(crate::app_update::Event),
+    UpdateScheduleOpened(Outcome<OpenedSchedule>),
 
     DisplaysRequested,
     DisplaysLoaded(Result<Vec<Display>, Box<str>>),
@@ -195,11 +200,11 @@ pub enum Message {
     ScheduleNewRequested,
     ScheduleOpenRequested,
     ScheduleFilePicked(Option<PathBuf>),
-    ScheduleOpened(Outcome<(PathBuf, Vec<ScheduleItem>, Option<SystemTime>)>),
+    ScheduleOpened(Outcome<OpenedSchedule>),
     ScheduleSaveRequested,
     ScheduleSaveAsRequested,
-    ScheduleSavePathChosen(Option<SaveTarget>),
-    ScheduleSaved(u64, Result<PathBuf, SaveFailure>),
+    ScheduleSavePathChosen(u64, Option<SaveTarget>),
+    ScheduleSaved(u64, u64, Result<PathBuf, SaveFailure>),
     Unsaved(UnsavedChoice),
     Bible(bible_tab::Message),
     BiblesLoaded(Outcome<Vec<BibleSummary>>),
@@ -280,6 +285,8 @@ impl Message {
             | Self::MenuToggled(..)
             | Self::MenuDismissed
             | Self::RecoveryLoaded(..)
+            | Self::Update(..)
+            | Self::UpdateScheduleOpened(..)
             | Self::CrashLoaded(..)
             | Self::DisplaysRequested
             | Self::DisplaysLoaded(..)

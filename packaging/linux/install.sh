@@ -68,7 +68,13 @@ install_app() {
     confirm_privacy
 
     mkdir -p "$bin_dir" "$applications"
-    install -m 755 "$here/$app" "$binary"
+    staged_binary=$(mktemp "$bin_dir/.$app.XXXXXX")
+    trap 'rm -f -- "$staged_binary"' EXIT
+    trap 'exit 1' HUP INT TERM
+    install -m 755 "$here/$app" "$staged_binary"
+    if [ -n "$update_version" ]; then
+        "$staged_binary" --update-probe "$update_version"
+    fi
     {
         grep -v '^Exec=' "$here/$app.desktop"
         printf 'Exec="%s"\n' "$(desktop_exec_argument "$binary")"
@@ -80,6 +86,7 @@ install_app() {
     done
     install -D -m 644 "$here/icons/scalable.svg" "$icons/scalable/apps/$app.svg"
     refresh_icons "$icons"
+    mv -fT -- "$staged_binary" "$binary"
     echo "Installed $binary"
     echo "Installed $desktop"
     echo "Installed icons in $icons"
@@ -144,11 +151,18 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 assume_yes=false
+update_version=
 
 case "${1:-}" in
     "") install_app ;;
     -y | --yes)
         assume_yes=true
+        install_app
+        ;;
+    --update)
+        [ "$#" -eq 2 ] && [ -n "$2" ] || exit 64
+        assume_yes=true
+        update_version=$2
         install_app
         ;;
     --uninstall) uninstall_app ;;

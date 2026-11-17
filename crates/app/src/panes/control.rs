@@ -76,6 +76,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let layout = column![toolbar::view(app), ui::hrule(style::BORDER)]
         .extend(notices(app))
+        .extend(
+            app.updater
+                .banner(app.output.is_some(), app.update_work_in_flight()),
+        )
         .push(body)
         .push(ui::hrule(style::BORDER))
         .push(status_bar(app));
@@ -397,8 +401,9 @@ fn status_bar(app: &App) -> Element<'_, Message> {
             .spacing(8)
             .align_y(Center)
             .width(Fill),
-            hints,
         ]
+        .extend(app.updater.check_button())
+        .push(hints)
         .spacing(18)
         .align_y(Center),
     )

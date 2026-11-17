@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: ./.github/actions/setup-windows-ffmpeg
-      - run: cargo build --release --locked -p sdw-app
+      - run: cargo build --release --locked -p sdw-app --bins
       - name: Check that the exe needs no MSVC runtime DLLs
         shell: pwsh
         run: |
