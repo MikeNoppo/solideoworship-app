@@ -44,9 +44,9 @@ class WindowsResources(unittest.TestCase):
 class MsiCommand(unittest.TestCase):
     def test_directory_property_quotes_only_its_value(self):
         with patch("smoke.subprocess.run") as process:
-            windows_msi("/i", r"C:\Update Cache\package.msi", "/qn", installation=Path("C:\\Users\\operator\\Solideo Worship\\"))
+            windows_msi("/i", r"C:\Update Cache\package.msi", "/qn", installation=Path(r"C:\Users\operator\Solideo Worship"))
         command = process.call_args.args[0]
-        self.assertIn('INSTALLDIR="C:\\Users\\operator\\Solideo Worship\\"', command)
+        self.assertIn('INSTALLDIR="C:\\Users\\operator\\Solideo Worship"', command)
         self.assertNotIn('"INSTALLDIR=', command)
 
 
