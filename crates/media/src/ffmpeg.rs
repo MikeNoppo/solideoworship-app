@@ -1080,8 +1080,8 @@ fn copy_plane(
 #[cfg(test)]
 mod tests {
     use std::process::Command;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::{Duration, Instant};
     use std::{env, fs, process};
 
     use sdw_core::MediaKind;
@@ -1093,6 +1093,7 @@ mod tests {
         frames: Arc<Mutex<Vec<(u32, u32, u64)>>>,
         statuses: Arc<Mutex<Vec<PlaybackStatus>>>,
         errors: Arc<Mutex<Vec<String>>>,
+        signal: Arc<Condvar>,
     }
 
     impl MediaSink for TestSink {
@@ -1100,18 +1101,45 @@ mod tests {
             if let Ok(mut list) = self.frames.lock() {
                 list.push((frame.width(), frame.height(), frame.pts_ms()));
             }
+            self.signal.notify_all();
         }
 
         fn on_status(&self, status: PlaybackStatus) {
             if let Ok(mut list) = self.statuses.lock() {
                 list.push(status);
             }
+            self.signal.notify_all();
         }
 
         fn on_error(&self, message: String) {
             if let Ok(mut list) = self.errors.lock() {
                 list.push(message);
             }
+            self.signal.notify_all();
+        }
+    }
+
+    fn wait_until<T>(
+        state: &Mutex<T>,
+        signal: &Condvar,
+        gate: &Mutex<()>,
+        timeout: Duration,
+        predicate: impl Fn(&T) -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut lock = gate.lock().unwrap();
+        loop {
+            if let Ok(guard) = state.lock()
+                && predicate(&guard)
+            {
+                return true;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let wait_for = remaining.min(Duration::from_millis(25));
+            let (guard, _) = signal.wait_timeout(lock, wait_for).unwrap();
+            lock = guard;
         }
     }
 
@@ -1168,45 +1196,43 @@ mod tests {
         let frames = Arc::new(Mutex::new(Vec::new()));
         let statuses = Arc::new(Mutex::new(Vec::new()));
         let errors = Arc::new(Mutex::new(Vec::new()));
+        let signal = Arc::new(Condvar::new());
+        let gate = Mutex::new(());
         let sink = TestSink {
             frames: Arc::clone(&frames),
             statuses: Arc::clone(&statuses),
             errors: Arc::clone(&errors),
+            signal: Arc::clone(&signal),
         };
 
+        let timeout = Duration::from_secs(5);
         let player = MediaPlayer::open(video, false, true, false, sink).unwrap();
-        std::thread::sleep(Duration::from_millis(120));
-        assert!(!frames.lock().unwrap().is_empty());
+        assert!(wait_until(&frames, &signal, &gate, timeout, |f| !f.is_empty()));
 
+        let before_seek_frames = frames.lock().unwrap().len();
         player.seek(500);
-        std::thread::sleep(Duration::from_millis(120));
-        player.play();
-        std::thread::sleep(Duration::from_millis(250));
-        player.pause();
-        std::thread::sleep(Duration::from_millis(50));
+        assert!(wait_until(&frames, &signal, &gate, timeout, |f| f.len()
+            > before_seek_frames));
 
+        player.play();
+        assert!(wait_until(&statuses, &signal, &gate, timeout, |s| {
+            s.iter().any(|st| st.state == PlaybackState::Playing)
+        }));
+        std::thread::sleep(Duration::from_millis(120));
+        player.pause();
+        assert!(wait_until(&statuses, &signal, &gate, timeout, |s| {
+            s.last().is_some_and(|st| st.state == PlaybackState::Paused)
+        }));
         assert!(errors.lock().unwrap().is_empty());
-        let recorded_statuses = statuses.lock().unwrap();
-        assert!(
-            recorded_statuses
-                .iter()
-                .any(|s| s.state == PlaybackState::Playing)
-        );
-        assert_eq!(
-            recorded_statuses.last().unwrap().state,
-            PlaybackState::Paused
-        );
-        drop(recorded_statuses);
 
         let before_stop_frames = frames.lock().unwrap().len();
         player.stop();
-        std::thread::sleep(Duration::from_millis(80));
-        assert_eq!(
-            statuses.lock().unwrap().last().unwrap().state,
-            PlaybackState::Stopped
-        );
-        assert_eq!(statuses.lock().unwrap().last().unwrap().position_ms, 0);
-        assert!(frames.lock().unwrap().len() > before_stop_frames);
+        assert!(wait_until(&statuses, &signal, &gate, timeout, |s| {
+            s.last()
+                .is_some_and(|st| st.state == PlaybackState::Stopped && st.position_ms == 0)
+        }));
+        assert!(wait_until(&frames, &signal, &gate, timeout, |f| f.len()
+            > before_stop_frames));
         drop(player);
 
         let _ = fs::remove_dir_all(&dir);
