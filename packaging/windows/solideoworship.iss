@@ -50,6 +50,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\..\target\release\sdw-app.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\vendor\ac-ffmpeg\LICENSE"; DestDir: "{app}"; DestName: "LICENSE-ac-ffmpeg.txt"; Flags: ignoreversion
 Source: "..\..\PRIVACY.md"; DestDir: "{app}"; DestName: "PRIVACY.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\Inter-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-Inter.txt"; Flags: ignoreversion
 Source: "..\..\assets\fonts\JetBrainsMono-LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-JetBrainsMono.txt"; Flags: ignoreversion
