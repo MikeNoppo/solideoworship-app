@@ -107,6 +107,12 @@ jobs:
           PACKAGE_PLATFORM: ${{ matrix.platform }}
           PACKAGE_ARCH: ${{ matrix.arch }}
         run: python packaging/smoke.py "target/dist/$PACKAGE_PLATFORM-$PACKAGE_ARCH" "$VERSION" --upgrades
+      - name: Test Debian package installation with APT
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y ./target/dist/linux-x86_64/*.deb
+          solideoworship --update-probe "$VERSION"
+          sudo apt-get remove -y solideoworship
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ matrix.platform }}-${{ matrix.arch }}
