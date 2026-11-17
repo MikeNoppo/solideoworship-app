@@ -94,6 +94,7 @@ def fixture(directory, version, fmt, broken=False):
     config = prepare(json.loads((ROOT / "packaging/packager.json").read_text()), directory, system, version, bins)
     config["formats"] = [fmt]
     if system == "windows":
+        config["resources"] = [item for item in config["resources"] if not item["target"].endswith(".dll")]
         marker = directory / "package-format"
         marker.write_text(fmt)
         config["resources"].append({"src": str(marker), "target": "package-format"})
@@ -144,14 +145,31 @@ def test_upgrades(directory):
             windows_remove(installed, packages[1], fmt)
 
 
+def test_nsis_preflight():
+    version = "0.1.0-beta.100"
+    with tempfile.TemporaryDirectory(prefix="sdw preflight ") as directory:
+        directory = Path(directory)
+        package = fixture(directory, version, "nsis")
+        installed = directory / "installed"
+        windows_install(package, installed, "nsis", "CurrentUser")
+        probe(installed / "SolideoWorship.exe", version)
+        windows_remove(installed, package, "nsis", "CurrentUser")
+
+
 if __name__ == "__main__":
     if native_platform() == "windows" and os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Run Windows system installation tests only on disposable GitHub Actions runners")
     parser = argparse.ArgumentParser()
-    parser.add_argument("dist", type=Path)
-    parser.add_argument("version")
+    parser.add_argument("dist", type=Path, nargs="?")
+    parser.add_argument("version", nargs="?")
     parser.add_argument("--upgrades", action="store_true")
+    parser.add_argument("--windows-preflight", action="store_true")
     args = parser.parse_args()
+    if args.windows_preflight:
+        test_nsis_preflight()
+        raise SystemExit(0)
+    if args.dist is None or args.version is None:
+        parser.error("dist and version are required")
     test_release(args.dist.resolve(), args.version)
     if args.upgrades:
         with tempfile.TemporaryDirectory(prefix="sdw upgrades ") as directory:

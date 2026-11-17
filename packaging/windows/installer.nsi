@@ -65,15 +65,16 @@ Section
   ${EndIf}
   InitPluginsDir
   SetOutPath "$PLUGINSDIR\payload"
-  File "{{main_binary_path}}"
+  File "/oname={{main_binary_name}}.exe" "{{main_binary_path}}"
   {{#each resources}}
   File "/oname={{this}}" "{{@key}}"
   {{/each}}
   {{#each binaries}}
   File "/oname={{this}}" "{{@key}}"
   {{/each}}
+  IfFileExists "$OUTDIR\{{main_binary_name}}.exe" 0 probe_missing
   ClearErrors
-  ExecWait '"$PLUGINSDIR\payload\{{main_binary_name}}.exe" --update-probe "{{version}}"' $0
+  ExecWait '"$OUTDIR\{{main_binary_name}}.exe" --update-probe "{{version}}"' $0
   IfErrors probe_launch_failed
   ${If} $0 != 0
     SetErrorLevel $0
@@ -111,8 +112,15 @@ Section
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\SolideoWorship" "NoRepair" 1
   CreateShortcut "$SMPROGRAMS\SolideoWorship.lnk" "$INSTDIR\{{main_binary_name}}.exe"
   Goto done
+  probe_missing:
+  SetErrorLevel 2
+  Quit
   probe_launch_failed:
-  SetErrorLevel 7
+  System::Call 'kernel32::GetLastError() i .r0'
+  ${If} $0 == 0
+    StrCpy $0 7
+  ${EndIf}
+  SetErrorLevel $0
   Quit
   failed:
   SetErrorLevel 8

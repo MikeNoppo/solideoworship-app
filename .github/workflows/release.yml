@@ -87,6 +87,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - run: cargo install cargo-packager --version 0.11.8 --locked
       - run: python -m unittest discover -s packaging -p "test_*.py"
+      - name: Test Windows installer preflight with a fixture
+        if: runner.os == 'Windows'
+        run: python packaging/smoke.py --windows-preflight
       - name: Package release binaries
         run: python packaging/package.py
       - name: Check that the exe needs no MSVC runtime DLLs
