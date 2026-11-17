@@ -74,8 +74,15 @@ def prepare(config, stage, system, version, binary_dir):
             raise ValueError("FFMPEG_BIN_DIR contains no DLLs")
         resources.update({dll.name: dll for dll in dlls})
         resources["LICENSE-FFmpeg.txt"] = ffmpeg.parent / "LICENSE.txt"
+        renamed = stage / "resources"
+        renamed.mkdir(exist_ok=True)
+        for name, source in resources.items():
+            if source.name != name:
+                target = renamed / name
+                shutil.copy2(source, target)
+                resources[name] = target
         eula = stage / "privacy.txt"
-        eula.write_text("\n\n".join((ROOT / f"packaging/windows/privacy-{lang}.txt").read_text() for lang in ["en", "id"]))
+        eula.write_text("\n\n".join((ROOT / f"packaging/windows/privacy-{lang}.txt").read_text(encoding="utf-8") for lang in ["en", "id"]), encoding="utf-8")
         config["licenseFile"] = str(eula)
         nsis_template = stage / "installer.nsi"
         nsis_template.write_text((ROOT / "packaging/windows/installer.nsi").read_text().replace("__INSTALL_VERSION__", msi_version(version)))

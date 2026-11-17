@@ -1,6 +1,10 @@
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
-from package import msi_version
+from package import ROOT, msi_version, prepare
 
 
 class Versions(unittest.TestCase):
@@ -13,6 +17,27 @@ class Versions(unittest.TestCase):
         for version in ["0.1.0-beta.0", "0.1.0-beta.500", "0.1.0-rc.499", "256.0.0", "0.256.0", "0.1.66", "0.1.0-alpha.1", "0.1.0+build"]:
             with self.subTest(version=version), self.assertRaises(ValueError):
                 msi_version(version)
+
+
+class WindowsResources(unittest.TestCase):
+    def test_packaged_license_sources_have_unique_install_filenames(self):
+        with TemporaryDirectory() as temp:
+            stage = Path(temp)
+            for exe in ["sdw-app.exe", "sdw-updater.exe"]:
+                (stage / exe).touch()
+            ffmpeg = stage / "ffmpeg" / "bin"
+            ffmpeg.mkdir(parents=True)
+            (ffmpeg / "avcodec.dll").touch()
+            (ffmpeg.parent / "LICENSE.txt").write_text("FFmpeg license")
+            config = json.loads((ROOT / "packaging/packager.json").read_text())
+            with patch.dict("os.environ", {"FFMPEG_BIN_DIR": str(ffmpeg)}):
+                prepare(config, stage, "windows", "0.1.0-beta.4", stage)
+
+            files = {item["target"]: Path(item["src"]) for item in config["resources"]}
+            self.assertEqual(set(files), {path.name for path in files.values()})
+            self.assertEqual(files["LICENSE.txt"].read_bytes(), (ROOT / "LICENSE").read_bytes())
+            self.assertEqual(files["LICENSE-ac-ffmpeg.txt"].read_bytes(), (ROOT / "vendor/ac-ffmpeg/LICENSE").read_bytes())
+            self.assertEqual(files["LICENSE-FFmpeg.txt"].read_text(), "FFmpeg license")
 
 
 if __name__ == "__main__":
