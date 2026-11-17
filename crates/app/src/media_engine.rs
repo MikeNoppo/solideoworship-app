@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsStr;
+use std::fs;
 use std::hash::{Hash, Hasher};
+use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use iced::futures::channel::mpsc;
@@ -12,7 +14,9 @@ use iced::{Subscription, Task};
 use sdw_core::slide::Slide;
 use sdw_core::theme::SlideTheme;
 use sdw_core::{BackgroundMedia, MediaExt, MediaFit, MediaHash, MediaKind, MediaRef};
-use sdw_library::{MediaSummary, NewMedia, cas_file_path, store_file_in_cas, thumb_file_path};
+use sdw_library::{
+    Library, MediaId, MediaSummary, NewMedia, cas_file_path, store_file_in_cas, thumb_file_path,
+};
 use sdw_media::{
     ByteLruCache, CachedBytes, ImageCacheKey, ImageTier, MediaPlayer, MediaSink, PlaybackStatus,
     SeekDebouncer, VideoFrame, decode_image_capped,
@@ -234,6 +238,27 @@ pub struct DecodedImage {
     pub bytes: usize,
 }
 
+#[derive(Clone, Default)]
+pub struct CasLocks(Arc<Mutex<HashMap<MediaHash, Weak<Mutex<()>>>>>);
+
+impl CasLocks {
+    pub fn with_lock<R>(&self, sha256: &MediaHash, f: impl FnOnce() -> R) -> R {
+        let entry = {
+            let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            map.retain(|_, weak| weak.strong_count() > 0);
+            if let Some(existing) = map.get(sha256).and_then(Weak::upgrade) {
+                existing
+            } else {
+                let arc = Arc::new(Mutex::new(()));
+                map.insert(sha256.clone(), Arc::downgrade(&arc));
+                arc
+            }
+        };
+        let _guard = entry.lock().unwrap_or_else(|e| e.into_inner());
+        f()
+    }
+}
+
 pub struct MediaEngine {
     images: ByteLruCache<ImageCacheKey, CachedHandle>,
     in_flight: HashSet<ImageCacheKey>,
@@ -243,6 +268,7 @@ pub struct MediaEngine {
     failed_videos: HashSet<(MediaHash, MediaExt)>,
     next_generation: u64,
     bus: Arc<MediaEventBus>,
+    cas_locks: CasLocks,
 }
 
 impl Default for MediaEngine {
@@ -262,7 +288,12 @@ impl MediaEngine {
             failed_videos: HashSet::new(),
             next_generation: 1,
             bus: MediaEventBus::new(1),
+            cas_locks: CasLocks::default(),
         }
+    }
+
+    pub fn cas_locks(&self) -> CasLocks {
+        self.cas_locks.clone()
     }
 
     pub fn image_handle(&self, key: &ImageCacheKey) -> Option<&Handle> {
@@ -343,9 +374,11 @@ impl MediaEngine {
 
         let media_dir = media_dir.to_path_buf();
         let thumb_dir = thumb_dir.to_path_buf();
+        let cas_locks = self.cas_locks.clone();
         let task = crate::work::background(move || {
-            let decoded =
-                load_or_generate_image(&media_dir, &thumb_dir, &sha256, &ext, kind, tier)?;
+            let decoded = cas_locks.with_lock(&sha256, || {
+                load_or_generate_image(&media_dir, &thumb_dir, &sha256, &ext, kind, tier)
+            })?;
             let bytes = decoded.byte_len();
             let raw = iced::advanced::graphics::core::Bytes::from_owner(decoded.pixels);
             let handle = Handle::from_rgba(decoded.width, decoded.height, raw);
@@ -989,7 +1022,12 @@ pub fn media_ref(summary: &MediaSummary) -> MediaRef {
     }
 }
 
-pub fn prepare_media_import(src: &Path, media_dir: &Path, thumb_dir: &Path) -> Outcome<NewMedia> {
+pub fn prepare_media_import(
+    src: &Path,
+    media_dir: &Path,
+    thumb_dir: &Path,
+    cas_locks: &CasLocks,
+) -> Outcome<NewMedia> {
     let ext_str = src
         .extension()
         .and_then(OsStr::to_str)
@@ -1006,28 +1044,31 @@ pub fn prepare_media_import(src: &Path, media_dir: &Path, thumb_dir: &Path) -> O
 
     let (sha256, byte_size) =
         sdw_media::sha256_file(src).map_err(|err| err.to_string().into_boxed_str())?;
-    let thumb_dest = thumb_file_path(thumb_dir, &sha256);
 
-    let (kind, width, height, duration_ms) = match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "webp" => {
-            let (w, h) = sdw_media::generate_image_thumbnail(src, &thumb_dest, 320)
-                .map_err(|err| err.to_string().into_boxed_str())?;
-            (MediaKind::Image, Some(w), Some(h), None)
-        }
-        _ => {
-            let probe =
-                sdw_media::probe_media(src).map_err(|err| err.to_string().into_boxed_str())?;
-            let probe = if probe.kind == MediaKind::Video {
-                sdw_media::generate_video_thumbnail(src, &thumb_dest, 320)
-                    .map_err(|err| err.to_string().into_boxed_str())?
-            } else {
-                probe
-            };
-            (probe.kind, probe.width, probe.height, probe.duration_ms)
-        }
-    };
+    let (kind, width, height, duration_ms) = cas_locks.with_lock(&sha256, || {
+        let thumb_dest = thumb_file_path(thumb_dir, &sha256);
+        let probed = match ext.as_str() {
+            "png" | "jpg" | "jpeg" | "webp" => {
+                let (w, h) = sdw_media::generate_image_thumbnail(src, &thumb_dest, 320)
+                    .map_err(|err| err.to_string().into_boxed_str())?;
+                (MediaKind::Image, Some(w), Some(h), None)
+            }
+            _ => {
+                let probe =
+                    sdw_media::probe_media(src).map_err(|err| err.to_string().into_boxed_str())?;
+                let probe = if probe.kind == MediaKind::Video {
+                    sdw_media::generate_video_thumbnail(src, &thumb_dest, 320)
+                        .map_err(|err| err.to_string().into_boxed_str())?
+                } else {
+                    probe
+                };
+                (probe.kind, probe.width, probe.height, probe.duration_ms)
+            }
+        };
 
-    store_file_in_cas(src, media_dir, &sha256, &ext).map_err(describe)?;
+        store_file_in_cas(src, media_dir, &sha256, &ext).map_err(describe)?;
+        Ok::<_, Box<str>>(probed)
+    })?;
 
     Ok(NewMedia {
         sha256,
@@ -1038,6 +1079,58 @@ pub fn prepare_media_import(src: &Path, media_dir: &Path, thumb_dir: &Path) -> O
         height,
         duration_ms,
         byte_size,
+    })
+}
+
+pub fn commit_media_import(
+    library: &Library,
+    src: &Path,
+    media_dir: &Path,
+    thumb_dir: &Path,
+    new_media: &NewMedia,
+    cas_locks: &CasLocks,
+) -> Result<MediaSummary, sdw_library::Error> {
+    cas_locks.with_lock(&new_media.sha256, || {
+        let cas_path = store_file_in_cas(src, media_dir, &new_media.sha256, &new_media.ext)?;
+        let thumb_dest = thumb_file_path(thumb_dir, &new_media.sha256);
+        if !thumb_dest.is_file() {
+            match new_media.kind {
+                MediaKind::Image => {
+                    sdw_media::generate_image_thumbnail(&cas_path, &thumb_dest, 320)
+                        .map_err(io::Error::other)?;
+                }
+                MediaKind::Video => {
+                    sdw_media::generate_video_thumbnail(&cas_path, &thumb_dest, 320)
+                        .map_err(io::Error::other)?;
+                }
+                MediaKind::Audio => {}
+            }
+        }
+        let id = library.upsert_media(new_media)?;
+        library.media(id)
+    })
+}
+
+pub fn delete_media_with_files(
+    library: &Library,
+    id: MediaId,
+    media_dir: &Path,
+    thumb_dir: &Path,
+    cas_locks: &CasLocks,
+) -> Result<Option<MediaSummary>, sdw_library::Error> {
+    let existing = match library.media(id) {
+        Ok(summary) => summary,
+        Err(sdw_library::Error::NotFound) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+
+    cas_locks.with_lock(&existing.sha256, || {
+        let deleted = library.delete_media(id)?;
+        if let Some(ref removed) = deleted {
+            let _ = fs::remove_file(cas_file_path(media_dir, &removed.sha256, &removed.ext));
+            let _ = fs::remove_file(thumb_file_path(thumb_dir, &removed.sha256));
+        }
+        Ok(deleted)
     })
 }
 
@@ -1293,6 +1386,83 @@ mod tests {
 
         engine.clear_media_failures(&sha);
         assert!(Arc::strong_count(&engine.bus) >= 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_delete_and_reimport_same_hash_never_leaves_row_without_cas_file() {
+        use std::sync::{Barrier, Mutex};
+        use std::thread;
+
+        let dir = env::temp_dir().join(format!("sdw-media-engine-cas-race-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let media_dir = dir.join("cas");
+        let thumb_dir = dir.join("thumbs");
+        fs::create_dir_all(&media_dir).unwrap();
+        fs::create_dir_all(&thumb_dir).unwrap();
+
+        let src = dir.join("icon.png");
+        fs::write(
+            &src,
+            include_bytes!("../../../assets/logo/png/app-icon-32.png"),
+        )
+        .unwrap();
+
+        let library = Arc::new(Mutex::new(sdw_library::Library::open_in_memory().unwrap()));
+        let cas_locks = super::CasLocks::default();
+
+        for round in 0..8 {
+            let prepared =
+                super::prepare_media_import(&src, &media_dir, &thumb_dir, &cas_locks).unwrap();
+            let initial = {
+                let lib = library.lock().unwrap();
+                super::commit_media_import(
+                    &lib, &src, &media_dir, &thumb_dir, &prepared, &cas_locks,
+                )
+                .unwrap()
+            };
+
+            let barrier = Arc::new(Barrier::new(2));
+            let b_del = Arc::clone(&barrier);
+            let lib_del = Arc::clone(&library);
+            let locks_del = cas_locks.clone();
+            let md_del = media_dir.clone();
+            let td_del = thumb_dir.clone();
+            let del_handle = thread::spawn(move || {
+                b_del.wait();
+                let lib = lib_del.lock().unwrap();
+                super::delete_media_with_files(&lib, initial.id, &md_del, &td_del, &locks_del)
+                    .unwrap();
+            });
+
+            barrier.wait();
+            let reimported =
+                super::prepare_media_import(&src, &media_dir, &thumb_dir, &cas_locks).unwrap();
+            del_handle.join().unwrap();
+
+            let summary = {
+                let lib = library.lock().unwrap();
+                super::commit_media_import(
+                    &lib,
+                    &src,
+                    &media_dir,
+                    &thumb_dir,
+                    &reimported,
+                    &cas_locks,
+                )
+                .unwrap()
+            };
+
+            assert!(
+                cas_file_path(&media_dir, &summary.sha256, &summary.ext).is_file(),
+                "CAS file missing after round {round}"
+            );
+            assert!(
+                thumb_file_path(&thumb_dir, &summary.sha256).is_file(),
+                "thumbnail missing after round {round}"
+            );
+        }
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

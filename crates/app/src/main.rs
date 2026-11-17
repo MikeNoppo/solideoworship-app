@@ -44,9 +44,7 @@ use sdw_core::transition::TransitionSpec;
 use sdw_core::{
     BackgroundMedia, MediaFit, MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song,
 };
-use sdw_library::{
-    MediaId, MediaSummary, SongId, SongSummary, cas_file_path, schedule_file, thumb_file_path,
-};
+use sdw_library::{MediaId, MediaSummary, SongId, SongSummary, schedule_file};
 use sdw_media::PlaybackState;
 
 use crate::bible_manager::BibleManager;
@@ -1503,17 +1501,30 @@ impl App {
                 let media_dir = paths::media_dir();
                 let thumb_dir = paths::thumb_cache_dir();
                 let store = self.store.clone();
+                let cas_locks = self.media.cas_locks();
+                let src_path = path.clone();
+                let commit_media_dir = media_dir.clone();
+                let commit_thumb_dir = thumb_dir.clone();
+                let commit_locks = cas_locks.clone();
                 work::background(move || {
-                    media_engine::prepare_media_import(&path, &media_dir, &thumb_dir)
+                    media_engine::prepare_media_import(&path, &media_dir, &thumb_dir, &cas_locks)
                 })
                 .then(move |prepared| match prepared {
-                    Ok(new_media) => store.run(
-                        move |library| {
-                            let id = library.upsert_media(&new_media)?;
-                            library.media(id)
-                        },
-                        Message::MediaImported,
-                    ),
+                    Ok(new_media) => {
+                        let src_path = src_path.clone();
+                        let media_dir = commit_media_dir.clone();
+                        let thumb_dir = commit_thumb_dir.clone();
+                        let cas_locks = commit_locks.clone();
+                        store.run(
+                            move |library| {
+                                media_engine::commit_media_import(
+                                    library, &src_path, &media_dir, &thumb_dir, &new_media,
+                                    &cas_locks,
+                                )
+                            },
+                            Message::MediaImported,
+                        )
+                    }
                     Err(error) => Task::done(Message::MediaImported(Err(error))),
                 })
             }
@@ -1559,37 +1570,26 @@ impl App {
                 }
                 Task::none()
             }
-            Message::MediaDeleteRequested(id) => self.store.run(
-                move |library| library.delete_media(id),
-                Message::MediaDeleted,
-            ),
+            Message::MediaDeleteRequested(id) => {
+                let media_dir = paths::media_dir();
+                let thumb_dir = paths::thumb_cache_dir();
+                let cas_locks = self.media.cas_locks();
+                self.store.run(
+                    move |library| {
+                        media_engine::delete_media_with_files(
+                            library, id, &media_dir, &thumb_dir, &cas_locks,
+                        )
+                    },
+                    Message::MediaDeleted,
+                )
+            }
             Message::MediaDeleted(result) => match result {
                 Ok(Some(summary)) => {
                     self.media.evict_media(&summary.sha256);
                     let text = fill(t().library.media_deleted, &[("title", &summary.title)]);
                     self.show_toast(Toast::Done(text.into_boxed_str()));
                     let clear_bg_task = self.clear_deleted_backgrounds(&summary.sha256);
-
-                    let media_dir = paths::media_dir();
-                    let thumb_dir = paths::thumb_cache_dir();
-                    let sha256 = summary.sha256;
-                    let ext = summary.ext;
-                    let store = self.store.clone();
-                    let filter = self.media_filter;
-                    let query = self.media_search.clone();
-                    let reload_task = work::background(move || {
-                        let _ = fs::remove_file(cas_file_path(&media_dir, &sha256, &ext));
-                        let _ = fs::remove_file(thumb_file_path(&thumb_dir, &sha256));
-                        Ok(())
-                    })
-                    .then(move |_| {
-                        let query = query.clone();
-                        store.run(
-                            move |library| library.list_media(filter, &query, SONG_LIMIT),
-                            Message::MediaLoaded,
-                        )
-                    });
-                    Task::batch([clear_bg_task, reload_task])
+                    Task::batch([clear_bg_task, self.load_media()])
                 }
                 Ok(None) => Task::none(),
                 Err(error) => {
@@ -5043,8 +5043,13 @@ mod tests {
         )
         .unwrap();
 
-        let prepared =
-            crate::media_engine::prepare_media_import(&src, &media_dir, &thumb_dir).unwrap();
+        let prepared = crate::media_engine::prepare_media_import(
+            &src,
+            &media_dir,
+            &thumb_dir,
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!(prepared.kind, sdw_core::MediaKind::Image);
         assert_eq!(prepared.title.as_ref(), "AppIcon");
         assert_eq!(prepared.ext.as_str(), "png");
