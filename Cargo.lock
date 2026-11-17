@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "sdw-app"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "bytemuck",
  "display-info",
@@ -3204,11 +3204,11 @@ dependencies = [
 
 [[package]]
 name = "sdw-core"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 
 [[package]]
 name = "sdw-library"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "quick-xml",
  "rusqlite",
@@ -3219,7 +3219,7 @@ dependencies = [
 
 [[package]]
 name = "sdw-media"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "ac-ffmpeg",
  "cpal",
