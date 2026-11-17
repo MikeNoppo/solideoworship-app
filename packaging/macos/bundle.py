@@ -54,10 +54,6 @@ def finalize(bundle):
             replacement = f"@loader_path/{source.name}" if binary.parent == frameworks else f"@executable_path/../Frameworks/{source.name}"
             run("install_name_tool", "-change", dependency, replacement, binary)
     for binary in signed:
-        run("codesign", "--force", "--sign", "-", binary)
-    run("codesign", "--force", "--sign", "-", bundle)
-    run("codesign", "--verify", "--deep", "--strict", bundle)
-    for binary in signed:
         if any(dep.startswith(("/opt/homebrew/", "/usr/local/")) for dep in dependencies(binary)):
             raise ValueError(f"Unbundled dynamic library in {binary}")
     license_dir = bundle / "Contents/Resources/third-party"
@@ -71,6 +67,9 @@ def finalize(bundle):
                 for license_path in cellar.glob(pattern):
                     if license_path.is_file():
                         shutil.copy2(license_path, license_dir / f"{name}-{license_path.name}")
+    for binary in signed:
+        if binary != main_dir / "solideoworship":
+            run("codesign", "--force", "--sign", "-", binary)
     run("codesign", "--force", "--sign", "-", bundle)
     run("codesign", "--verify", "--deep", "--strict", bundle)
 
