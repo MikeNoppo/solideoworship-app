@@ -6,7 +6,7 @@ use bytemuck::{Pod, Zeroable};
 use iced::widget::shader::{Pipeline, Primitive, Program, Viewport};
 use iced::{Element, Fill, Rectangle, mouse};
 use sdw_core::MediaFit;
-use sdw_media::{PixelFormat, VideoFrame};
+use sdw_media::{ColorMatrix, ColorRange, PixelFormat, VideoColor, VideoFrame};
 
 pub fn view<'a, Message: 'a>(
     stream_id: u64,
@@ -74,16 +74,20 @@ struct Uniforms {
     is_nv12: u32,
     is_srgb: u32,
     opacity: f32,
-    _pad: [f32; 3],
+    is_bt601: u32,
+    is_full_range: u32,
+    _pad: f32,
 }
 
 impl Uniforms {
+    #[allow(clippy::too_many_arguments)]
     fn compute(
         bounds: &Rectangle,
         frame_w: u32,
         frame_h: u32,
         fit: MediaFit,
         format: PixelFormat,
+        color: VideoColor,
         is_srgb: bool,
         opacity: f32,
     ) -> Self {
@@ -131,7 +135,9 @@ impl Uniforms {
             } else {
                 0.0
             },
-            _pad: [0.0; 3],
+            is_bt601: u32::from(color.matrix == ColorMatrix::Bt601),
+            is_full_range: u32::from(color.range == ColorRange::Full),
+            _pad: 0.0,
         }
     }
 }
@@ -414,6 +420,7 @@ impl Primitive for VideoPrimitive {
             h,
             self.fit,
             format,
+            self.frame.color(),
             pipeline.is_srgb,
             self.opacity,
         );
@@ -547,9 +554,9 @@ struct Uniforms {
     is_nv12: u32,
     is_srgb: u32,
     opacity: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    is_bt601: u32,
+    is_full_range: u32,
+    _pad: f32,
 };
 
 @group(0) @binding(0) var y_tex: texture_2d<f32>;
@@ -605,13 +612,31 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         v_sample = textureSample(v_tex, video_sampler, in.uv).r;
     }
 
-    let y = (y_sample - 0.0627451) * 1.1643836;
-    let u = u_sample - 0.5019608;
-    let v = v_sample - 0.5019608;
+    var y: f32;
+    var u: f32;
+    var v: f32;
+    if uniforms.is_full_range == 1u {
+        y = y_sample;
+        u = u_sample - 0.5019608;
+        v = v_sample - 0.5019608;
+    } else {
+        y = (y_sample - 0.0627451) * 1.1643836;
+        u = (u_sample - 0.5019608) * 1.1383929;
+        v = (v_sample - 0.5019608) * 1.1383929;
+    }
 
-    let r = y + 1.5748 * v;
-    let g = y - 0.187324 * u - 0.468124 * v;
-    let b = y + 1.8556 * u;
+    var r: f32;
+    var g: f32;
+    var b: f32;
+    if uniforms.is_bt601 == 1u {
+        r = y + 1.402 * v;
+        g = y - 0.3441363 * u - 0.7141363 * v;
+        b = y + 1.772 * u;
+    } else {
+        r = y + 1.5748 * v;
+        g = y - 0.1873243 * u - 0.4681243 * v;
+        b = y + 1.8556 * u;
+    }
     var rgb = clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
 
     if uniforms.is_srgb == 1u {
@@ -626,3 +651,84 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(rgb * a, a);
 }
 ";
+
+#[cfg(test)]
+mod tests {
+    use sdw_media::{ColorMatrix, ColorRange, VideoColor};
+
+    use super::Uniforms;
+
+    fn yuv_to_rgb(y8: u8, u8_val: u8, v8: u8, color: VideoColor) -> [f32; 3] {
+        let ys = f32::from(y8) / 255.0;
+        let us = f32::from(u8_val) / 255.0;
+        let vs = f32::from(v8) / 255.0;
+
+        let (y, u, v) = match color.range {
+            ColorRange::Full => (ys, us - 0.5019608, vs - 0.5019608),
+            ColorRange::Limited => (
+                (ys - 0.0627451) * 1.1643836,
+                (us - 0.5019608) * 1.1383929,
+                (vs - 0.5019608) * 1.1383929,
+            ),
+        };
+
+        let (r, g, b) = match color.matrix {
+            ColorMatrix::Bt601 => (
+                y + 1.402 * v,
+                y - 0.3441363 * u - 0.7141363 * v,
+                y + 1.772 * u,
+            ),
+            ColorMatrix::Bt709 => (
+                y + 1.5748 * v,
+                y - 0.1873243 * u - 0.4681243 * v,
+                y + 1.8556 * u,
+            ),
+        };
+
+        [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)]
+    }
+
+    #[test]
+    fn uniform_layout_is_16_byte_aligned() {
+        assert_eq!(std::mem::size_of::<Uniforms>(), 48);
+    }
+
+    #[test]
+    fn limited_bt709_scales_chroma_to_full_saturation() {
+        let bt709_limited = VideoColor {
+            matrix: ColorMatrix::Bt709,
+            range: ColorRange::Limited,
+        };
+
+        let black = yuv_to_rgb(16, 128, 128, bt709_limited);
+        let white = yuv_to_rgb(235, 128, 128, bt709_limited);
+        let red = yuv_to_rgb(63, 102, 240, bt709_limited);
+        let green = yuv_to_rgb(173, 42, 26, bt709_limited);
+        let blue = yuv_to_rgb(32, 240, 118, bt709_limited);
+
+        assert!(black.iter().all(|c| *c <= 0.001));
+        assert!(white.iter().all(|c| (*c - 1.0).abs() <= 0.005));
+        assert!(red[0] >= 0.99 && red[1] <= 0.02 && red[2] <= 0.02);
+        assert!(green[1] >= 0.99 && green[0] <= 0.02 && green[2] <= 0.02);
+        assert!(blue[2] >= 0.99 && blue[0] <= 0.02 && blue[1] <= 0.02);
+    }
+
+    #[test]
+    fn limited_and_full_bt601_match_reference_primaries() {
+        let bt601_limited = VideoColor {
+            matrix: ColorMatrix::Bt601,
+            range: ColorRange::Limited,
+        };
+        let red_limited = yuv_to_rgb(81, 90, 240, bt601_limited);
+        assert!(red_limited[0] >= 0.99 && red_limited[1] <= 0.02 && red_limited[2] <= 0.02);
+
+        let bt601_full = VideoColor {
+            matrix: ColorMatrix::Bt601,
+            range: ColorRange::Full,
+        };
+        let white_full = yuv_to_rgb(255, 128, 128, bt601_full);
+        let red_full = yuv_to_rgb(76, 85, 255, bt601_full);
+        assert!(white_full.iter().all(|c| (*c - 1.0).abs() <= 0.005));
+        assert!(red_full[0] >= 0.99 && red_full[1] <= 0.02 && red_full[2] <= 0.02);
+    }
+}
