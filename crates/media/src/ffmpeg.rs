@@ -183,16 +183,19 @@ impl MediaPlayer {
         auto_play: bool,
         sink: impl MediaSink,
     ) -> Result<Self, MediaError> {
-        Self::open_with_audio_output(path, looping, muted, auto_play, true, sink)
+        Self::open_with_audio_output(path, looping, muted, auto_play, sink, |consumer| {
+            let output = AudioOutput::open(consumer)?;
+            Some((output.sample_rate, u32::from(output.channels), output))
+        })
     }
 
-    fn open_with_audio_output(
+    fn open_with_audio_output<Output>(
         path: PathBuf,
         looping: bool,
         muted: bool,
         auto_play: bool,
-        enable_audio_output: bool,
         sink: impl MediaSink,
+        open_audio: impl FnOnce(AudioConsumer) -> Option<(u32, u32, Output)> + Send + 'static,
     ) -> Result<Self, MediaError> {
         let demuxer = open_demuxer(&path)?;
         let info = inspect_streams(&demuxer);
@@ -204,15 +207,17 @@ impl MediaPlayer {
         let worker = thread::Builder::new()
             .name("sdw-media-player".to_owned())
             .spawn(move || {
+                let audio_output = info.audio_index.and_then(|_| open_audio(audio_consumer));
                 run_player(
                     demuxer,
                     info,
                     looping,
                     muted,
                     auto_play,
-                    enable_audio_output,
+                    audio_output
+                        .as_ref()
+                        .map(|(rate, channels, _)| (*rate, *channels)),
                     audio_ring,
-                    audio_consumer,
                     rx,
                     sink,
                 );
@@ -456,9 +461,8 @@ struct PlayerContext<S: MediaSink> {
     info: StreamInfo,
     decoders: PlayerDecoders,
     audio_ring: AudioProducer,
-    _audio_output: Option<AudioOutput>,
     use_audio_clock: bool,
-    audio_exhausted: bool,
+    audio_start_ms: Option<u64>,
     paused_seeked: bool,
     output_rate: u32,
     pool: Arc<FramePool>,
@@ -466,10 +470,12 @@ struct PlayerContext<S: MediaSink> {
     audio_backlog: Vec<f32>,
     audio_backlog_offset: usize,
     eof: bool,
+    finished: bool,
     state: PlaybackState,
     muted: bool,
     looping: bool,
     seek_origin_ms: u64,
+    clock_origin_ms: u64,
     current_pos_ms: u64,
     play_started_at: Instant,
     sink: S,
@@ -488,14 +494,56 @@ impl<S: MediaSink> PlayerContext<S> {
 
     fn clock_ms(&self) -> u64 {
         if self.use_audio_clock {
-            self.seek_origin_ms.saturating_add(
+            self.clock_origin_ms.saturating_add(
                 self.audio_ring.played_frames().saturating_mul(1_000)
                     / u64::from(self.output_rate.max(1)),
             )
         } else {
-            self.seek_origin_ms.saturating_add(
+            self.clock_origin_ms.saturating_add(
                 u64::try_from(self.play_started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
             )
+        }
+    }
+
+    fn rebase_clock(&mut self, position_ms: u64) {
+        self.clock_origin_ms = position_ms;
+        self.play_started_at = Instant::now();
+        self.audio_ring.reset_clock(0);
+    }
+
+    fn update_clock(&mut self) -> u64 {
+        let now_ms = self.clock_ms();
+        let audio_empty = self.audio_backlog.is_empty() && self.audio_ring.available_read() == 0;
+        if self.use_audio_clock {
+            let video_stalled = self.video_queue.len() >= VIDEO_LOOKAHEAD
+                && (self.video_queue.len() >= MAX_VIDEO_AHEAD_ON_AUDIO_SEARCH
+                    || self
+                        .video_queue
+                        .back()
+                        .is_some_and(|frame| frame.pts_ms() > now_ms.saturating_add(1_000)));
+            if (audio_empty && (self.eof || video_stalled)) || self.info.audio_index.is_none() {
+                self.audio_ring.set_paused(true);
+                self.use_audio_clock = false;
+                self.audio_start_ms = None;
+                self.rebase_clock(now_ms);
+            }
+        } else if !audio_empty && self.audio_start_ms.is_some_and(|start| now_ms >= start) {
+            self.rebase_clock(now_ms);
+            self.use_audio_clock = true;
+            self.audio_ring.set_paused(false);
+        }
+        now_ms
+    }
+
+    fn disable_disconnected_audio(&mut self) {
+        if self.info.audio_index.is_some() && !self.audio_ring.is_consumer_active() {
+            self.info.audio_index = None;
+            self.decoders.audio = None;
+            self.decoders.resampler = None;
+            self.eof |= self.info.video_index.is_none();
+            self.audio_ring.flush();
+            self.audio_backlog.clear();
+            self.audio_backlog_offset = 0;
         }
     }
 
@@ -516,48 +564,59 @@ impl<S: MediaSink> PlayerContext<S> {
     }
 
     fn reset_playback(&mut self, target_ms: u64) -> Result<(), MediaError> {
+        self.audio_ring.set_paused(true);
         self.audio_ring.flush();
-        self.audio_ring.reset_clock(0);
         self.video_queue.clear();
         self.audio_backlog.clear();
         self.audio_backlog_offset = 0;
         self.eof = self.info.video_index.is_none() && self.info.audio_index.is_none();
+        self.finished = false;
         self.paused_seeked = false;
-        self.audio_exhausted = self.info.audio_index.is_none();
-        self.use_audio_clock = self._audio_output.is_some() && !self.audio_exhausted;
+        self.audio_start_ms = None;
+        self.use_audio_clock = self.info.audio_index.is_some() && self.info.video_index.is_none();
         self.seek_origin_ms = target_ms;
         self.current_pos_ms = target_ms;
-        self.play_started_at = Instant::now();
 
         let ts = Timestamp::from_millis(i64::try_from(target_ms).unwrap_or(0));
-        self.demuxer
+        let result = self
+            .demuxer
             .seek_to_timestamp(ts, SeekTarget::UpTo)
-            .map_err(|err| MediaError::Decoder(err.to_string()))?;
-        self.decoders.rebuild(&self.demuxer, &self.info)?;
-        Ok(())
+            .map_err(|err| MediaError::Decoder(err.to_string()))
+            .and_then(|()| self.decoders.rebuild(&self.demuxer, &self.info));
+        self.rebase_clock(target_ms);
+        self.audio_ring
+            .set_paused(self.state != PlaybackState::Playing || !self.use_audio_clock);
+        result
     }
 
     fn handle_command(&mut self, cmd: PlayerCommand) -> bool {
         match cmd {
             PlayerCommand::Shutdown => return false,
             PlayerCommand::Play => {
-                if self.state == PlaybackState::Stopped || self.paused_seeked {
-                    let _ = self.reset_playback(self.current_pos_ms);
-                } else if self.eof {
-                    let _ = self.reset_playback(0);
+                if self.state == PlaybackState::Playing {
+                    return true;
+                }
+                let restart_at = if self.state == PlaybackState::Stopped || self.paused_seeked {
+                    Some(self.current_pos_ms)
+                } else if self.finished {
+                    Some(0)
                 } else {
-                    self.seek_origin_ms = self.current_pos_ms;
-                    self.audio_ring.reset_clock(0);
-                    self.play_started_at = Instant::now();
+                    None
+                };
+                if let Some(target) = restart_at {
+                    if let Err(err) = self.reset_playback(target) {
+                        self.sink.on_error(err.to_string());
+                        return true;
+                    }
+                } else {
+                    self.rebase_clock(self.current_pos_ms);
                 }
                 self.state = PlaybackState::Playing;
-                self.audio_ring.set_paused(false);
+                self.audio_ring.set_paused(!self.use_audio_clock);
             }
             PlayerCommand::Pause => {
                 self.state = PlaybackState::Paused;
                 self.audio_ring.set_paused(true);
-                self.seek_origin_ms = self.current_pos_ms;
-                self.audio_ring.reset_clock(0);
             }
             PlayerCommand::Stop => {
                 self.state = PlaybackState::Stopped;
@@ -644,8 +703,7 @@ impl<S: MediaSink> PlayerContext<S> {
         for _ in 0..128 {
             let need_video =
                 self.info.video_index.is_some() && self.video_queue.len() < VIDEO_LOOKAHEAD;
-            let need_audio = !self.audio_exhausted
-                && self.info.audio_index.is_some()
+            let need_audio = self.info.audio_index.is_some()
                 && self.audio_backlog.is_empty()
                 && self.audio_ring.available_read() < self.audio_ring.capacity() / 2
                 && (self.info.video_index.is_none()
@@ -681,7 +739,6 @@ impl<S: MediaSink> PlayerContext<S> {
                             }
                         }
                     } else if Some(idx) == self.info.audio_index
-                        && !self.audio_exhausted
                         && let (Some(adec), Some(resampler)) = (
                             self.decoders.audio.as_mut(),
                             self.decoders.resampler.as_mut(),
@@ -708,6 +765,7 @@ impl<S: MediaSink> PlayerContext<S> {
                                 &mut self.audio_ring,
                                 &mut self.audio_backlog,
                                 &mut self.audio_backlog_offset,
+                                &mut self.audio_start_ms,
                             )?;
                         }
                     }
@@ -724,12 +782,10 @@ impl<S: MediaSink> PlayerContext<S> {
                             }
                         }
                     }
-                    if !self.audio_exhausted
-                        && let (Some(adec), Some(resampler)) = (
-                            self.decoders.audio.as_mut(),
-                            self.decoders.resampler.as_mut(),
-                        )
-                    {
+                    if let (Some(adec), Some(resampler)) = (
+                        self.decoders.audio.as_mut(),
+                        self.decoders.resampler.as_mut(),
+                    ) {
                         let channels = self.decoders.channels as usize;
                         let _ = adec.flush();
                         while let Ok(Some(raw)) = adec.take() {
@@ -742,6 +798,7 @@ impl<S: MediaSink> PlayerContext<S> {
                             &mut self.audio_ring,
                             &mut self.audio_backlog,
                             &mut self.audio_backlog_offset,
+                            &mut self.audio_start_ms,
                         )?;
                     }
                     break;
@@ -759,31 +816,18 @@ fn run_player(
     looping: bool,
     muted: bool,
     auto_play: bool,
-    enable_audio_output: bool,
+    audio_config: Option<(u32, u32)>,
     audio_ring: AudioProducer,
-    audio_consumer: AudioConsumer,
     rx: Receiver<PlayerCommand>,
     sink: impl MediaSink,
 ) {
     audio_ring.set_muted(muted);
-    let audio_output = if enable_audio_output {
-        info.audio_index
-            .and_then(|_| AudioOutput::open(audio_consumer))
-    } else {
-        drop(audio_consumer);
-        None
-    };
-    if audio_output.is_none() {
+    if audio_config.is_none() {
         info.audio_index = None;
     }
-    let output_rate = audio_output
-        .as_ref()
-        .map_or(FALLBACK_AUDIO_RATE, |out| out.sample_rate);
-    let output_channels = audio_output
-        .as_ref()
-        .map_or(TARGET_AUDIO_CHANNELS, |out| u32::from(out.channels));
-    let audio_exhausted = info.audio_index.is_none();
-    let use_audio_clock = audio_output.is_some() && !audio_exhausted;
+    let (output_rate, output_channels) =
+        audio_config.unwrap_or((FALLBACK_AUDIO_RATE, TARGET_AUDIO_CHANNELS));
+    let use_audio_clock = info.audio_index.is_some() && info.video_index.is_none();
     let initial_eof = info.video_index.is_none() && info.audio_index.is_none();
 
     let decoders = match PlayerDecoders::new(&demuxer, &info, output_rate, output_channels) {
@@ -799,16 +843,15 @@ fn run_player(
     } else {
         PlaybackState::Paused
     };
-    audio_ring.set_paused(state != PlaybackState::Playing);
+    audio_ring.set_paused(state != PlaybackState::Playing || !use_audio_clock);
 
     let mut ctx = PlayerContext {
         demuxer,
         info,
         decoders,
         audio_ring,
-        _audio_output: audio_output,
         use_audio_clock,
-        audio_exhausted,
+        audio_start_ms: None,
         paused_seeked: false,
         output_rate,
         pool: FramePool::new(FRAME_POOL_SLOTS),
@@ -816,10 +859,12 @@ fn run_player(
         audio_backlog: Vec::new(),
         audio_backlog_offset: 0,
         eof: initial_eof,
+        finished: false,
         state,
         muted,
         looping,
         seek_origin_ms: 0,
+        clock_origin_ms: 0,
         current_pos_ms: 0,
         play_started_at: Instant::now(),
         sink,
@@ -858,11 +903,11 @@ fn run_player(
             continue;
         }
 
+        ctx.disable_disconnected_audio();
         ctx.flush_audio_backlog();
 
         let need_video = ctx.info.video_index.is_some() && ctx.video_queue.len() < VIDEO_LOOKAHEAD;
-        let need_audio = !ctx.audio_exhausted
-            && ctx.info.audio_index.is_some()
+        let need_audio = ctx.info.audio_index.is_some()
             && ctx.audio_backlog.is_empty()
             && ctx.audio_ring.available_read() < ctx.audio_ring.capacity() / 2
             && (ctx.info.video_index.is_none()
@@ -879,25 +924,7 @@ fn run_player(
             continue;
         }
 
-        let audio_empty = ctx.audio_backlog.is_empty() && ctx.audio_ring.available_read() == 0;
-        if ctx.use_audio_clock && audio_empty {
-            let clock_now = ctx.clock_ms();
-            let video_stalled_past_audio = ctx.info.video_index.is_some()
-                && ctx.video_queue.len() >= VIDEO_LOOKAHEAD
-                && (ctx.video_queue.len() >= MAX_VIDEO_AHEAD_ON_AUDIO_SEARCH
-                    || ctx
-                        .video_queue
-                        .back()
-                        .is_some_and(|frame| frame.pts_ms() > clock_now.saturating_add(1_000)));
-            if ctx.eof || video_stalled_past_audio || !ctx.audio_ring.is_consumer_active() {
-                ctx.audio_exhausted = true;
-                ctx.seek_origin_ms = clock_now;
-                ctx.play_started_at = Instant::now();
-                ctx.use_audio_clock = false;
-            }
-        }
-
-        let clock_ms = ctx.clock_ms();
+        let clock_ms = ctx.update_clock();
         ctx.current_pos_ms = ctx
             .info
             .probe
@@ -923,7 +950,7 @@ fn run_player(
             && !silent_audio_only_pending
             && ctx.video_queue.is_empty()
             && ctx.audio_backlog.is_empty()
-            && (!ctx.use_audio_clock || ctx.audio_ring.available_read() == 0)
+            && ctx.audio_ring.available_read() == 0
         {
             if ctx.looping {
                 if let Err(err) = ctx.reset_playback(0) {
@@ -932,6 +959,7 @@ fn run_player(
                     ctx.audio_ring.set_paused(true);
                 }
             } else {
+                ctx.finished = true;
                 ctx.state = PlaybackState::Paused;
                 ctx.audio_ring.set_paused(true);
                 if let Some(dur) = ctx.info.probe.duration_ms {
@@ -971,6 +999,7 @@ fn drain_resampled_audio(
     audio_ring: &mut AudioProducer,
     audio_backlog: &mut Vec<f32>,
     audio_backlog_offset: &mut usize,
+    audio_start_ms: &mut Option<u64>,
 ) -> Result<(), MediaError> {
     while let Some(resampled) = resampler
         .take()
@@ -983,6 +1012,15 @@ fn drain_resampled_audio(
         let planes = resampled.planes();
         let plane = planes[0].data();
         let clamped = &plane[..valid_bytes.min(plane.len())];
+        if !clamped.is_empty() {
+            audio_start_ms.get_or_insert_with(|| {
+                resampled
+                    .pts()
+                    .as_millis()
+                    .and_then(|ms| u64::try_from(ms).ok())
+                    .unwrap_or(0)
+            });
+        }
         push_f32_samples(clamped, audio_ring, audio_backlog, audio_backlog_offset);
     }
     Ok(())
@@ -1316,6 +1354,202 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_tagged_full_range_video_before_uploading_planes() {
+        use super::{FramePool, copy_video_frame, decode_first_video_frame, open_demuxer};
+        use crate::{ColorMatrix, ColorRange};
+
+        let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-colors-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let video = dir.join("clip.mkv");
+        if !run_ffmpeg(
+            &[
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=black:s=160x90:d=0.1",
+                "-vf",
+                "geq=lum='if(lt(X,W/2),0,76)':cb='if(lt(X,W/2),128,85)':cr='if(lt(X,W/2),128,255)'",
+                "-c:v",
+                "ffv1",
+                "-color_range",
+                "pc",
+                "-colorspace",
+                "smpte170m",
+            ],
+            &video,
+        ) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut demuxer = open_demuxer(&video).unwrap();
+        let raw = decode_first_video_frame(&mut demuxer, 0).unwrap().unwrap();
+        let frame = copy_video_frame(raw, &mut None, &FramePool::new(1)).unwrap();
+        assert_eq!(frame.color().matrix, ColorMatrix::Bt709);
+        assert_eq!(frame.color().range, ColorRange::Limited);
+        assert_eq!(frame.y_plane()[0], 16);
+        assert!(frame.y_plane()[140].abs_diff(63) <= 2);
+        assert!(frame.u_or_uv_plane()[70].abs_diff(102) <= 2);
+        assert!(frame.v_plane()[70].abs_diff(240) <= 5);
+
+        let thumb = dir.join("thumb.webp");
+        generate_video_thumbnail(&video, &thumb, 80).unwrap();
+        let decoded = decode_image_capped(&thumb, 1000, 1000).unwrap();
+        assert_eq!(&decoded.pixels[..4], &[0, 0, 0, 255]);
+        let red = &decoded.pixels[70 * 4..71 * 4];
+        assert!(red[0] >= 245 && red[1] <= 5 && red[2] <= 5 && red[3] == 255);
+        drop(demuxer);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn play_resumes_paused_video_with_frames_queued_at_demux_eof() {
+        let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-resume-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let video = dir.join("clip.mp4");
+        if !run_ffmpeg(
+            &[
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=160x90:rate=2:duration=1.5",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ],
+            &video,
+        ) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let (harness, sink) = SinkHarness::new();
+        let timeout = Duration::from_secs(5);
+        let player = MediaPlayer::open(video, false, true, true, sink).unwrap();
+        assert!(wait_until(
+            &harness.frames,
+            &harness.signal,
+            &harness.gate,
+            timeout,
+            |frames| { frames.last().is_some_and(|frame| frame.2 == 500) }
+        ));
+        player.pause();
+        assert!(wait_until(
+            &harness.statuses,
+            &harness.signal,
+            &harness.gate,
+            timeout,
+            |statuses| {
+                statuses
+                    .last()
+                    .is_some_and(|status| status.state == PlaybackState::Paused)
+            }
+        ));
+        let (paused_pos, resume_start) = {
+            let statuses = harness.statuses.lock().unwrap();
+            (statuses.last().unwrap().position_ms, statuses.len())
+        };
+        assert!((400..1_000).contains(&paused_pos));
+        player.play();
+        assert!(wait_until(
+            &harness.statuses,
+            &harness.signal,
+            &harness.gate,
+            timeout,
+            |statuses| { statuses.len() > resume_start }
+        ));
+        let resumed = harness.statuses.lock().unwrap()[resume_start];
+        assert_eq!(resumed.state, PlaybackState::Playing);
+        assert_eq!(resumed.position_ms, paused_pos);
+        drop(player);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delayed_audio_plays_after_the_video_has_started() {
+        let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-delayed-audio-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let video = dir.join("clip.mp4");
+        if !run_ffmpeg(
+            &[
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=160x90:rate=30:duration=2",
+                "-itsoffset",
+                "1.2",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=0.5",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+            ],
+            &video,
+        ) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let (harness, sink) = SinkHarness::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let player =
+            MediaPlayer::open_with_audio_output(video, false, false, true, sink, move |consumer| {
+                tx.send(consumer).unwrap();
+                Some((48_000, 2, ()))
+            })
+            .unwrap();
+        let mut consumer = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let start = Instant::now();
+        let mut first_audio_at = None;
+        let mut output = [0.0; 480];
+        while start.elapsed() < Duration::from_secs(5) {
+            consumer.pop_into(&mut output, 2);
+            if output.iter().any(|&sample| sample.abs() > 0.001) {
+                first_audio_at.get_or_insert(start.elapsed());
+            }
+            if harness
+                .statuses
+                .lock()
+                .unwrap()
+                .last()
+                .is_some_and(|status| status.state == PlaybackState::Paused)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        let first_audio_at = first_audio_at.expect("delayed track never reached the output");
+        assert!(first_audio_at >= Duration::from_secs(1));
+        assert!(
+            harness
+                .frames
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|frame| frame.2 >= 1_800)
+        );
+        assert!(harness.errors.lock().unwrap().is_empty());
+        drop(player);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn replay_after_eof_and_seek_while_stopped_preserve_position() {
         let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-replay-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -1476,7 +1710,10 @@ mod tests {
         let timeout = Duration::from_secs(5);
         let (v_harness, v_sink) = SinkHarness::new();
         let v_player =
-            MediaPlayer::open_with_audio_output(video, false, true, true, false, v_sink).unwrap();
+            MediaPlayer::open_with_audio_output(video, false, true, true, v_sink, |_| {
+                None::<(_, _, ())>
+            })
+            .unwrap();
         assert!(wait_until(
             &v_harness.statuses,
             &v_harness.signal,
@@ -1490,7 +1727,10 @@ mod tests {
 
         let (a_harness, a_sink) = SinkHarness::new();
         let a_player =
-            MediaPlayer::open_with_audio_output(audio, false, true, true, false, a_sink).unwrap();
+            MediaPlayer::open_with_audio_output(audio, false, true, true, a_sink, |_| {
+                None::<(_, _, ())>
+            })
+            .unwrap();
         assert!(wait_until(
             &a_harness.statuses,
             &a_harness.signal,
@@ -1559,58 +1799,6 @@ mod tests {
         assert!(harness.errors.lock().unwrap().is_empty());
         drop(player);
 
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn normalizes_tagged_full_range_video_before_uploading_planes() {
-        use super::{FramePool, copy_video_frame, decode_first_video_frame, open_demuxer};
-        use crate::{ColorMatrix, ColorRange};
-
-        let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-colors-{}", process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let video = dir.join("clip.mkv");
-        if !run_ffmpeg(
-            &[
-                "-loglevel",
-                "error",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "color=black:s=160x90:d=0.1",
-                "-vf",
-                "geq=lum='if(lt(X,W/2),0,76)':cb='if(lt(X,W/2),128,85)':cr='if(lt(X,W/2),128,255)'",
-                "-c:v",
-                "ffv1",
-                "-color_range",
-                "pc",
-                "-colorspace",
-                "smpte170m",
-            ],
-            &video,
-        ) {
-            let _ = fs::remove_dir_all(&dir);
-            return;
-        }
-
-        let mut demuxer = open_demuxer(&video).unwrap();
-        let raw = decode_first_video_frame(&mut demuxer, 0).unwrap().unwrap();
-        let frame = copy_video_frame(raw, &mut None, &FramePool::new(1)).unwrap();
-        assert_eq!(frame.color().matrix, ColorMatrix::Bt709);
-        assert_eq!(frame.color().range, ColorRange::Limited);
-        assert_eq!(frame.y_plane()[0], 16);
-        assert!(frame.y_plane()[140].abs_diff(63) <= 2);
-        assert!(frame.u_or_uv_plane()[70].abs_diff(102) <= 2);
-        assert!(frame.v_plane()[70].abs_diff(240) <= 5);
-
-        let thumb = dir.join("thumb.webp");
-        generate_video_thumbnail(&video, &thumb, 80).unwrap();
-        let decoded = decode_image_capped(&thumb, 1000, 1000).unwrap();
-        assert_eq!(&decoded.pixels[..4], &[0, 0, 0, 255]);
-        let red = &decoded.pixels[70 * 4..71 * 4];
-        assert!(red[0] >= 245 && red[1] <= 5 && red[2] <= 5 && red[3] == 255);
-        drop(demuxer);
         let _ = fs::remove_dir_all(&dir);
     }
 }
