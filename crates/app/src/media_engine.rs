@@ -213,6 +213,7 @@ impl OpenedPlayer {
 struct PendingOpen {
     generation: u64,
     target: VideoTarget,
+    synced_auto_play: bool,
     seek_ms: Option<u64>,
     buffered_frame: Option<Arc<VideoFrame>>,
     buffered_status: Option<PlaybackStatus>,
@@ -434,7 +435,10 @@ impl MediaEngine {
         {
             pending.target.looping = target.looping;
             pending.target.muted = target.muted;
-            pending.target.auto_play = target.auto_play;
+            if pending.synced_auto_play != target.auto_play {
+                pending.synced_auto_play = target.auto_play;
+                pending.target.auto_play = target.auto_play;
+            }
             return None;
         }
 
@@ -454,6 +458,7 @@ impl MediaEngine {
             slot,
             PendingOpen {
                 generation,
+                synced_auto_play: target.auto_play,
                 target: target.clone(),
                 seek_ms: None,
                 buffered_frame: None,
@@ -470,9 +475,8 @@ impl MediaEngine {
         };
         let mut on_opened = Some(on_opened);
         let task = crate::work::background(move || {
-            let player =
-                MediaPlayer::open(path, target.looping, target.muted, target.auto_play, sink)
-                    .map_err(|err| err.to_string().into_boxed_str())?;
+            let player = MediaPlayer::open(path, target.looping, target.muted, false, sink)
+                .map_err(|err| err.to_string().into_boxed_str())?;
             Ok(OpenedPlayer::new(player, target))
         })
         .map(move |res| {
@@ -491,15 +495,7 @@ impl MediaEngine {
         generation: u64,
         result: Outcome<OpenedPlayer>,
     ) -> Option<Box<str>> {
-        let Some(current_gen) = self.pending_opens.get(&slot).map(|p| p.generation) else {
-            if let Ok(opened) = result
-                && let Some(player) = opened.take()
-            {
-                retire_player(player);
-            }
-            return None;
-        };
-        if current_gen != generation {
+        if self.pending_opens.get(&slot).map(|p| p.generation) != Some(generation) {
             if let Ok(opened) = result
                 && let Some(player) = opened.take()
             {
@@ -521,15 +517,8 @@ impl MediaEngine {
                 if let Some(ms) = pending.seek_ms {
                     player.seek(ms);
                 }
-                if pending.target.auto_play != opened.opened_target.auto_play {
-                    if pending.target.auto_play {
-                        player.play();
-                    } else {
-                        player.pause();
-                    }
-                }
-
                 self.retire_slot(slot);
+                let auto_play = pending.target.auto_play;
                 let duration_ms = player.probe().duration_ms;
                 let status = pending.buffered_status.unwrap_or(PlaybackStatus {
                     duration_ms,
@@ -551,6 +540,9 @@ impl MediaEngine {
                         seek_debouncer: SeekDebouncer::new(SEEK_DEBOUNCE),
                     },
                 );
+                if auto_play {
+                    self.play(slot);
+                }
                 None
             }
             Err(err) => {
@@ -1138,15 +1130,17 @@ pub fn delete_media_with_files(
 mod tests {
     use std::process::Command;
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
     use std::{env, fs, process};
 
     use iced::futures::channel::mpsc;
     use sdw_core::{MediaExt, MediaHash, MediaKind};
     use sdw_library::{cas_file_path, thumb_file_path};
-    use sdw_media::{ImageCacheKey, ImageTier, PlaybackState, PlaybackStatus};
+    use sdw_media::{ImageCacheKey, ImageTier, MediaPlayer, PlaybackState, PlaybackStatus};
 
     use super::{
-        MediaEngine, MediaEvent, MediaEventBus, MediaSlot, VideoTarget, load_or_generate_image,
+        MediaEngine, MediaEvent, MediaEventBus, MediaSlot, OpenedPlayer, PendingOpen, SlotSink,
+        VideoTarget, load_or_generate_image,
     };
 
     #[test]
@@ -1331,9 +1325,21 @@ mod tests {
         updated.auto_play = true;
         assert!(
             engine
+                .sync_slot(
+                    MediaSlot::Preview,
+                    &media_dir,
+                    Some(updated.clone()),
+                    |_, _, _| ()
+                )
+                .is_none()
+        );
+        engine.pause(MediaSlot::Preview);
+        assert!(
+            engine
                 .sync_slot(MediaSlot::Preview, &media_dir, Some(updated), |_, _, _| ())
                 .is_none()
         );
+        assert!(!engine.pending_opens[&MediaSlot::Preview].target.auto_play);
 
         let generation = engine
             .pending_opens
@@ -1387,6 +1393,171 @@ mod tests {
         engine.clear_media_failures(&sha);
         assert!(Arc::strong_count(&engine.bus) >= 1);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cancelled_live_open_never_starts_playback() {
+        let dir = env::temp_dir().join(format!("sdw-media-engine-cancel-{}", process::id()));
+        let sha =
+            MediaHash::parse("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+                .unwrap();
+        let ext = MediaExt::parse("mp4").unwrap();
+        let clip = cas_file_path(&dir, &sha, &ext);
+        fs::create_dir_all(clip.parent().unwrap()).unwrap();
+        let ok = Command::new("ffmpeg")
+            .args([
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=160x90:rate=10:duration=1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(&clip)
+            .status()
+            .is_ok_and(|status| status.success());
+        if !ok {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut engine = MediaEngine::new();
+        let task = engine
+            .sync_slot(
+                MediaSlot::Live,
+                &dir,
+                Some(VideoTarget {
+                    sha256: sha,
+                    ext,
+                    looping: false,
+                    muted: false,
+                    auto_play: true,
+                }),
+                |_, _, _| (),
+            )
+            .unwrap();
+        engine.sync_slot(MediaSlot::Live, &dir, None, |_, _, _| ());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let initial_state = loop {
+            if let Some(state) = engine
+                .bus
+                .state
+                .lock()
+                .unwrap()
+                .pending
+                .iter()
+                .find_map(|event| match event {
+                    MediaEvent::Status { status, .. } => Some(status.state),
+                    _ => None,
+                })
+            {
+                break state;
+            }
+            assert!(std::time::Instant::now() < deadline, "player never opened");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert_eq!(initial_state, PlaybackState::Paused);
+        drop(task);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn accepted_live_open_respects_latest_autoplay() {
+        let dir = env::temp_dir().join(format!("sdw-media-engine-autoplay-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let clip = dir.join("silence.wav");
+        let sample_rate = 8_000_u32;
+        let data_bytes = sample_rate * 2 * 2;
+        let mut wav = [
+            b"RIFF".as_slice(),
+            &(36 + data_bytes).to_le_bytes(),
+            b"WAVEfmt ",
+            &16_u32.to_le_bytes(),
+            &1_u16.to_le_bytes(),
+            &1_u16.to_le_bytes(),
+            &sample_rate.to_le_bytes(),
+            &(sample_rate * 2).to_le_bytes(),
+            &2_u16.to_le_bytes(),
+            &16_u16.to_le_bytes(),
+            b"data",
+            &data_bytes.to_le_bytes(),
+        ]
+        .concat();
+        wav.resize(wav.len() + data_bytes as usize, 0);
+        fs::write(&clip, wav).unwrap();
+
+        let target = VideoTarget {
+            sha256: MediaHash::parse(
+                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            )
+            .unwrap(),
+            ext: MediaExt::parse("wav").unwrap(),
+            looping: false,
+            muted: true,
+            auto_play: true,
+        };
+        for (pause_during_open, expected) in [
+            (false, PlaybackState::Playing),
+            (true, PlaybackState::Paused),
+        ] {
+            let mut engine = MediaEngine::new();
+            let slot = MediaSlot::Live;
+            let generation = 1;
+            engine.pending_opens.insert(
+                slot,
+                PendingOpen {
+                    generation,
+                    target: target.clone(),
+                    synced_auto_play: target.auto_play,
+                    seek_ms: None,
+                    buffered_frame: None,
+                    buffered_status: None,
+                    buffered_error: None,
+                },
+            );
+            if pause_during_open {
+                engine.pause(slot);
+            }
+            let sink = SlotSink {
+                slot,
+                generation,
+                bus: Arc::clone(&engine.bus),
+            };
+            let player = MediaPlayer::open(clip.clone(), false, true, false, sink).unwrap();
+            let opened = OpenedPlayer::new(player, target.clone());
+            assert!(engine.finish_open(slot, generation, Ok(opened)).is_none());
+
+            engine.set_looping(slot, true);
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                let events = std::mem::take(&mut engine.bus.state.lock().unwrap().pending);
+                for event in events {
+                    if let MediaEvent::Status { status, .. } = event
+                        && status.looping
+                    {
+                        assert_eq!(status.state, expected);
+                        engine.apply_event(event);
+                    }
+                }
+                if engine
+                    .status(slot)
+                    .is_some_and(|status| status.state == expected && status.looping)
+                {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "player did not report its playback state"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
