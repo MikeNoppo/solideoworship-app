@@ -10,12 +10,11 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use ac_ffmpeg::codec::audio::{AudioDecoder, AudioResampler, ChannelLayout, SampleFormat};
-use ac_ffmpeg::codec::video::frame::get_pixel_format;
-use ac_ffmpeg::codec::video::scaler::Algorithm;
+use ac_ffmpeg::codec::video::filter::VideoFilter;
 use ac_ffmpeg::codec::video::{
-    PixelFormat as FfPixelFormat, VideoDecoder, VideoFrame as FfVideoFrame, VideoFrameScaler,
+    PixelFormat as FfPixelFormat, VideoDecoder, VideoFrame as FfVideoFrame,
 };
-use ac_ffmpeg::codec::{AudioCodecParameters, Decoder};
+use ac_ffmpeg::codec::{AudioCodecParameters, Decoder, Filter};
 use ac_ffmpeg::format::demuxer::{Demuxer, DemuxerWithStreamInfo, SeekTarget};
 use ac_ffmpeg::format::io::IO;
 use ac_ffmpeg::time::Timestamp;
@@ -26,10 +25,7 @@ use sdw_core::MediaKind;
 use crate::MediaError;
 use crate::audio::{AudioConsumer, AudioOutput, AudioProducer, AudioRingBuffer};
 use crate::image::{fit_within, temp_thumb_path};
-use crate::video::{
-    ColorMatrix, ColorRange, FramePool, PixelFormat, PlaybackState, PlaybackStatus, VideoColor,
-    VideoFrame,
-};
+use crate::video::{FramePool, PixelFormat, PlaybackState, PlaybackStatus, VideoFrame};
 
 const AUDIO_RING_SAMPLES: usize = 65_536;
 const TARGET_AUDIO_CHANNELS: u32 = 2;
@@ -90,21 +86,18 @@ pub fn generate_video_thumbnail(
     }
 
     let (dst_w, dst_h) = fit_within(src_w, src_h, max_width, max_width);
-    let rgba_fmt = get_pixel_format("rgba");
-    let mut scaler = VideoFrameScaler::builder()
-        .source_pixel_format(frame.pixel_format())
-        .source_width(frame.width())
-        .source_height(frame.height())
-        .target_pixel_format(rgba_fmt)
-        .target_width(dst_w as usize)
-        .target_height(dst_h as usize)
-        .algorithm(Algorithm::Bilinear)
-        .build()
+    let mut scaler = VideoFilter::builder(frame.width(), frame.height(), frame.pixel_format())
+        .build(&format!(
+            "scale={dst_w}:{dst_h}:flags=bilinear:in_color_matrix=auto,format=rgba"
+        ))
         .map_err(|err| MediaError::Decoder(err.to_string()))?;
-
+    scaler
+        .try_push(frame)
+        .map_err(|err| MediaError::Decoder(err.to_string()))?;
     let scaled = scaler
-        .scale(&frame)
-        .map_err(|err| MediaError::Decoder(err.to_string()))?;
+        .take()
+        .map_err(|err| MediaError::Decoder(err.to_string()))?
+        .ok_or(MediaError::NoVideoStream)?;
     let planes = scaled.planes();
     let plane = &planes[0];
     let row_bytes = (dst_w as usize) * 4;
@@ -387,7 +380,7 @@ struct PlayerDecoders {
     video: Option<VideoDecoder>,
     audio: Option<AudioDecoder>,
     resampler: Option<AudioResampler>,
-    scaler: Option<(FfPixelFormat, usize, usize, VideoFrameScaler)>,
+    scaler: Option<(FfPixelFormat, usize, usize, VideoFilter)>,
     sample_rate: u32,
     channels: u32,
 }
@@ -469,8 +462,6 @@ struct PlayerContext<S: MediaSink> {
     paused_seeked: bool,
     output_rate: u32,
     pool: Arc<FramePool>,
-    nv12_fmt: FfPixelFormat,
-    yuv420p_fmt: FfPixelFormat,
     video_queue: VecDeque<Arc<VideoFrame>>,
     audio_backlog: Vec<f32>,
     audio_backlog_offset: usize,
@@ -622,13 +613,7 @@ impl<S: MediaSink> PlayerContext<S> {
             }
             while let Ok(Some(raw)) = vdec.take() {
                 let pts_ms = frame_pts_ms(&raw);
-                if let Some(frame) = copy_video_frame(
-                    &raw,
-                    &mut self.decoders.scaler,
-                    &self.pool,
-                    self.nv12_fmt,
-                    self.yuv420p_fmt,
-                ) {
+                if let Some(frame) = copy_video_frame(raw, &mut self.decoders.scaler, &self.pool) {
                     last_frame = Some(frame);
                 }
                 if pts_ms >= target_ms {
@@ -641,13 +626,7 @@ impl<S: MediaSink> PlayerContext<S> {
             let _ = vdec.flush();
             while let Ok(Some(raw)) = vdec.take() {
                 let pts_ms = frame_pts_ms(&raw);
-                if let Some(frame) = copy_video_frame(
-                    &raw,
-                    &mut self.decoders.scaler,
-                    &self.pool,
-                    self.nv12_fmt,
-                    self.yuv420p_fmt,
-                ) {
+                if let Some(frame) = copy_video_frame(raw, &mut self.decoders.scaler, &self.pool) {
                     last_frame = Some(frame);
                 }
                 if pts_ms >= target_ms {
@@ -695,13 +674,9 @@ impl<S: MediaSink> PlayerContext<S> {
                             }) {
                                 continue;
                             }
-                            if let Some(frame) = copy_video_frame(
-                                &raw,
-                                &mut self.decoders.scaler,
-                                &self.pool,
-                                self.nv12_fmt,
-                                self.yuv420p_fmt,
-                            ) {
+                            if let Some(frame) =
+                                copy_video_frame(raw, &mut self.decoders.scaler, &self.pool)
+                            {
                                 self.video_queue.push_back(frame);
                             }
                         }
@@ -742,13 +717,9 @@ impl<S: MediaSink> PlayerContext<S> {
                     if let Some(vdec) = self.decoders.video.as_mut() {
                         let _ = vdec.flush();
                         while let Ok(Some(raw)) = vdec.take() {
-                            if let Some(frame) = copy_video_frame(
-                                &raw,
-                                &mut self.decoders.scaler,
-                                &self.pool,
-                                self.nv12_fmt,
-                                self.yuv420p_fmt,
-                            ) {
+                            if let Some(frame) =
+                                copy_video_frame(raw, &mut self.decoders.scaler, &self.pool)
+                            {
                                 self.video_queue.push_back(frame);
                             }
                         }
@@ -841,8 +812,6 @@ fn run_player(
         paused_seeked: false,
         output_rate,
         pool: FramePool::new(FRAME_POOL_SLOTS),
-        nv12_fmt: get_pixel_format("nv12"),
-        yuv420p_fmt: get_pixel_format("yuv420p"),
         video_queue: VecDeque::with_capacity(VIDEO_LOOKAHEAD + 2),
         audio_backlog: Vec::new(),
         audio_backlog_offset: 0,
@@ -1065,49 +1034,10 @@ fn frame_pts_ms(frame: &FfVideoFrame) -> u64 {
         .unwrap_or(0)
 }
 
-fn infer_video_color(fmt_name: &str, width: usize, height: usize) -> VideoColor {
-    if fmt_name == "yuvj420p" {
-        return VideoColor {
-            matrix: ColorMatrix::Bt601,
-            range: ColorRange::Full,
-        };
-    }
-    if fmt_name.starts_with("yuvj") {
-        return VideoColor {
-            matrix: ColorMatrix::Bt601,
-            range: ColorRange::Limited,
-        };
-    }
-    if fmt_name.starts_with("rgb")
-        || fmt_name.starts_with("bgr")
-        || fmt_name.starts_with("argb")
-        || fmt_name.starts_with("abgr")
-        || fmt_name.starts_with("gbr")
-        || fmt_name.starts_with("gray")
-        || fmt_name == "pal8"
-    {
-        return VideoColor {
-            matrix: ColorMatrix::Bt601,
-            range: ColorRange::Limited,
-        };
-    }
-    let matrix = if width >= 1280 || height >= 720 {
-        ColorMatrix::Bt709
-    } else {
-        ColorMatrix::Bt601
-    };
-    VideoColor {
-        matrix,
-        range: ColorRange::Limited,
-    }
-}
-
 fn copy_video_frame(
-    raw: &FfVideoFrame,
-    scaler_slot: &mut Option<(FfPixelFormat, usize, usize, VideoFrameScaler)>,
+    raw: FfVideoFrame,
+    scaler_slot: &mut Option<(FfPixelFormat, usize, usize, VideoFilter)>,
     pool: &Arc<FramePool>,
-    nv12_fmt: FfPixelFormat,
-    yuv420p_fmt: FfPixelFormat,
 ) -> Option<Arc<VideoFrame>> {
     let w = raw.width();
     let h = raw.height();
@@ -1115,43 +1045,31 @@ fn copy_video_frame(
         return None;
     }
 
-    let pts_ms = frame_pts_ms(raw);
+    let pts_ms = frame_pts_ms(&raw);
     let src_fmt = raw.pixel_format();
-    let fmt_name = src_fmt.name();
-    let color = infer_video_color(fmt_name, w, h);
-
-    let converted_holder;
-    let (frame_ref, target_fmt) = if src_fmt == nv12_fmt {
-        (raw, PixelFormat::Nv12)
-    } else if src_fmt == yuv420p_fmt || fmt_name == "yuvj420p" {
-        (raw, PixelFormat::Yuv420p)
+    let (target_fmt, format_name) = if src_fmt.name() == "nv12" {
+        (PixelFormat::Nv12, "nv12")
     } else {
-        let needs_rebuild = scaler_slot
-            .as_ref()
-            .is_none_or(|(fmt, sw, sh, _)| *fmt != src_fmt || *sw != w || *sh != h);
-        if needs_rebuild {
-            let scaler = VideoFrameScaler::builder()
-                .source_pixel_format(src_fmt)
-                .source_width(w)
-                .source_height(h)
-                .target_pixel_format(yuv420p_fmt)
-                .target_width(w)
-                .target_height(h)
-                .algorithm(Algorithm::FastBilinear)
-                .build()
-                .ok()?;
-            *scaler_slot = Some((src_fmt, w, h, scaler));
-        }
-        let (_, _, _, scaler) = scaler_slot.as_mut()?;
-        converted_holder = scaler.scale(raw).ok()?;
-        (&converted_holder, PixelFormat::Yuv420p)
+        (PixelFormat::Yuv420p, "yuv420p")
     };
+    if scaler_slot
+        .as_ref()
+        .is_none_or(|(fmt, sw, sh, _)| (*fmt, *sw, *sh) != (src_fmt, w, h))
+    {
+        let scaler = VideoFilter::builder(w, h, src_fmt)
+            .build(&format!("scale=flags=fast_bilinear:in_color_matrix=auto:out_color_matrix=bt709:out_range=tv,format={format_name}"))
+            .ok()?;
+        *scaler_slot = Some((src_fmt, w, h, scaler));
+    }
+    let (_, _, _, scaler) = scaler_slot.as_mut()?;
+    scaler.try_push(raw).ok()?;
+    let frame = scaler.take().ok()??;
 
     let width_u32 = u32::try_from(w).ok()?;
     let height_u32 = u32::try_from(h).ok()?;
     let mut writer = pool.acquire(target_fmt, width_u32, height_u32)?;
     let (dst_y, dst_u, dst_v) = writer.planes_mut();
-    let planes = frame_ref.planes();
+    let planes = frame.planes();
 
     copy_plane(&planes[0], w, h, dst_y);
     match target_fmt {
@@ -1168,7 +1086,7 @@ fn copy_video_frame(
         }
     }
 
-    Some(writer.finish_with_color(pts_ms, color))
+    Some(writer.finish(pts_ms))
 }
 
 fn copy_plane(
@@ -1645,36 +1563,54 @@ mod tests {
     }
 
     #[test]
-    fn infers_color_matrix_and_range_from_format_and_dimensions() {
-        use super::{ColorMatrix, ColorRange, VideoColor, infer_video_color};
+    fn normalizes_tagged_full_range_video_before_uploading_planes() {
+        use super::{FramePool, copy_video_frame, decode_first_video_frame, open_demuxer};
+        use crate::{ColorMatrix, ColorRange};
 
-        assert_eq!(
-            infer_video_color("yuvj420p", 1920, 1080),
-            VideoColor {
-                matrix: ColorMatrix::Bt601,
-                range: ColorRange::Full,
-            }
-        );
-        assert_eq!(
-            infer_video_color("rgba", 1920, 1080),
-            VideoColor {
-                matrix: ColorMatrix::Bt601,
-                range: ColorRange::Limited,
-            }
-        );
-        assert_eq!(
-            infer_video_color("nv12", 1920, 1080),
-            VideoColor {
-                matrix: ColorMatrix::Bt709,
-                range: ColorRange::Limited,
-            }
-        );
-        assert_eq!(
-            infer_video_color("yuv420p", 720, 480),
-            VideoColor {
-                matrix: ColorMatrix::Bt601,
-                range: ColorRange::Limited,
-            }
-        );
+        let dir = env::temp_dir().join(format!("sdw-media-ffmpeg-colors-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let video = dir.join("clip.mkv");
+        if !run_ffmpeg(
+            &[
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=black:s=160x90:d=0.1",
+                "-vf",
+                "geq=lum='if(lt(X,W/2),0,76)':cb='if(lt(X,W/2),128,85)':cr='if(lt(X,W/2),128,255)'",
+                "-c:v",
+                "ffv1",
+                "-color_range",
+                "pc",
+                "-colorspace",
+                "smpte170m",
+            ],
+            &video,
+        ) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut demuxer = open_demuxer(&video).unwrap();
+        let raw = decode_first_video_frame(&mut demuxer, 0).unwrap().unwrap();
+        let frame = copy_video_frame(raw, &mut None, &FramePool::new(1)).unwrap();
+        assert_eq!(frame.color().matrix, ColorMatrix::Bt709);
+        assert_eq!(frame.color().range, ColorRange::Limited);
+        assert_eq!(frame.y_plane()[0], 16);
+        assert!(frame.y_plane()[140].abs_diff(63) <= 2);
+        assert!(frame.u_or_uv_plane()[70].abs_diff(102) <= 2);
+        assert!(frame.v_plane()[70].abs_diff(240) <= 5);
+
+        let thumb = dir.join("thumb.webp");
+        generate_video_thumbnail(&video, &thumb, 80).unwrap();
+        let decoded = decode_image_capped(&thumb, 1000, 1000).unwrap();
+        assert_eq!(&decoded.pixels[..4], &[0, 0, 0, 255]);
+        let red = &decoded.pixels[70 * 4..71 * 4];
+        assert!(red[0] >= 245 && red[1] <= 5 && red[2] <= 5 && red[3] == 255);
+        drop(demuxer);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

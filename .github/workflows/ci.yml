@@ -48,7 +48,7 @@ jobs:
           persist-credentials: false
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
       - name: Install macOS FFmpeg
         if: runner.os == 'macOS'
         run: brew install ffmpeg pkg-config
@@ -88,7 +88,7 @@ jobs:
           persist-credentials: false
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
       - name: Install macOS FFmpeg
         if: runner.os == 'macOS'
         run: brew install ffmpeg pkg-config
