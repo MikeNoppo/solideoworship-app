@@ -119,6 +119,7 @@ impl Label for ContentKind {
         match self {
             Self::Song => t().schedule.song,
             Self::Scripture => t().common.bible,
+            Self::Media => t().schedule.media,
         }
     }
 }

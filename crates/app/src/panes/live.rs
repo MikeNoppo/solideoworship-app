@@ -81,12 +81,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let rows = live.slides().iter().enumerate().fold(
                 Column::new().spacing(2),
                 |list, (index, item)| {
-                    list.push(slide_row(
-                        app,
-                        index,
-                        item.body.lines().next().unwrap_or_default(),
-                        live.index() == index,
-                    ))
+                    let snippet = item
+                        .body
+                        .lines()
+                        .next()
+                        .or_else(|| item.media.as_ref().map(|media| media.title.as_ref()))
+                        .unwrap_or_default();
+                    list.push(slide_row(app, index, snippet, live.index() == index))
                 },
             );
 
@@ -109,7 +110,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         || (is_open && (app.output_state == OutputState::Logo || app.has_animation()));
 
     let thumbnail: Element<'_, Message> = if show_stage {
-        container(stack![transition::stage(app.live_frame())].push(mode_notice(app)))
+        let frame = app.live_frame();
+        let backdrop = app.live_backdrop(crate::media_engine::ViewportSlot::LivePanel);
+        container(stack![transition::stage_with_media(frame, backdrop)].push(mode_notice(app)))
             .width(thumb_width)
             .height(thumb_height)
             .padding(2)
@@ -203,16 +206,22 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(12);
 
-    container(
-        column![header, slides_header, list, output_footer]
-            .spacing(10)
-            .height(Fill),
-    )
-    .width(width)
-    .height(Fill)
-    .padding(PADDING)
-    .style(style::fill(style::SURFACE))
-    .into()
+    let mut body = column![header, slides_header, list]
+        .spacing(10)
+        .height(Fill);
+    if let Some(transport) =
+        crate::panes::media::transport_bar(app, crate::media_engine::MediaSlot::Live)
+    {
+        body = body.push(transport);
+    }
+    body = body.push(output_footer);
+
+    container(body)
+        .width(width)
+        .height(Fill)
+        .padding(PADDING)
+        .style(style::fill(style::SURFACE))
+        .into()
 }
 
 fn step_button<'a>(glyph: &'static str, on_press: Option<Message>) -> Element<'a, Message> {

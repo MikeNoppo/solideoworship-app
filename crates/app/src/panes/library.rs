@@ -80,15 +80,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
             enabled.then_some(Message::BibleManagerRequested),
         )
         .into(),
-        LibraryTab::Media => container(label(
-            t().library.media_coming_soon,
-            11.0,
-            style::MEDIUM,
-            style::TEXT_3,
-        ))
-        .padding([0, 8])
-        .center_y(24)
-        .style(style::boxed(Some(style::RAISED), style::BORDER, 12.0))
+        LibraryTab::Media => action(
+            Tone::Secondary,
+            Some(icon::PLUS),
+            t().library.import_media,
+            None,
+            enabled.then_some(Message::MediaImportRequested),
+        )
         .into(),
     };
 
@@ -126,13 +124,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             },
         ),
         LibraryTab::Media => (
-            media_sidebar(),
-            placeholder(ui::empty(
-                icon::LAYOUT_GRID,
-                false,
-                t().library.media_title,
-                Some(t().library.media_body),
-            )),
+            crate::panes::media::sidebar(app, enabled),
+            crate::panes::media::body(app, enabled),
         ),
     };
 
@@ -239,41 +232,6 @@ fn scripture_sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
     ]
     .spacing(8)
     .height(Fill)
-    .into()
-}
-
-fn media_sidebar() -> Element<'static, Message> {
-    let rows = [
-        (icon::LAYOUT_GRID, t().library.media_all),
-        (icon::MONITOR, t().library.media_images),
-        (icon::PLAY, t().library.media_videos),
-    ]
-    .into_iter()
-    .fold(Column::new().spacing(2), |list, (glyph, caption)| {
-        list.push(
-            container(
-                row![
-                    icon::view(glyph, 13.0, style::fade(style::TEXT_3, false)),
-                    label(
-                        caption,
-                        12.5,
-                        style::MEDIUM,
-                        style::fade(style::TEXT_2, false)
-                    ),
-                ]
-                .spacing(8)
-                .align_y(Center),
-            )
-            .width(Fill)
-            .padding([7, 8]),
-        )
-    });
-
-    column![
-        container(ui::eyebrow(t().library.media_heading)).padding([0, 6]),
-        rows,
-    ]
-    .spacing(8)
     .into()
 }
 
@@ -474,6 +432,10 @@ fn song_row<'a>(app: &'a App, song: &'a SongSummary, is_top: bool) -> Element<'a
     };
 
     hover(base, overlay)
+}
+
+pub fn unavailable_view<'a>() -> Element<'a, Message> {
+    unavailable()
 }
 
 fn unavailable<'a>() -> Element<'a, Message> {

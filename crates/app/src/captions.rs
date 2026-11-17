@@ -27,6 +27,7 @@ pub struct Captions {
     pub results: Box<str>,
     pub song_count: Box<str>,
     pub no_match: Box<str>,
+    pub media_no_match: Box<str>,
     pub unsaved_title: Box<str>,
     pub unsaved_body: Box<str>,
     pub unsaved_file: Box<str>,
@@ -53,13 +54,14 @@ impl Captions {
         self.preview_meta = app
             .schedule
             .preview_entry()
-            .map(|entry| {
-                let theme = match entry.deck().kind {
-                    ContentKind::Song => t().slides.song_theme,
-                    ContentKind::Scripture => t().slides.bible_theme,
-                };
-
-                format!("{} · {theme}", entry.meta()).into_boxed_str()
+            .map(|entry| match entry.deck().kind {
+                ContentKind::Song => {
+                    format!("{} · {}", entry.meta(), t().slides.song_theme).into_boxed_str()
+                }
+                ContentKind::Scripture => {
+                    format!("{} · {}", entry.meta(), t().slides.bible_theme).into_boxed_str()
+                }
+                ContentKind::Media => entry.meta().into(),
             })
             .unwrap_or_default();
 
@@ -139,6 +141,9 @@ impl Captions {
             )
         };
         self.no_match = fill(t().library.no_match_title, &[("query", &query)]).into_boxed_str();
+        let media_query = app.media_search.trim();
+        self.media_no_match =
+            fill(t().library.media_no_match, &[("query", &media_query)]).into_boxed_str();
 
         let lines = usize::from(app.settings.styles.song.max_lines);
         self.song_body = count(

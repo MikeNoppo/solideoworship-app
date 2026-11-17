@@ -301,6 +301,14 @@ fn item<'a>(
     let glyph = match entry.deck().kind {
         ContentKind::Song => icon::MUSIC,
         ContentKind::Scripture => icon::BOOK_OPEN,
+        ContentKind::Media => match entry.item() {
+            sdw_core::ScheduleItem::Media(media) => match media.kind {
+                sdw_core::MediaKind::Image => icon::LAYOUT_GRID,
+                sdw_core::MediaKind::Video => icon::PLAY,
+                sdw_core::MediaKind::Audio => icon::MUSIC,
+            },
+            _ => icon::LAYOUT_GRID,
+        },
     };
 
     let is_target = matches!(

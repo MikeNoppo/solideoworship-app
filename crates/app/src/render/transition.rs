@@ -5,14 +5,25 @@ use sdw_core::theme::{Rgb, SlideTheme};
 use sdw_core::transition::{TransitionMode, TransitionSpec};
 use sdw_core::{OutputState, Presentation};
 
+use super::slide::MediaBackdrop;
+
 pub fn stage<'a, Message: 'a>(frame: Frame<'a>) -> iced::Element<'a, Message> {
-    super::slide::stage_sampled(
+    stage_with_media(frame, MediaBackdrop::default())
+}
+
+pub fn stage_with_media<'a, Message: 'a>(
+    frame: Frame<'a>,
+    backdrop: MediaBackdrop<'a>,
+) -> iced::Element<'a, Message> {
+    super::slide::stage_sampled_with_media(
         frame.slide,
         frame.theme,
         frame.body_opacity,
         frame.logo_opacity,
         frame.logo_foreground,
         frame.background,
+        frame.background_media_visible,
+        backdrop,
     )
 }
 
@@ -84,6 +95,7 @@ pub struct Frame<'a> {
     pub logo_opacity: f32,
     pub logo_foreground: Rgb,
     pub background: Rgb,
+    pub background_media_visible: bool,
 }
 
 impl<'a> Frame<'a> {
@@ -109,6 +121,7 @@ impl<'a> Frame<'a> {
             logo_opacity: if state.shows_logo() { 1.0 } else { 0.0 },
             logo_foreground: logo_background.contrasting_foreground(),
             background,
+            background_media_visible: matches!(state, OutputState::Show | OutputState::Clear),
         }
     }
 }

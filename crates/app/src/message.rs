@@ -3,11 +3,16 @@ use std::time::{Instant, SystemTime};
 
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
-use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
-use sdw_library::{BibleBook, BibleId, BibleSummary, ImportReport, SongId, SongSummary};
+use sdw_core::slide::ContentKind;
+use sdw_core::{MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song};
+use sdw_library::{
+    BibleBook, BibleId, BibleSummary, ImportReport, MediaId, MediaSummary, SongId, SongSummary,
+};
+use sdw_media::ImageCacheKey;
 
 use crate::display::Display;
 use crate::files::{SaveFailure, SaveTarget};
+use crate::media_engine::{DecodedImage, MediaEvent, MediaSlot};
 use crate::report::CrashRecord;
 use crate::theme_dialog;
 use crate::work::Outcome;
@@ -85,6 +90,7 @@ pub struct StartupLibrary {
     pub song_count: usize,
     pub bibles: Vec<BibleSummary>,
     pub bible_index: Option<(BibleId, Vec<BibleBook>)>,
+    pub media: Vec<MediaSummary>,
 }
 
 impl From<Settings> for StartupLibrary {
@@ -207,6 +213,27 @@ pub enum Message {
     CrashReportRequested,
     BugReport(bug_report::Message),
     ReportSubmitted(u64, bool, Outcome<()>),
+
+    MediaLoaded(Outcome<Vec<MediaSummary>>),
+    MediaFilterSelected(Option<MediaKind>),
+    MediaSearchChanged(String),
+    MediaImportRequested,
+    MediaImportPicked(Option<PathBuf>),
+    MediaImported(Outcome<MediaSummary>),
+    MediaPreviewed(MediaId),
+    MediaPicked(MediaId),
+    MediaDeleteRequested(MediaId),
+    MediaDeleted(Outcome<Option<MediaSummary>>),
+    MediaSetBackground(ContentKind, MediaId),
+    MediaClearBackground(ContentKind),
+    MediaImageDecoded(ImageCacheKey, Outcome<DecodedImage>),
+    MediaEngineEvent(MediaEvent),
+    MediaPlayToggle(MediaSlot),
+    MediaStop(MediaSlot),
+    MediaSeekChanged(MediaSlot, u64),
+    MediaSeekCommitted(MediaSlot),
+    MediaMuteToggle(MediaSlot),
+    MediaLoopToggle(MediaSlot),
 }
 impl Message {
     pub fn refreshes_captions(&self) -> bool {
@@ -239,7 +266,9 @@ impl Message {
             | Self::UiScaleSaved(..)
             | Self::SaveShortcut
             | Self::BibleManager(..)
-            | Self::BugReport(..) => false,
+            | Self::BugReport(..)
+            | Self::MediaImageDecoded(..)
+            | Self::MediaEngineEvent(..) => false,
             Self::SplashOpened
             | Self::SplashElapsed
             | Self::ControlOpened
@@ -314,7 +343,25 @@ impl Message {
             | Self::BibleDeleted(..)
             | Self::BugReportRequested
             | Self::CrashReportRequested
-            | Self::ReportSubmitted(..) => true,
+            | Self::ReportSubmitted(..)
+            | Self::MediaLoaded(..)
+            | Self::MediaFilterSelected(..)
+            | Self::MediaSearchChanged(..)
+            | Self::MediaImportRequested
+            | Self::MediaImportPicked(..)
+            | Self::MediaImported(..)
+            | Self::MediaPreviewed(..)
+            | Self::MediaPicked(..)
+            | Self::MediaDeleteRequested(..)
+            | Self::MediaDeleted(..)
+            | Self::MediaSetBackground(..)
+            | Self::MediaClearBackground(..)
+            | Self::MediaPlayToggle(..)
+            | Self::MediaStop(..)
+            | Self::MediaSeekChanged(..)
+            | Self::MediaSeekCommitted(..)
+            | Self::MediaMuteToggle(..)
+            | Self::MediaLoopToggle(..) => true,
         }
     }
 }

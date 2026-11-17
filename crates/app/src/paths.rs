@@ -7,9 +7,19 @@ const RECOVERY_FILE: &str = "recovery.sdw";
 const LANGUAGE_FILE: &str = "language";
 const CRASH_FILE: &str = "pending_crash.json";
 const TELEMETRY_FILE: &str = "telemetry.json";
+const MEDIA_DIR: &str = "media";
+const THUMB_CACHE_DIR: &str = "thumbs";
 
 pub fn library_file() -> PathBuf {
     data_dir().join(LIBRARY_FILE)
+}
+
+pub fn media_dir() -> PathBuf {
+    data_dir().join(MEDIA_DIR)
+}
+
+pub fn thumb_cache_dir() -> PathBuf {
+    data_dir().join("cache").join(THUMB_CACHE_DIR)
 }
 
 pub fn recovery_file() -> PathBuf {
