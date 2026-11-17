@@ -11,7 +11,18 @@ from package import ROOT, invoke, msi_version, native_platform, prepare, run
 
 
 def probe(executable, version):
-    run(executable, "--update-probe", version)
+    run(executable, "--update-probe", version, timeout=60)
+
+
+def windows_msi(*args):
+    with tempfile.TemporaryDirectory(prefix="sdw msi log ") as directory:
+        log = Path(directory) / "installer.log"
+        try:
+            run("msiexec.exe", *args, "/L*V!", log, timeout=120)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if log.exists():
+                print(log.read_text(encoding="utf-16le", errors="replace")[-20000:], flush=True)
+            raise
 
 
 def windows_install(package, directory, fmt, scope):
@@ -19,7 +30,7 @@ def windows_install(package, directory, fmt, scope):
         command = f'"{package}" /S /{scope} /D={directory}'
         subprocess.run(command, check=True)
     else:
-        run("msiexec.exe", "/i", package, "/qn", "/norestart", f"INSTALLDIR={directory}")
+        windows_msi("/i", package, "/qn", "/norestart", f"INSTALLDIR={directory}")
 
 
 def windows_remove(directory, package, fmt, scope="AllUsers"):
@@ -27,7 +38,7 @@ def windows_remove(directory, package, fmt, scope="AllUsers"):
         command = f'"{directory / "uninstall.exe"}" /S /{scope} _?={directory}'
         subprocess.run(command, check=True)
     else:
-        run("msiexec.exe", "/x", package, "/qn", "/norestart")
+        windows_msi("/x", package, "/qn", "/norestart")
 
 
 def test_release(dist, version):
@@ -50,7 +61,9 @@ def test_release(dist, version):
                     installed = directory / f"{fmt} {scope}"
                     print(f"Testing {fmt} installation ({scope})", flush=True)
                     windows_install(package, installed, fmt, scope)
+                    print(f"Testing {fmt} installed executable ({scope})", flush=True)
                     probe(installed / "SolideoWorship.exe", version)
+                    print(f"Testing {fmt} removal ({scope})", flush=True)
                     windows_remove(installed, package, fmt, scope)
         elif system == "macos":
             archive = next(dist.glob("*.app.tar.gz"))
@@ -145,18 +158,24 @@ def test_upgrades(directory):
             windows_remove(installed, packages[1], fmt)
 
 
-def test_nsis_preflight():
+def test_windows_preflight():
     version = "0.1.0-beta.100"
     with tempfile.TemporaryDirectory(prefix="sdw preflight ") as directory:
         directory = Path(directory)
-        package = fixture(directory, version, "nsis")
-        generated = directory / "out/.cargo-packager/nsis/x64/installer.nsi"
-        if "{{" in generated.read_text(encoding="utf-16"):
-            raise AssertionError("The compiled NSIS template contains unexpanded expressions")
-        installed = directory / "installed"
-        windows_install(package, installed, "nsis", "CurrentUser")
-        probe(installed / "SolideoWorship.exe", version)
-        windows_remove(installed, package, "nsis", "CurrentUser")
+        for fmt, scope in [("nsis", "CurrentUser"), ("wix", "AllUsers")]:
+            stage = directory / fmt
+            package = fixture(stage, version, fmt)
+            if fmt == "nsis":
+                generated = stage / "out/.cargo-packager/nsis/x64/installer.nsi"
+                if "{{" in generated.read_text(encoding="utf-16"):
+                    raise AssertionError("The compiled NSIS template contains unexpanded expressions")
+            installed = stage / "installed"
+            print(f"Installing {fmt} fixture", flush=True)
+            windows_install(package, installed, fmt, scope)
+            print(f"Probing {fmt} fixture", flush=True)
+            probe(installed / "SolideoWorship.exe", version)
+            print(f"Uninstalling {fmt} fixture", flush=True)
+            windows_remove(installed, package, fmt, scope)
 
 
 if __name__ == "__main__":
@@ -169,7 +188,7 @@ if __name__ == "__main__":
     parser.add_argument("--windows-preflight", action="store_true")
     args = parser.parse_args()
     if args.windows_preflight:
-        test_nsis_preflight()
+        test_windows_preflight()
         raise SystemExit(0)
     if args.dist is None or args.version is None:
         parser.error("dist and version are required")
