@@ -49,7 +49,7 @@ impl Updater {
         work::background(|| {
             Ok(Installation::discover().map(|installation| {
                 installation.clean_abandoned_downloads();
-                let result = update::check();
+                let result = update::check(installation.format());
                 (installation, result)
             }))
         })
@@ -159,7 +159,13 @@ impl App {
                     return Task::none();
                 }
                 self.updater.status = Status::Checking;
-                return work::background(|| Ok(update::check())).map(|result| {
+                let format = self
+                    .updater
+                    .installation
+                    .as_ref()
+                    .expect("installed app")
+                    .format();
+                return work::background(move || Ok(update::check(format))).map(|result| {
                     Message::Update(Event::Checked(result.unwrap_or(Err(Error::Network))))
                 });
             }

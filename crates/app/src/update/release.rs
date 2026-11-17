@@ -9,7 +9,7 @@ use semver::Version;
 use serde::Deserialize;
 use ureq::tls::{RootCerts, TlsConfig};
 
-use super::{Error, MAX_PACKAGE, MAX_SUMS, SIGNATURE, SUMS, hex_bytes, package_name, public_key};
+use super::{Error, MAX_PACKAGE, MAX_SUMS, PackageFormat, SIGNATURE, SUMS, hex_bytes, public_key};
 
 const REPOSITORY: &str = "MikeNoppo/solideoworship-app";
 const RELEASES: &str = "https://api.github.com/repos/MikeNoppo/solideoworship-app/releases";
@@ -22,6 +22,7 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(900);
 #[derive(Debug, Clone)]
 pub struct ReleaseUpdate {
     pub version: Version,
+    pub(super) format: PackageFormat,
     size: u64,
     sums: Arc<[u8]>,
     signature: Arc<[u8]>,
@@ -52,7 +53,7 @@ impl Release {
     }
 }
 
-pub fn check() -> Result<Option<ReleaseUpdate>, Error> {
+pub fn check(format: PackageFormat) -> Result<Option<ReleaseUpdate>, Error> {
     let key = public_key().ok_or(Error::Verification)?;
     let current = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|_| Error::Metadata)?;
     let agent = agent(CHECK_TIMEOUT);
@@ -66,13 +67,13 @@ pub fn check() -> Result<Option<ReleaseUpdate>, Error> {
             "application/vnd.github+json",
         )?;
         let releases: Vec<Release> = serde_json::from_slice(&bytes).map_err(|_| Error::Metadata)?;
-        if let Some((release, version)) = choose(&releases, &current)
+        if let Some((release, version)) = choose(&releases, &current, format)
             && best
                 .as_ref()
                 .is_none_or(|(best, _)| version.cmp_precedence(best).is_gt())
         {
             let size = release
-                .asset(&package_name(&version.to_string()), MAX_PACKAGE)
+                .asset(&format.package_name(&version.to_string()), MAX_PACKAGE)
                 .ok_or(Error::Metadata)?
                 .size;
             best = Some((version, size));
@@ -80,14 +81,18 @@ pub fn check() -> Result<Option<ReleaseUpdate>, Error> {
 
         if releases.len() < PAGE_SIZE {
             return best
-                .map(|(version, size)| verify_release(&agent, key, version, size))
+                .map(|(version, size)| verify_release(&agent, key, version, size, format))
                 .transpose();
         }
     }
     Err(Error::Metadata)
 }
 
-fn choose<'a>(releases: &'a [Release], current: &Version) -> Option<(&'a Release, Version)> {
+fn choose<'a>(
+    releases: &'a [Release],
+    current: &Version,
+    format: PackageFormat,
+) -> Option<(&'a Release, Version)> {
     releases
         .iter()
         .filter_map(|release| {
@@ -96,7 +101,7 @@ fn choose<'a>(releases: &'a [Release], current: &Version) -> Option<(&'a Release
             if !eligible(current, &version) || release.draft || release.prerelease != prerelease {
                 return None;
             }
-            release.asset(&package_name(&version.to_string()), MAX_PACKAGE)?;
+            release.asset(&format.package_name(&version.to_string()), MAX_PACKAGE)?;
             release.asset(SUMS, MAX_SUMS)?;
             release.asset(SIGNATURE, 64)?;
             Some((release, version))
@@ -117,6 +122,7 @@ fn verify_release(
     key: [u8; 32],
     version: Version,
     size: u64,
+    format: PackageFormat,
 ) -> Result<ReleaseUpdate, Error> {
     let sums = read_limited(
         agent,
@@ -130,9 +136,15 @@ fn verify_release(
         64,
         "application/octet-stream",
     )?;
-    let checksum = signed_checksum(key, &package_name(&version.to_string()), &sums, &signature)?;
+    let checksum = signed_checksum(
+        key,
+        &format.package_name(&version.to_string()),
+        &sums,
+        &signature,
+    )?;
     Ok(ReleaseUpdate {
         version,
+        format,
         size,
         sums: sums.into(),
         signature: signature.into(),
@@ -142,7 +154,7 @@ fn verify_release(
 
 impl ReleaseUpdate {
     pub(super) fn download(&self, directory: &Path) -> Result<(), Error> {
-        let name = package_name(&self.version.to_string());
+        let name = self.format.package_name(&self.version.to_string());
         let mut response = agent(DOWNLOAD_TIMEOUT)
             .get(asset_url(&self.version, &name))
             .call()
@@ -161,7 +173,6 @@ impl ReleaseUpdate {
     }
 }
 
-#[cfg(any(target_os = "linux", windows))]
 pub(super) fn verify_staged(directory: &Path, name: &str, file: impl Read) -> Result<(), Error> {
     let key = public_key().ok_or(Error::Verification)?;
     let mut sums = Vec::new();
@@ -282,7 +293,7 @@ mod tests {
     fn release(tag: &str, draft: bool, prerelease: bool, has_package: bool) -> Release {
         let mut names = vec![SUMS.into(), SIGNATURE.into()];
         if has_package {
-            names.push(package_name(tag.strip_prefix('v').unwrap()));
+            names.push(PackageFormat::AppImage.package_name(tag.strip_prefix('v').unwrap()));
         }
         Release {
             tag: tag.into(),
@@ -310,23 +321,46 @@ mod tests {
 
         let beta = Version::parse("0.1.0-beta.9").unwrap();
         assert_eq!(
-            choose(&releases, &beta).unwrap().1.to_string(),
+            choose(&releases, &beta, PackageFormat::AppImage)
+                .unwrap()
+                .1
+                .to_string(),
             "0.1.0-beta.10"
         );
 
         releases.push(release("v0.1.0", false, false, true));
-        assert_eq!(choose(&releases, &beta).unwrap().1.to_string(), "0.1.0");
+        assert_eq!(
+            choose(&releases, &beta, PackageFormat::AppImage)
+                .unwrap()
+                .1
+                .to_string(),
+            "0.1.0"
+        );
 
         releases.push(release("v1.0.0-beta.1", false, true, true));
         let stable = Version::parse("0.1.0").unwrap();
-        assert!(choose(&releases, &stable).is_none());
+        assert!(choose(&releases, &stable, PackageFormat::AppImage).is_none());
+    }
+
+    #[test]
+    fn never_switches_package_formats_to_find_a_newer_release() {
+        let mut available = release("v0.1.0-beta.5", false, true, true);
+        let current = Version::parse("0.1.0-beta.4").unwrap();
+        assert!(choose(&[available], &current, PackageFormat::Wix).is_none());
+        available = release("v0.1.0-beta.5", false, true, false);
+        available.assets.push(Asset {
+            name: PackageFormat::Wix.package_name("0.1.0-beta.5"),
+            size: 100,
+            state: "uploaded".into(),
+        });
+        assert!(choose(&[available], &current, PackageFormat::Wix).is_some());
     }
 
     #[test]
     fn requires_signature_and_an_exact_unique_checksum() {
         let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
         let public = key.public_key().as_ref().try_into().unwrap();
-        let name = package_name("1.0.0");
+        let name = PackageFormat::AppImage.package_name("1.0.0");
         let hash = "ab".repeat(32);
         let sums = format!("{hash}  {name}\n");
         let signature = key.sign(sums.as_bytes());

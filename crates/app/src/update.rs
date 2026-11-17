@@ -70,11 +70,23 @@ fn hex_bytes(input: &str) -> Option<[u8; 32]> {
     Some(bytes)
 }
 
-fn package_name(version: &str) -> String {
-    let suffix = if cfg!(windows) {
-        "windows-x64-setup.exe"
-    } else {
-        "linux-x86_64.tar.gz"
-    };
-    format!("SolideoWorship-{version}-{suffix}")
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageFormat {
+    Nsis,
+    Wix,
+    AppImage,
+    App,
+}
+
+impl PackageFormat {
+    fn package_name(self, version: &str) -> String {
+        let arch = std::env::consts::ARCH;
+        let suffix = match self {
+            Self::Nsis => "windows-x64-nsis.exe".to_owned(),
+            Self::Wix => "windows-x64.msi".to_owned(),
+            Self::AppImage => format!("linux-{arch}.AppImage"),
+            Self::App => format!("macos-{arch}.app.tar.gz"),
+        };
+        format!("SolideoWorship-{version}-{suffix}")
+    }
 }

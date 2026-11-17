@@ -1,18 +1,21 @@
+#[cfg(any(target_os = "macos", all(unix, test)))]
+mod archive;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(unix)]
+mod unix;
 #[cfg(windows)]
 mod windows;
 
 use std::env;
-#[cfg(any(target_os = "linux", windows))]
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
-#[cfg(any(target_os = "linux", windows))]
 use std::io::Read;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ExitCode};
-#[cfg(any(target_os = "linux", windows))]
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -21,21 +24,21 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
-use super::{Error, ReleaseUpdate, public_key};
-#[cfg(any(target_os = "linux", windows))]
-use super::{package_name, release};
+use super::{Error, PackageFormat, ReleaseUpdate, public_key, release};
 
 #[cfg(target_os = "linux")]
 use linux as platform;
+#[cfg(target_os = "macos")]
+use macos as platform;
 #[cfg(windows)]
 use windows as platform;
 
 const STAGE_PREFIX: &str = "sdw-update-";
-#[cfg(any(target_os = "linux", windows))]
 const MAX_REQUEST: u64 = 128 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Installation {
+    format: PackageFormat,
     executable: PathBuf,
     stamp: FileStamp,
     updates: PathBuf,
@@ -55,7 +58,6 @@ pub struct Handoff {
     package: Arc<Staged>,
 }
 
-#[cfg(any(target_os = "linux", windows))]
 #[derive(Serialize, Deserialize)]
 struct Request {
     executable: OsString,
@@ -86,30 +88,29 @@ impl FileStamp {
 
 impl Installation {
     pub fn discover() -> Option<Self> {
-        if cfg!(debug_assertions) || !cfg!(target_arch = "x86_64") {
+        if cfg!(debug_assertions)
+            || !(cfg!(target_arch = "x86_64")
+                || cfg!(all(target_os = "macos", target_arch = "aarch64")))
+        {
             return None;
         }
         public_key()?;
-        Self::from_exe(env::current_exe().ok()?)
+        Self::from_exe(platform::executable()?)
     }
 
     fn from_exe(executable: PathBuf) -> Option<Self> {
-        #[cfg(any(target_os = "linux", windows))]
-        {
-            let executable = executable.canonicalize().ok()?;
-            platform::installed(&executable)?;
-            platform::helper(&executable).is_file().then_some(())?;
-            Some(Self {
-                stamp: FileStamp::read(&executable).ok()?,
-                executable,
-                updates: platform::cache_dir()?,
-            })
-        }
-        #[cfg(not(any(target_os = "linux", windows)))]
-        {
-            let _ = executable;
-            None
-        }
+        let executable = executable.canonicalize().ok()?;
+        let format = platform::installed(&executable)?;
+        Some(Self {
+            format,
+            stamp: FileStamp::read(&executable).ok()?,
+            executable,
+            updates: platform::cache_dir()?,
+        })
+    }
+
+    pub fn format(&self) -> PackageFormat {
+        self.format
     }
 
     pub fn download(&self, release: &ReleaseUpdate) -> Result<Staged, Error> {
@@ -128,7 +129,11 @@ impl Installation {
             .prefix(STAGE_PREFIX)
             .tempdir_in(&self.updates)
             .map_err(|_| Error::Install)?;
+        if release.format != self.format {
+            return Err(Error::Verification);
+        }
         release.download(stage.path())?;
+        platform::staged_helper(&self.executable, stage.path()).map_err(|_| Error::Install)?;
         Ok(Staged {
             version: release.version.clone(),
             installation: self.clone(),
@@ -172,7 +177,6 @@ impl Staged {
         title: &str,
         failure: &str,
     ) -> Result<Handoff, Error> {
-        #[cfg(any(target_os = "linux", windows))]
         {
             let stage = self.stage.lock().map_err(|_| Error::Install)?;
             let staged = stage.as_ref().ok_or(Error::Install)?.path();
@@ -193,8 +197,7 @@ impl Staged {
                 return Err(Error::Install);
             }
 
-            let helper = platform::staged_helper(&self.installation.executable, staged)
-                .map_err(|_| Error::Install)?;
+            let helper = staged.join(platform::HELPER);
             let mut child = Command::new(helper)
                 .arg("--apply-staged-update")
                 .arg(std::process::id().to_string())
@@ -211,11 +214,6 @@ impl Staged {
                 request,
                 package: Arc::clone(self),
             })
-        }
-        #[cfg(not(any(target_os = "linux", windows)))]
-        {
-            let _ = (schedule, title, failure, &self.installation);
-            Err(Error::Install)
         }
     }
 }
@@ -239,7 +237,6 @@ impl Handoff {
 }
 
 pub fn run_helper() -> ExitCode {
-    #[cfg(any(target_os = "linux", windows))]
     {
         let mut args = env::args_os().skip(1);
         if args
@@ -310,7 +307,6 @@ pub fn run_helper() -> ExitCode {
     ExitCode::FAILURE
 }
 
-#[cfg(any(target_os = "linux", windows))]
 fn apply(request: &Request, installation: &Installation) -> Result<(), Error> {
     let _lock = update_lock(&installation.updates)?;
     let current = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|_| Error::Install)?;
@@ -320,7 +316,7 @@ fn apply(request: &Request, installation: &Installation) -> Result<(), Error> {
     {
         return Err(Error::Verification);
     }
-    let name = package_name(&version.to_string());
+    let name = installation.format.package_name(&version.to_string());
     platform::install(
         &installation.executable,
         Path::new(&request.staged),
@@ -329,7 +325,6 @@ fn apply(request: &Request, installation: &Installation) -> Result<(), Error> {
     )
 }
 
-#[cfg(any(target_os = "linux", windows))]
 fn valid_stage(installation: &Installation, stage: &Path) -> bool {
     stage
         .file_name()
@@ -353,4 +348,51 @@ fn update_lock(root: &Path) -> Result<File, Error> {
         fs::TryLockError::Error(_) => Error::Install,
     })?;
     Ok(lock)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ring::{digest, signature::Ed25519KeyPair};
+
+    #[test]
+    #[ignore = "requires disposable native installations from packaging/smoke.py"]
+    fn native_package_update() {
+        assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+        let executable = PathBuf::from(env::var_os("SDW_TEST_EXECUTABLE").unwrap());
+        let version = Version::parse(&env::var("SDW_TEST_VERSION").unwrap()).unwrap();
+        let package = PathBuf::from(env::var_os("SDW_TEST_PACKAGE").unwrap());
+        let staged = tempfile::tempdir().unwrap();
+        let name = package.file_name().unwrap().to_str().unwrap();
+        fs::copy(&package, staged.path().join(name)).unwrap();
+        let mut file = File::open(&package).unwrap();
+        let mut hash = digest::Context::new(&digest::SHA256);
+        let mut buffer = [0; 65536];
+        loop {
+            let count = file.read(&mut buffer).unwrap();
+            if count == 0 {
+                break;
+            }
+            hash.update(&buffer[..count]);
+        }
+        let hash = hash.finish();
+        let hex = hash
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let sums = format!("{hex}  {name}\n");
+        let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+        fs::write(staged.path().join(super::super::SUMS), &sums).unwrap();
+        fs::write(
+            staged.path().join(super::super::SIGNATURE),
+            key.sign(sums.as_bytes()).as_ref(),
+        )
+        .unwrap();
+        if env::var_os("SDW_TEST_REJECT").is_some() {
+            assert!(platform::install(&executable, staged.path(), name, &version).is_err());
+        } else {
+            platform::install(&executable, staged.path(), name, &version).unwrap();
+        }
+    }
 }
