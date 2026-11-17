@@ -14,11 +14,14 @@ def probe(executable, version):
     run(executable, "--update-probe", version, timeout=60)
 
 
-def windows_msi(*args):
+def windows_msi(*args, installation=None):
     with tempfile.TemporaryDirectory(prefix="sdw msi log ") as directory:
         log = Path(directory) / "installer.log"
+        command = subprocess.list2cmdline(["msiexec.exe", *map(str, args), "/L*V!", str(log)])
+        if installation is not None:
+            command += f' INSTALLDIR="{installation}"'
         try:
-            run("msiexec.exe", *args, "/L*V!", log, timeout=120)
+            subprocess.run(command, check=True, timeout=120)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             if log.exists():
                 print(log.read_text(encoding="utf-16le", errors="replace")[-20000:], flush=True)
@@ -30,7 +33,7 @@ def windows_install(package, directory, fmt, scope):
         command = f'"{package}" /S /{scope} /D={directory}'
         subprocess.run(command, check=True)
     else:
-        windows_msi("/i", package, "/qn", "/norestart", f"INSTALLDIR={directory}")
+        windows_msi("/i", package, "/qn", "/norestart", installation=directory)
 
 
 def windows_remove(directory, package, fmt, scope="AllUsers"):

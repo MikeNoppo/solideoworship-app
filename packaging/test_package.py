@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from package import ROOT, msi_version, prepare
+from smoke import windows_msi
 
 
 class Versions(unittest.TestCase):
@@ -38,6 +39,15 @@ class WindowsResources(unittest.TestCase):
             self.assertEqual(files["LICENSE.txt"].read_bytes(), (ROOT / "LICENSE").read_bytes())
             self.assertEqual(files["LICENSE-ac-ffmpeg.txt"].read_bytes(), (ROOT / "vendor/ac-ffmpeg/LICENSE").read_bytes())
             self.assertEqual(files["LICENSE-FFmpeg.txt"].read_text(), "FFmpeg license")
+
+
+class MsiCommand(unittest.TestCase):
+    def test_directory_property_quotes_only_its_value(self):
+        with patch("smoke.subprocess.run") as process:
+            windows_msi("/i", r"C:\Update Cache\package.msi", "/qn", installation=Path("C:\\Users\\operator\\Solideo Worship\\"))
+        command = process.call_args.args[0]
+        self.assertIn('INSTALLDIR="C:\\Users\\operator\\Solideo Worship\\"', command)
+        self.assertNotIn('"INSTALLDIR=', command)
 
 
 if __name__ == "__main__":

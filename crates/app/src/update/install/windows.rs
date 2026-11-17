@@ -5,6 +5,7 @@ use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr;
@@ -147,19 +148,18 @@ pub fn install(
             launch_installer(
                 &package_path,
                 &["/P".into(), scope.into()],
+                None,
                 old.root == HKEY_LOCAL_MACHINE,
             )?
         }
         PackageFormat::Wix => {
             let extracted = staged.join("preflight");
             fs::create_dir(&extracted).map_err(|_| Error::Install)?;
-            let mut destination = OsString::from("TARGETDIR=");
-            destination.push(&extracted);
             let status = Command::new(msiexec()?)
                 .arg("/a")
                 .arg(&package_path)
                 .args(["/qn", "/norestart"])
-                .arg(destination)
+                .raw_arg(msi_property("TARGETDIR", &extracted))
                 .status()
                 .map_err(|_| Error::Install)?;
             if !status.success()
@@ -167,8 +167,6 @@ pub fn install(
             {
                 return Err(Error::Install);
             }
-            let mut directory = OsString::from("INSTALLDIR=");
-            directory.push(&old.directory);
             launch_installer(
                 &msiexec()?,
                 &[
@@ -176,8 +174,8 @@ pub fn install(
                     package_path.into_os_string(),
                     "/passive".into(),
                     "/norestart".into(),
-                    directory,
                 ],
+                Some(("INSTALLDIR", &old.directory)),
                 true,
             )?
         }
@@ -214,8 +212,7 @@ fn probe(executable: &Path, version: &Version) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn launch_installer(executable: &Path, args: &[OsString], elevate: bool) -> Result<u32, Error> {
-    let executable = wide(executable.as_os_str());
+fn parameters(args: &[OsString], property: Option<(&str, &Path)>) -> OsString {
     let mut parameters = OsString::new();
     for arg in args {
         if !parameters.is_empty() {
@@ -223,6 +220,29 @@ fn launch_installer(executable: &Path, args: &[OsString], elevate: bool) -> Resu
         }
         parameters.push(quote(arg));
     }
+    if let Some((name, value)) = property {
+        parameters.push(" ");
+        parameters.push(msi_property(name, value));
+    }
+    parameters
+}
+
+fn msi_property(name: &str, value: &Path) -> OsString {
+    let mut property = OsString::from(name);
+    property.push("=\"");
+    property.push(value);
+    property.push("\"");
+    property
+}
+
+fn launch_installer(
+    executable: &Path,
+    args: &[OsString],
+    property: Option<(&str, &Path)>,
+    elevate: bool,
+) -> Result<u32, Error> {
+    let executable = wide(executable.as_os_str());
+    let parameters = parameters(args, property);
     let parameters = wide(&parameters);
     let verb = wide(if elevate { "runas" } else { "open" });
     let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
@@ -357,6 +377,20 @@ fn wide(value: impl AsRef<OsStr>) -> Vec<u16> {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn msi_properties_quote_the_value_without_escaping_directory_separators() {
+        let directory = Path::new("C:\\Users\\operator\\Solideo Worship\\");
+        assert_eq!(
+            parameters(
+                &["/i".into(), "C:\\Update Cache\\package.msi".into()],
+                Some(("INSTALLDIR", directory)),
+            ),
+            OsString::from(
+                "/i \"C:\\Update Cache\\package.msi\" INSTALLDIR=\"C:\\Users\\operator\\Solideo Worship\\\""
+            )
+        );
+    }
 
     #[test]
     fn locked_package_allows_reads_and_blocks_changes_until_install_finishes() {
