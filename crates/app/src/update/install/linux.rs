@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -52,12 +52,15 @@ pub fn install(
     package: &str,
     version: &Version,
 ) -> Result<(), Error> {
-    let file = File::open(staged.join(package)).map_err(|_| Error::Verification)?;
-    release::verify_staged(staged, package, file)?;
+    let mut file = File::open(staged.join(package)).map_err(|_| Error::Verification)?;
+    release::verify_staged(staged, package, &mut file)?;
+    file.rewind().map_err(|_| Error::Verification)?;
     let temporary = tempfile::tempdir_in(executable.parent().ok_or(Error::Install)?)
         .map_err(|_| Error::Install)?;
     let new = temporary.path().join("new.AppImage");
-    fs::copy(staged.join(package), &new).map_err(|_| Error::Install)?;
+    let mut output = File::create_new(&new).map_err(|_| Error::Install)?;
+    io::copy(&mut file, &mut output).map_err(|_| Error::Install)?;
+    output.sync_all().map_err(|_| Error::Install)?;
     fs::set_permissions(&new, fs::Permissions::from_mode(0o755)).map_err(|_| Error::Install)?;
     installed(&new).ok_or(Error::Verification)?;
     let probe = |path: &Path| {

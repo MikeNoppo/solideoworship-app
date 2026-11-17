@@ -56,7 +56,7 @@ mod tests {
     use tar::{Builder, EntryType, Header};
 
     #[test]
-    fn extraction_preserves_executable_modes_and_rejects_links_and_duplicates() {
+    fn extraction_preserves_executable_modes_and_rejects_links() {
         for kind in [EntryType::Regular, EntryType::Symlink, EntryType::Link] {
             let mut archive = Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));
             let mut header = Header::new_gnu();
@@ -88,6 +88,36 @@ mod tests {
             } else {
                 assert_eq!(result, Err(Error::Verification));
             }
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_files_and_paths_outside_the_bundle() {
+        for paths in [
+            vec!["SolideoWorship.app/file", "SolideoWorship.app/file"],
+            vec!["SolideoWorship.app/../escaped"],
+            vec!["another.app/file"],
+        ] {
+            let mut archive = Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));
+            for path in paths {
+                let mut header = Header::new_gnu();
+                header.set_mode(0o755);
+                header.set_size(1);
+                header.as_mut_bytes()[..path.len()].copy_from_slice(path.as_bytes());
+                header.set_cksum();
+                archive.append(&header, &b"x"[..]).unwrap();
+            }
+            let bytes = archive.into_inner().unwrap().finish().unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            assert_eq!(
+                extract(
+                    bytes.as_slice(),
+                    "SolideoWorship.app",
+                    &dir.path().join("bundle")
+                ),
+                Err(Error::Verification)
+            );
+            assert!(!dir.path().join("escaped").exists());
         }
     }
 }
