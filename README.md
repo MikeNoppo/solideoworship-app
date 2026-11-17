@@ -44,7 +44,7 @@ Download packages from [Releases](https://github.com/MikeNoppo/solideoworship-ap
 | macOS 15+ Intel / Apple Silicon | `macos-<arch>.dmg` | Drag `SolideoWorship.app` into a writable Applications folder |
 | macOS 15+ Intel / Apple Silicon | `macos-<arch>.app.tar.gz` | Extract the `.app` bundle into a writable Applications folder |
 | Linux x86_64, glibc 2.35+ | `linux-x86_64.AppImage` | Make executable and run; FFmpeg libraries are bundled |
-| Debian / Ubuntu x86_64 | `linux-x86_64.deb` | `sudo apt install ./SolideoWorship-<version>-linux-x86_64.deb` |
+| Ubuntu 22.04 or compatible x86_64 | `linux-x86_64.deb` | `sudo apt install ./SolideoWorship-<version>-linux-x86_64.deb` |
 | Arch / Omarchy x86_64 | `linux-x86_64.pkg.tar.zst` | `sudo pacman -U ./SolideoWorship-<version>-linux-x86_64.pkg.tar.zst` |
 
 All names start with `SolideoWorship-<version>-`. macOS architectures are `x86_64` (Intel) and `aarch64` (Apple Silicon). Beta builds may need approval in **System Settings → Privacy & Security** on macOS or **More info → Run anyway** on Windows. Stable macOS distribution is deferred until Developer ID signing and notarization are configured.
