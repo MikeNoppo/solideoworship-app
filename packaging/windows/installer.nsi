@@ -34,8 +34,10 @@ VIAddVersionKey "FileVersion" "{{version}}"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Indonesian"
 Var Passive
+Var RequestedDirectory
 Function .onInit
   SetRegView 64
+  StrCpy $RequestedDirectory $INSTDIR
   ${GetParameters} $0
   ${GetOptions} $0 "/P" $Passive
   IfErrors +2 0
@@ -46,6 +48,10 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 Function RestoreDirectory
+  ${If} $RequestedDirectory != ""
+    StrCpy $INSTDIR $RequestedDirectory
+    Return
+  ${EndIf}
   ReadRegStr $0 SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\SolideoWorship" "InstallLocation"
   StrCmp $0 "" +2 0
     StrCpy $INSTDIR $0
@@ -64,7 +70,7 @@ Section
     ${EndIf}
   ${EndIf}
   InitPluginsDir
-  SetOutPath "$PLUGINSDIR\payload"
+  SetOutPath "$PLUGINSDIR"
   File "/oname={{main_binary_name}}.exe" "{{main_binary_path}}"
   {{#each resources}}
   File "/oname={{this}}" "{{@key}}"
@@ -82,14 +88,14 @@ Section
   ${EndIf}
   SetOutPath $INSTDIR
   ClearErrors
-  CopyFiles /SILENT "$PLUGINSDIR\payload\{{main_binary_name}}.exe" "$INSTDIR\{{main_binary_name}}.exe"
+  CopyFiles /SILENT "$PLUGINSDIR\{{main_binary_name}}.exe" "$INSTDIR\{{main_binary_name}}.exe"
   IfErrors failed
   {{#each resources}}
-  CopyFiles /SILENT "$PLUGINSDIR\payload\{{this}}" "$INSTDIR\{{this}}"
+  CopyFiles /SILENT "$PLUGINSDIR\{{this}}" "$INSTDIR\{{this}}"
   IfErrors failed
   {{/each}}
   {{#each binaries}}
-  CopyFiles /SILENT "$PLUGINSDIR\payload\{{this}}" "$INSTDIR\{{this}}"
+  CopyFiles /SILENT "$PLUGINSDIR\{{this}}" "$INSTDIR\{{this}}"
   IfErrors failed
   {{/each}}
   IfFileExists "$INSTDIR\language" language_done
@@ -113,7 +119,7 @@ Section
   CreateShortcut "$SMPROGRAMS\SolideoWorship.lnk" "$INSTDIR\{{main_binary_name}}.exe"
   Goto done
   probe_missing:
-  SetErrorLevel 2
+  SetErrorLevel 80
   Quit
   probe_launch_failed:
   System::Call 'kernel32::GetLastError() i .r0'
