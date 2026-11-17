@@ -50,6 +50,7 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      - uses: ./.github/actions/setup-windows-ffmpeg
       - run: cargo build --release --locked -p sdw-app
       - name: Check that the exe needs no MSVC runtime DLLs
         shell: pwsh
@@ -92,8 +93,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install libxcb
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev
+      - name: Install Linux system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev libasound2-dev pkg-config libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
       - run: rustup toolchain install
       - run: packaging/linux/package.sh "$VERSION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

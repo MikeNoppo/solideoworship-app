@@ -2,6 +2,14 @@
   #error Pass the version with /DAppVersion=x.y.z
 #endif
 
+#ifndef FFmpegBinDir
+  #define FFmpegBinDir GetEnv("FFMPEG_BIN_DIR")
+#endif
+
+#if FFmpegBinDir == ""
+  #error Set FFMPEG_BIN_DIR to the directory containing the packaged FFmpeg DLLs
+#endif
+
 #define AppName "SolideoWorship"
 #define AppExe "SolideoWorship.exe"
 #define AppUrl "https://github.com/MikeNoppo/solideoworship-app"
@@ -49,6 +57,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\..\target\release\sdw-app.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
+Source: "{#FFmpegBinDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#FFmpegBinDir}\..\LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE-FFmpeg.txt"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\vendor\ac-ffmpeg\LICENSE"; DestDir: "{app}"; DestName: "LICENSE-ac-ffmpeg.txt"; Flags: ignoreversion
 Source: "..\..\PRIVACY.md"; DestDir: "{app}"; DestName: "PRIVACY.txt"; Flags: ignoreversion
