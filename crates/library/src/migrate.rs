@@ -8,6 +8,7 @@ const MIGRATIONS: &[&str] = &[
     V3_BIBLES,
     V4_SONG_LAYOUT,
     V5_SONG_FORMAT,
+    V6_MEDIA,
 ];
 
 const V1_SONGS: &str = "
@@ -76,6 +77,23 @@ ALTER TABLE songs ADD COLUMN layout TEXT;
 
 const V5_SONG_FORMAT: &str = "
 ALTER TABLE songs ADD COLUMN format TEXT;
+";
+
+const V6_MEDIA: &str = "
+CREATE TABLE media (
+    id INTEGER PRIMARY KEY,
+    sha256 TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK (kind IN ('image', 'video', 'audio')),
+    title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+    ext TEXT NOT NULL CHECK (length(trim(ext)) > 0),
+    width INTEGER,
+    height INTEGER,
+    duration_ms INTEGER,
+    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE INDEX media_kind_title ON media (kind, title COLLATE NOCASE);
 ";
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<(), Error> {

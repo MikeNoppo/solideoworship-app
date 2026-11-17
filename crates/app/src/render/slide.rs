@@ -1,14 +1,17 @@
+use std::sync::Arc;
+
 use iced::advanced::graphics::text::Paragraph;
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::text::{self as typography, Paragraph as _, Renderer as _};
 use iced::advanced::widget::{Tree, Widget, tree};
 use iced::advanced::{Renderer as _, renderer};
 use iced::font::Style as FontStyle;
-use iced::widget::{Column, Space, center, container, responsive, stack, text};
+use iced::widget::{Column, Space, center, container, image, responsive, stack, text};
 use iced::{
-    Center, Color, Element, Fill, Font, Length, Padding, Point, Rectangle, Renderer, Size, Theme,
-    Vector, alignment, mouse,
+    Center, Color, ContentFit, Element, Fill, Font, Length, Padding, Point, Rectangle, Renderer,
+    Size, Theme, Vector, alignment, mouse,
 };
+use sdw_core::MediaFit;
 use sdw_core::format::{
     BoxFill, BoxFormat, BoxPadding, TextOutline, TextShadow, TextShadowOverride, TextSize,
     VerticalAlign,
@@ -16,8 +19,9 @@ use sdw_core::format::{
 use sdw_core::settings::{ContentArea, FontSpec};
 use sdw_core::slide::{Slide, SlideBox};
 use sdw_core::theme::{BODY_SIZE, CANVAS_WIDTH, FOOTER_SIZE, Rgb, SlideTheme, TextAlign};
+use sdw_media::VideoFrame;
 
-use super::fonts;
+use super::{fonts, video_shader};
 use crate::logo;
 
 pub fn color(rgb: Rgb) -> Color {
@@ -34,6 +38,26 @@ pub fn color_with_opacity(rgb: Rgb, opacity: f32) -> Color {
         a: opacity,
         ..color(rgb)
     }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct MediaBackdrop<'a> {
+    pub image: Option<ImageBackdrop<'a>>,
+    pub video: Option<VideoBackdrop<'a>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct ImageBackdrop<'a> {
+    pub handle: &'a image::Handle,
+    pub fit: MediaFit,
+}
+
+#[derive(Clone, Copy)]
+pub struct VideoBackdrop<'a> {
+    pub stream_id: u64,
+    pub instance_id: u64,
+    pub frame: &'a Arc<VideoFrame>,
+    pub fit: MediaFit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +84,19 @@ pub fn stage<'a, Message>(
 where
     Message: 'a,
 {
-    stage_content(slide, theme, visibility, false, None)
+    stage_with_media(slide, theme, visibility, MediaBackdrop::default())
+}
+
+pub fn stage_with_media<'a, Message>(
+    slide: Option<&'a Slide>,
+    theme: &'a SlideTheme,
+    visibility: Visibility,
+    backdrop: MediaBackdrop<'a>,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    stage_content(slide, theme, visibility, false, None, backdrop)
 }
 
 pub fn stage_with_guides<'a, Message>(
@@ -71,16 +107,31 @@ pub fn stage_with_guides<'a, Message>(
 where
     Message: 'a,
 {
-    stage_content(slide, theme, visibility, true, None)
+    stage_with_guides_and_media(slide, theme, visibility, MediaBackdrop::default())
 }
 
-pub fn stage_sampled<'a, Message: 'a>(
+pub fn stage_with_guides_and_media<'a, Message>(
+    slide: Option<&'a Slide>,
+    theme: &'a SlideTheme,
+    visibility: Visibility,
+    backdrop: MediaBackdrop<'a>,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    stage_content(slide, theme, visibility, true, None, backdrop)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn stage_sampled_with_media<'a, Message: 'a>(
     slide: Option<&'a Slide>,
     theme: &'a SlideTheme,
     body_opacity: f32,
     logo_opacity: f32,
     logo_foreground: Rgb,
     background: Rgb,
+    background_media_visible: bool,
+    backdrop: MediaBackdrop<'a>,
 ) -> Element<'a, Message> {
     stage_content(
         slide,
@@ -92,7 +143,9 @@ pub fn stage_sampled<'a, Message: 'a>(
             logo_opacity,
             logo_foreground,
             background,
+            background_media_visible,
         }),
+        backdrop,
     )
 }
 
@@ -117,7 +170,7 @@ pub fn editor_canvas<'a, Message: 'a>(
     let scale = width / CANVAS_WIDTH;
     let height = width / theme.layout.ratio();
     let content = custom_boxes_layer(slide, theme, width, height, scale, 1.0, overrides);
-    canvas_frame(content, width, height, color(theme.background), 0.0)
+    canvas_frame(content, width, height, color(theme.background), 0.0, None)
 }
 
 #[derive(Clone, Copy)]
@@ -126,6 +179,7 @@ struct SampledAppearance {
     logo_opacity: f32,
     logo_foreground: Rgb,
     background: Rgb,
+    background_media_visible: bool,
 }
 
 fn stage_content<'a, Message>(
@@ -134,6 +188,7 @@ fn stage_content<'a, Message>(
     visibility: Visibility,
     guides: bool,
     appearance: Option<SampledAppearance>,
+    backdrop: MediaBackdrop<'a>,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -141,8 +196,8 @@ where
     responsive(move |size| {
         let width = size.width.min(size.height * theme.layout.ratio());
         let canvas = match appearance {
-            Some(appearance) => canvas_sampled(slide, theme, width, 0.0, appearance),
-            None => canvas(slide, theme, visibility, width, 0.0),
+            Some(appearance) => canvas_sampled(slide, theme, width, 0.0, appearance, backdrop),
+            None => canvas(slide, theme, visibility, width, 0.0, backdrop),
         };
 
         let content =
@@ -165,16 +220,24 @@ where
     .into()
 }
 
-pub fn thumbnail<'a, Message>(
+pub fn thumbnail_with_media<'a, Message>(
     slide: &'a Slide,
     theme: &'a SlideTheme,
     width: f32,
     radius: f32,
+    backdrop: MediaBackdrop<'a>,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    canvas(Some(slide), theme, Visibility::FULL, width, radius)
+    canvas(
+        Some(slide),
+        theme,
+        Visibility::FULL,
+        width,
+        radius,
+        backdrop,
+    )
 }
 
 fn canvas<'a, Message>(
@@ -183,6 +246,7 @@ fn canvas<'a, Message>(
     visibility: Visibility,
     width: f32,
     radius: f32,
+    backdrop: MediaBackdrop<'a>,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -202,7 +266,9 @@ where
             logo_opacity: 0.0,
             logo_foreground: background.contrasting_foreground(),
             background,
+            background_media_visible: visibility.background,
         },
+        backdrop,
     )
 }
 
@@ -212,6 +278,7 @@ fn canvas_sampled<'a, Message: 'a>(
     width: f32,
     radius: f32,
     appearance: SampledAppearance,
+    backdrop: MediaBackdrop<'a>,
 ) -> Element<'a, Message> {
     // Every theme size is expressed on a 1920x1080 canvas and scaled once here.
     // That is why a 160 px thumbnail and a 1920 px projector share the same layout.
@@ -269,11 +336,22 @@ fn canvas_sampled<'a, Message: 'a>(
                 })
                 .unwrap_or_else(|| Space::new().into());
 
-            return canvas_frame(content, width, height, background, radius);
+            return canvas_frame(
+                content,
+                width,
+                height,
+                background,
+                radius,
+                backdrop_layer(appearance, backdrop),
+            );
         }
 
         let body = slide
-            .filter(|_| appearance.body_opacity > 0.0 && area.is_some())
+            .filter(|slide| {
+                appearance.body_opacity > 0.0
+                    && area.is_some()
+                    && (slide.media.is_none() || !slide.body.is_empty())
+            })
             .map(|slide| {
                 let column = runs(slide, theme).fold(
                     Column::new().spacing(theme.footer_size * scale).width(Fill),
@@ -307,7 +385,34 @@ fn canvas_sampled<'a, Message: 'a>(
         height,
         background,
         radius,
+        backdrop_layer(appearance, backdrop),
     )
+}
+
+fn backdrop_layer<'a, Message: 'a>(
+    appearance: SampledAppearance,
+    backdrop: MediaBackdrop<'a>,
+) -> Option<Element<'a, Message>> {
+    if appearance.logo_opacity != 0.0 || !appearance.background_media_visible {
+        return None;
+    }
+    if let Some(video) = backdrop.video {
+        Some(video_shader::view(
+            video.stream_id,
+            video.instance_id,
+            Arc::clone(video.frame),
+            video.fit,
+            1.0,
+        ))
+    } else {
+        backdrop.image.map(|img| {
+            image(img.handle.clone())
+                .width(Fill)
+                .height(Fill)
+                .content_fit(to_content_fit(img.fit))
+                .into()
+        })
+    }
 }
 
 fn canvas_frame<'a, Message: 'a>(
@@ -316,10 +421,17 @@ fn canvas_frame<'a, Message: 'a>(
     height: f32,
     background: Color,
     radius: f32,
+    media_layer: Option<Element<'a, Message>>,
 ) -> Element<'a, Message> {
-    container(content)
+    let layered: Element<'a, Message> = match media_layer {
+        Some(layer) => stack![layer, content].into(),
+        None => content,
+    };
+
+    container(layered)
         .width(width)
         .height(height)
+        .clip(radius > 0.0)
         .style(move |_theme| container::Style {
             background: Some(background.into()),
             border: iced::Border {
@@ -768,6 +880,14 @@ fn custom_boxes_layer<'a, Message: 'a>(
     }
 
     layers.width(Fill).height(Fill).into()
+}
+
+fn to_content_fit(fit: MediaFit) -> ContentFit {
+    match fit {
+        MediaFit::Cover => ContentFit::Cover,
+        MediaFit::Contain => ContentFit::Contain,
+        MediaFit::Fill => ContentFit::Fill,
+    }
 }
 
 fn guide<'a, Message: 'a>(

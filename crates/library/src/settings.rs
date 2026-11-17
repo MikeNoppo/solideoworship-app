@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::Arc;
 
 use rusqlite::OptionalExtension;
 use sdw_core::labels::{LabelRule, LabelSettings};
@@ -8,7 +9,9 @@ use sdw_core::settings::{
 };
 use sdw_core::theme::{Rgb, ScriptureStyle, SlideTheme, SongStyle, TextAlign};
 use sdw_core::transition::{TransitionMode, TransitionSettings, TransitionSpec};
-use sdw_core::{Settings, Styles};
+use sdw_core::{
+    BackgroundMedia, MediaExt, MediaFit, MediaHash, MediaKind, MediaRef, Settings, Styles,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -478,6 +481,7 @@ struct ScriptureStyleDto {
 #[serde(default)]
 struct ThemeDto {
     background: Option<String>,
+    background_media: Option<BackgroundMediaDto>,
     body: Option<String>,
     footer: Option<String>,
     body_size: Option<f32>,
@@ -490,6 +494,40 @@ struct ThemeDto {
     show_label: Option<bool>,
     text_shadow: Option<bool>,
     text_scrim: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum BackgroundMediaDto {
+    Image {
+        media: MediaRefDto,
+        #[serde(default)]
+        fit: Option<String>,
+    },
+    Video {
+        media: MediaRefDto,
+        #[serde(default)]
+        fit: Option<String>,
+        #[serde(default = "default_true")]
+        loop_playback: bool,
+        #[serde(default = "default_true")]
+        muted: bool,
+    },
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Serialize, Deserialize)]
+struct MediaRefDto {
+    sha256: String,
+    ext: String,
+    title: String,
+    kind: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    duration_ms: Option<u64>,
 }
 
 impl From<&Styles> for StylesDto {
@@ -577,6 +615,7 @@ impl StylesDto {
                     .one_verse_per_slide
                     .unwrap_or(defaults.scripture.one_verse_per_slide),
             },
+            media: defaults.media,
         }
     }
 }
@@ -585,6 +624,10 @@ impl From<&SlideTheme> for ThemeDto {
     fn from(theme: &SlideTheme) -> Self {
         Self {
             background: Some(theme.background.to_hex()),
+            background_media: theme
+                .background_media
+                .as_ref()
+                .map(BackgroundMediaDto::from),
             body: Some(theme.body.to_hex()),
             footer: Some(theme.footer.to_hex()),
             body_size: Some(theme.body_size),
@@ -609,6 +652,10 @@ impl ThemeDto {
 
         SlideTheme {
             background: color(self.background, defaults.background),
+            background_media: self
+                .background_media
+                .and_then(BackgroundMediaDto::into_media)
+                .or_else(|| defaults.background_media.clone()),
             body: color(self.body, defaults.body),
             footer: color(self.footer, defaults.footer),
             body_size: self.body_size.unwrap_or(defaults.body_size),
@@ -627,6 +674,99 @@ impl ThemeDto {
             text_scrim: self.text_scrim.unwrap_or(defaults.text_scrim),
             layout: defaults.layout,
         }
+    }
+}
+
+impl From<&MediaRef> for MediaRefDto {
+    fn from(media: &MediaRef) -> Self {
+        Self {
+            sha256: media.sha256.as_str().to_owned(),
+            ext: media.ext.as_str().to_owned(),
+            title: media.title.to_string(),
+            kind: media.kind.as_str().to_owned(),
+            width: media.width,
+            height: media.height,
+            duration_ms: media.duration_ms,
+        }
+    }
+}
+
+impl MediaRefDto {
+    fn into_media_ref(self) -> Option<MediaRef> {
+        let trimmed = self.title.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(MediaRef {
+            sha256: MediaHash::parse(&self.sha256)?,
+            ext: MediaExt::parse(&self.ext)?,
+            title: Arc::from(trimmed),
+            kind: MediaKind::parse(&self.kind)?,
+            width: self.width,
+            height: self.height,
+            duration_ms: self.duration_ms,
+        })
+    }
+}
+
+impl From<&BackgroundMedia> for BackgroundMediaDto {
+    fn from(media: &BackgroundMedia) -> Self {
+        match media {
+            BackgroundMedia::Image { media, fit } => Self::Image {
+                media: MediaRefDto::from(media),
+                fit: Some(fit_name(*fit).to_owned()),
+            },
+            BackgroundMedia::Video {
+                media,
+                fit,
+                loop_playback,
+                muted,
+            } => Self::Video {
+                media: MediaRefDto::from(media),
+                fit: Some(fit_name(*fit).to_owned()),
+                loop_playback: *loop_playback,
+                muted: *muted,
+            },
+        }
+    }
+}
+
+impl BackgroundMediaDto {
+    fn into_media(self) -> Option<BackgroundMedia> {
+        match self {
+            Self::Image { media, fit } => Some(BackgroundMedia::Image {
+                media: media.into_media_ref()?,
+                fit: fit.as_deref().and_then(fit_from_name).unwrap_or_default(),
+            }),
+            Self::Video {
+                media,
+                fit,
+                loop_playback,
+                muted,
+            } => Some(BackgroundMedia::Video {
+                media: media.into_media_ref()?,
+                fit: fit.as_deref().and_then(fit_from_name).unwrap_or_default(),
+                loop_playback,
+                muted,
+            }),
+        }
+    }
+}
+
+fn fit_name(fit: MediaFit) -> &'static str {
+    match fit {
+        MediaFit::Cover => "cover",
+        MediaFit::Contain => "contain",
+        MediaFit::Fill => "fill",
+    }
+}
+
+fn fit_from_name(name: &str) -> Option<MediaFit> {
+    match name {
+        "cover" => Some(MediaFit::Cover),
+        "contain" => Some(MediaFit::Contain),
+        "fill" => Some(MediaFit::Fill),
+        _ => None,
     }
 }
 

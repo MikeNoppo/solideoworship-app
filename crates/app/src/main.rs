@@ -12,6 +12,7 @@ mod focus;
 mod i18n;
 mod icon;
 mod logo;
+mod media_engine;
 mod message;
 mod panes;
 mod paths;
@@ -37,10 +38,14 @@ use iced::keyboard::{self, key::Named};
 use iced::widget::operation;
 use iced::{Element, Subscription, Task, Theme, event, window};
 use sdw_core::settings::{UI_SCALE_DEFAULT, step_ui_scale};
+use sdw_core::slide::{ContentKind, Slide};
 use sdw_core::theme::SlideTheme;
 use sdw_core::transition::TransitionSpec;
-use sdw_core::{OutputState, Presentation, ScheduleItem, Settings, Song};
-use sdw_library::{SongId, SongSummary, schedule_file};
+use sdw_core::{
+    BackgroundMedia, MediaFit, MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song,
+};
+use sdw_library::{MediaId, MediaSummary, SongId, SongSummary, schedule_file};
+use sdw_media::PlaybackState;
 
 use crate::bible_manager::BibleManager;
 use crate::bible_tab::BibleTab;
@@ -50,10 +55,12 @@ use crate::display::Display;
 use crate::editor::Editor;
 use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
+use crate::media_engine::{MediaEngine, MediaEvent, MediaSlot, ViewportSlot};
 use crate::message::{
     LibraryTab, Menu, Message, Notice, Pending, StartupLibrary, Step, UnsavedChoice, Zoom,
 };
 use crate::recovery::Recovery;
+use crate::render::slide::MediaBackdrop;
 use crate::render::transition::{Frame, Playback, Scene};
 use crate::report::CrashRecord;
 use crate::schedule::{Entry, Schedule};
@@ -249,6 +256,14 @@ struct App {
     library_tab: LibraryTab,
     search: String,
     captions: Captions,
+
+    media: MediaEngine,
+    media_results: Vec<MediaSummary>,
+    media_filter: Option<MediaKind>,
+    media_search: String,
+    media_click: Option<(MediaId, Instant)>,
+    preview_media_missing: bool,
+    live_media_missing: bool,
 }
 
 impl App {
@@ -325,12 +340,13 @@ impl App {
         }
 
         self.sync_recovery();
+        let media_task = self.sync_media();
 
         let mut captions = std::mem::take(&mut self.captions);
         captions.refresh(self);
         self.captions = captions;
 
-        task
+        Task::batch([task, media_task])
     }
 
     fn handle(&mut self, message: Message) -> Task<Message> {
@@ -377,6 +393,7 @@ impl App {
 
             Message::LibraryOpened(result) => {
                 self.library_ready = true;
+                let mut media_thumbs = Task::none();
 
                 match result {
                     Ok(startup) => {
@@ -386,6 +403,7 @@ impl App {
                             song_count,
                             bibles,
                             bible_index,
+                            media,
                         } = *startup;
                         self.settings = settings;
                         style::set_shadows(self.settings.general.shadows);
@@ -399,6 +417,8 @@ impl App {
                         self.song_results = songs;
                         self.song_results_query = Box::default();
                         self.song_count = Some(song_count);
+                        self.media_results = media;
+                        media_thumbs = self.request_media_thumbnails();
 
                         let _ = self.bible.set_bibles(bibles);
                         if let Some((bible, index)) = bible_index {
@@ -411,7 +431,7 @@ impl App {
                     }
                 }
 
-                Task::batch([self.leave_splash(), self.startup_output()])
+                Task::batch([self.leave_splash(), self.startup_output(), media_thumbs])
             }
 
             Message::RecoveryLoaded(result) => {
@@ -499,7 +519,14 @@ impl App {
             }
 
             Message::OutputRequested => self.open_output(),
-            Message::OutputOpened(id) => windows::go_fullscreen(id),
+            Message::OutputOpened(id) => {
+                if self.live.is_some()
+                    && matches!(self.output_state, OutputState::Show | OutputState::Clear)
+                {
+                    self.media.play(MediaSlot::Live);
+                }
+                windows::go_fullscreen(id)
+            }
             Message::OutputDismissed => {
                 if self.drag.take().is_some() {
                     return Task::none();
@@ -775,6 +802,18 @@ impl App {
                     self.live_generation = self.live_generation.wrapping_add(1);
                     self.live = live;
                     self.live_entry = self.schedule.preview_entry().map(Entry::key);
+                    if let Some(live_ref) = &self.live
+                        && live_ref.deck().kind == ContentKind::Media
+                        && let Some(media) = live_ref.current().media.as_ref()
+                        && self.media.slot_sha256(MediaSlot::Live) == Some(&media.sha256)
+                    {
+                        self.media.seek_immediate(MediaSlot::Live, 0);
+                        if self.output.is_some()
+                            && matches!(self.output_state, OutputState::Show | OutputState::Clear)
+                        {
+                            self.media.play(MediaSlot::Live);
+                        }
+                    }
                     if self.live.is_some()
                         && self.settings.general.advance_after_go_live
                         && let Some(index) = self.schedule.selected()
@@ -788,7 +827,11 @@ impl App {
 
             Message::LibraryTabSelected(tab) => {
                 self.library_tab = tab;
-                self.search_songs()
+                match tab {
+                    LibraryTab::Songs => self.search_songs(),
+                    LibraryTab::Media => self.request_media_thumbnails(),
+                    LibraryTab::Scripture => Task::none(),
+                }
             }
             Message::SearchChanged(query) => {
                 self.search = query;
@@ -1198,6 +1241,7 @@ impl App {
                             )],
                         );
                         self.schedule.load(path, items, &self.settings.styles);
+                        self.media.clear_all_failures();
                         self.saved_at = modified;
                         self.notices.retain(|notice| {
                             !matches!(notice, Notice::Recovered | Notice::Taken(_))
@@ -1427,12 +1471,217 @@ impl App {
                 }
                 Task::none()
             }
+
+            Message::MediaLoaded(result) => {
+                match result {
+                    Ok(items) => {
+                        self.media_results = items;
+                        return self.request_media_thumbnails();
+                    }
+                    Err(error) => self.library_error = Some(error),
+                }
+                Task::none()
+            }
+            Message::MediaFilterSelected(kind) => {
+                self.media_filter = kind;
+                self.load_media()
+            }
+            Message::MediaSearchChanged(query) => {
+                self.media_search = query;
+                self.load_media()
+            }
+            Message::MediaImportRequested => match self.control {
+                Some(control) => files::pick_media(control).map(Message::MediaImportPicked),
+                None => Task::none(),
+            },
+            Message::MediaImportPicked(path) => {
+                let Some(path) = path else {
+                    return Task::none();
+                };
+                let media_dir = paths::media_dir();
+                let thumb_dir = paths::thumb_cache_dir();
+                let store = self.store.clone();
+                let cas_locks = self.media.cas_locks();
+                let src_path = path.clone();
+                let commit_media_dir = media_dir.clone();
+                let commit_thumb_dir = thumb_dir.clone();
+                let commit_locks = cas_locks.clone();
+                work::background(move || {
+                    media_engine::prepare_media_import(&path, &media_dir, &thumb_dir, &cas_locks)
+                })
+                .then(move |prepared| match prepared {
+                    Ok(new_media) => {
+                        let src_path = src_path.clone();
+                        let media_dir = commit_media_dir.clone();
+                        let thumb_dir = commit_thumb_dir.clone();
+                        let cas_locks = commit_locks.clone();
+                        store.run(
+                            move |library| {
+                                media_engine::commit_media_import(
+                                    library, &src_path, &media_dir, &thumb_dir, &new_media,
+                                    &cas_locks,
+                                )
+                            },
+                            Message::MediaImported,
+                        )
+                    }
+                    Err(error) => Task::done(Message::MediaImported(Err(error))),
+                })
+            }
+            Message::MediaImported(result) => match result {
+                Ok(summary) => {
+                    self.media.clear_media_failures(&summary.sha256);
+                    let text = fill(t().library.media_imported, &[("title", &summary.title)]);
+                    self.show_toast(Toast::Done(text.into_boxed_str()));
+                    self.load_media()
+                }
+                Err(error) => {
+                    self.library_error = Some(error);
+                    Task::none()
+                }
+            },
+            Message::MediaPreviewed(id) => {
+                let is_double = self
+                    .media_click
+                    .is_some_and(|(last, when)| last == id && when.elapsed() <= DOUBLE_CLICK);
+                if is_double {
+                    self.media_click = None;
+                    return self.handle(Message::MediaPicked(id));
+                }
+                self.media_click = Some((id, Instant::now()));
+                self.preview_ticket += 1;
+                if let Some(summary) = self.media_results.iter().find(|item| item.id == id) {
+                    self.schedule.preview_item(
+                        ScheduleItem::Media(media_engine::media_ref(summary)),
+                        None,
+                        &self.settings.styles,
+                    );
+                }
+                Task::none()
+            }
+            Message::MediaPicked(id) => {
+                self.preview_ticket += 1;
+                if let Some(summary) = self.media_results.iter().find(|item| item.id == id) {
+                    self.schedule.push(
+                        ScheduleItem::Media(media_engine::media_ref(summary)),
+                        None,
+                        &self.settings.styles,
+                    );
+                }
+                Task::none()
+            }
+            Message::MediaDeleteRequested(id) => {
+                let media_dir = paths::media_dir();
+                let thumb_dir = paths::thumb_cache_dir();
+                let cas_locks = self.media.cas_locks();
+                self.store.run(
+                    move |library| {
+                        media_engine::delete_media_with_files(
+                            library, id, &media_dir, &thumb_dir, &cas_locks,
+                        )
+                    },
+                    Message::MediaDeleted,
+                )
+            }
+            Message::MediaDeleted(result) => match result {
+                Ok(Some(summary)) => {
+                    self.media.evict_media(&summary.sha256);
+                    let text = fill(t().library.media_deleted, &[("title", &summary.title)]);
+                    self.show_toast(Toast::Done(text.into_boxed_str()));
+                    let clear_bg_task = self.clear_deleted_backgrounds(&summary.sha256);
+                    Task::batch([clear_bg_task, self.load_media()])
+                }
+                Ok(None) => Task::none(),
+                Err(error) => {
+                    self.library_error = Some(error);
+                    Task::none()
+                }
+            },
+            Message::MediaSetBackground(kind, id) => {
+                let Some(summary) = self.media_results.iter().find(|item| item.id == id) else {
+                    return Task::none();
+                };
+                let bg = match summary.kind {
+                    MediaKind::Image => BackgroundMedia::Image {
+                        media: media_engine::media_ref(summary),
+                        fit: MediaFit::Cover,
+                    },
+                    MediaKind::Video => BackgroundMedia::Video {
+                        media: media_engine::media_ref(summary),
+                        fit: MediaFit::Cover,
+                        loop_playback: true,
+                        muted: true,
+                    },
+                    MediaKind::Audio => return Task::none(),
+                };
+                self.set_theme_background(kind, Some(bg))
+            }
+            Message::MediaClearBackground(kind) => self.set_theme_background(kind, None),
+            Message::MediaImageDecoded(key, result) => {
+                match result {
+                    Ok(decoded) => self.media.store_decoded_image(decoded),
+                    Err(_) => self.media.mark_image_failed(key),
+                }
+                Task::none()
+            }
+            Message::MediaPlayerOpened(slot, generation, result) => {
+                if let Some(error) = self.media.finish_open(slot, generation, result) {
+                    self.flash(error.to_string());
+                }
+                Task::none()
+            }
+            Message::MediaEngineEvent(event) => {
+                if let MediaEvent::Error { ref message, .. } = event {
+                    self.flash(message.to_string());
+                }
+                self.media.apply_event(event);
+                Task::none()
+            }
+            Message::MediaPlayToggle(slot) => {
+                if self
+                    .media
+                    .status(slot)
+                    .is_some_and(|status| status.state == PlaybackState::Playing)
+                {
+                    self.media.pause(slot);
+                } else {
+                    self.media.play(slot);
+                }
+                Task::none()
+            }
+            Message::MediaStop(slot) => {
+                self.media.stop(slot);
+                Task::none()
+            }
+            Message::MediaSeekChanged(slot, pos_ms) => {
+                self.media.seek(slot, pos_ms);
+                Task::none()
+            }
+            Message::MediaSeekCommitted(slot) => {
+                self.media.commit_seek(slot);
+                Task::none()
+            }
+            Message::MediaMuteToggle(slot) => {
+                if let Some(status) = self.media.status(slot) {
+                    self.media.set_muted(slot, !status.muted);
+                }
+                Task::none()
+            }
+            Message::MediaLoopToggle(slot) => {
+                if let Some(status) = self.media.status(slot) {
+                    self.media.set_looping(slot, !status.looping);
+                }
+                Task::none()
+            }
         }
     }
 
     fn view(&self, window: window::Id) -> Element<'_, Message> {
         if self.output == Some(window) {
-            return render::output::view(self.live_frame());
+            return render::output::view(
+                self.live_frame(),
+                self.live_backdrop(ViewportSlot::OutputWindow),
+            );
         }
 
         if self.splash == Some(window) {
@@ -1527,6 +1776,8 @@ impl App {
                     .map(|(serial, _)| Message::ZoomSaveDue(serial)),
             );
         }
+
+        subscriptions.push(self.media.subscription().map(Message::MediaEngineEvent));
 
         Subscription::batch(subscriptions)
     }
@@ -1785,7 +2036,14 @@ impl App {
             OutputState::Clear => self.settings.transitions.clear,
             OutputState::Logo => self.settings.transitions.logo,
         };
+        let was_visible = matches!(self.output_state, OutputState::Show | OutputState::Clear);
+        let will_be_visible = matches!(state, OutputState::Show | OutputState::Clear);
         self.output_state = state;
+        if was_visible && !will_be_visible {
+            self.media.pause(MediaSlot::Live);
+        } else if !was_visible && will_be_visible {
+            self.media.play(MediaSlot::Live);
+        }
         self.transition_live(spec);
     }
 
@@ -2158,6 +2416,7 @@ impl App {
             self.playback = None;
             self.output = None;
             self.output_display = None;
+            self.media.stop(MediaSlot::Live);
 
             if std::mem::take(&mut self.reopen_output) && self.selected_display().is_some() {
                 return self.open_output();
@@ -2166,6 +2425,145 @@ impl App {
         }
 
         Task::none()
+    }
+
+    pub(crate) fn live_backdrop(&self, viewport: ViewportSlot) -> MediaBackdrop<'_> {
+        let frame = self.live_frame();
+        if !frame.background_media_visible {
+            return MediaBackdrop::default();
+        }
+        self.media
+            .stage_backdrop(frame.slide, frame.theme, MediaSlot::Live, viewport)
+    }
+
+    pub(crate) fn preview_stage_backdrop<'a>(
+        &'a self,
+        slide: &'a Slide,
+        theme: &'a SlideTheme,
+    ) -> MediaBackdrop<'a> {
+        self.media.stage_backdrop(
+            Some(slide),
+            theme,
+            MediaSlot::Preview,
+            ViewportSlot::Preview,
+        )
+    }
+
+    pub(crate) fn thumbnail_backdrop<'a>(
+        &'a self,
+        slide: &'a Slide,
+        theme: &'a SlideTheme,
+    ) -> MediaBackdrop<'a> {
+        self.media.thumbnail_backdrop(slide, theme)
+    }
+
+    fn load_media(&self) -> Task<Message> {
+        if !self.library_ready || self.library_unavailable.is_some() {
+            return Task::none();
+        }
+        let filter = self.media_filter;
+        let query = self.media_search.clone();
+        self.store.run(
+            move |library| library.list_media(filter, &query, SONG_LIMIT),
+            Message::MediaLoaded,
+        )
+    }
+
+    fn request_media_thumbnails(&mut self) -> Task<Message> {
+        let media_dir = paths::media_dir();
+        let thumb_dir = paths::thumb_cache_dir();
+        self.media
+            .request_thumbnails(&self.media_results, &media_dir, &thumb_dir)
+    }
+
+    fn sync_media(&mut self) -> Task<Message> {
+        let media_dir = paths::media_dir();
+        let thumb_dir = paths::thumb_cache_dir();
+        let mut tasks = Vec::new();
+
+        let preview_plan = self.schedule.preview().and_then(|preview| {
+            let slide = Some(preview.current());
+            let theme = self.settings.styles.theme(preview.deck().kind);
+            media_engine::plan_slot_media(slide, theme)
+        });
+        let preview_missing = media_engine::prepare_slot_sync(
+            &mut self.media,
+            MediaSlot::Preview,
+            preview_plan,
+            &media_dir,
+            &thumb_dir,
+            true,
+            true,
+            true,
+            &mut tasks,
+        );
+        self.preview_media_missing = preview_missing;
+
+        let live_visible = self.output.is_some()
+            && matches!(self.output_state, OutputState::Show | OutputState::Clear);
+        let live_plan = if self.live.is_none() && self.output.is_none() {
+            None
+        } else {
+            let slide = self.live.as_ref().map(Presentation::current);
+            let theme = self.scene_theme();
+            media_engine::plan_slot_media(slide, theme)
+        };
+        let live_missing = media_engine::prepare_slot_sync(
+            &mut self.media,
+            MediaSlot::Live,
+            live_plan,
+            &media_dir,
+            &thumb_dir,
+            live_visible,
+            false,
+            false,
+            &mut tasks,
+        );
+        let was_live_missing = self.live_media_missing;
+        self.live_media_missing = live_missing;
+        if live_missing && !was_live_missing {
+            self.flash(t().slides.media_missing.to_owned());
+        }
+
+        Task::batch(tasks)
+    }
+
+    fn set_theme_background(
+        &self,
+        kind: ContentKind,
+        background: Option<BackgroundMedia>,
+    ) -> Task<Message> {
+        let mut settings = self.settings.clone();
+        match kind {
+            ContentKind::Song => settings.styles.song.theme.background_media = background,
+            ContentKind::Scripture => settings.styles.scripture.theme.background_media = background,
+            ContentKind::Media => return Task::none(),
+        }
+        self.save_settings(self.modal_ticket, Box::new(settings), false)
+    }
+
+    fn clear_deleted_backgrounds(&self, sha256: &sdw_core::MediaHash) -> Task<Message> {
+        let mut settings = self.settings.clone();
+        let mut changed = false;
+        for bg in [
+            &mut settings.styles.song.theme.background_media,
+            &mut settings.styles.scripture.theme.background_media,
+        ] {
+            let matches_sha = bg.as_ref().is_some_and(|item| match item {
+                BackgroundMedia::Image { media, .. } | BackgroundMedia::Video { media, .. } => {
+                    &media.sha256 == sha256
+                }
+            });
+            if matches_sha {
+                *bg = None;
+                changed = true;
+            }
+        }
+        if changed {
+            self.save_settings(self.modal_ticket, Box::new(settings), false)
+        } else {
+            Task::none()
+        }
     }
 }
 
@@ -2187,6 +2585,7 @@ fn startup_library(
         Some(bible) => Some((bible.id, library.bible_index(bible.id)?)),
         None => None,
     };
+    let media = library.list_media(None, "", SONG_LIMIT)?;
 
     Ok(Box::new(StartupLibrary {
         settings,
@@ -2194,6 +2593,7 @@ fn startup_library(
         song_count,
         bibles,
         bible_index,
+        media,
     }))
 }
 
@@ -4589,6 +4989,76 @@ mod tests {
         assert!(app.pending_crash.is_none());
         assert!(!app.notices.contains(&Notice::Crash));
         assert!(app.toast.is_some());
+    }
+
+    #[test]
+    fn media_preview_and_double_click_pick_update_preview_and_schedule() {
+        let mut app = App::default();
+        let sha = sdw_core::MediaHash::parse(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        )
+        .unwrap();
+        let ext = sdw_core::MediaExt::parse("mp4").unwrap();
+        let summary = sdw_library::MediaSummary {
+            id: sdw_library::MediaId(7),
+            sha256: sha.clone(),
+            kind: sdw_core::MediaKind::Video,
+            title: std::sync::Arc::from("Motion Wave"),
+            ext,
+            width: Some(1920),
+            height: Some(1080),
+            duration_ms: Some(15_000),
+            byte_size: 4096,
+        };
+        app.media_results.push(summary);
+
+        let _ = app.update(Message::MediaPreviewed(sdw_library::MediaId(7)));
+        assert_eq!(
+            app.schedule.preview().map(|preview| preview.deck().kind),
+            Some(sdw_core::slide::ContentKind::Media)
+        );
+        assert!(app.schedule.entries().is_empty());
+        assert!(app.preview_media_missing);
+
+        let _ = app.update(Message::MediaPreviewed(sdw_library::MediaId(7)));
+        assert_eq!(app.schedule.entries().len(), 1);
+        assert_eq!(
+            app.schedule.entries()[0].deck().title.as_ref(),
+            "Motion Wave"
+        );
+    }
+
+    #[test]
+    fn prepare_media_import_hashes_stores_cas_and_writes_webp_thumbnail() {
+        let dir = std::env::temp_dir().join(format!("sdw-app-media-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = dir.join("AppIcon.png");
+        let media_dir = dir.join("cas");
+        let thumb_dir = dir.join("thumbs");
+        std::fs::write(
+            &src,
+            include_bytes!("../../../assets/logo/png/app-icon-32.png"),
+        )
+        .unwrap();
+
+        let prepared = crate::media_engine::prepare_media_import(
+            &src,
+            &media_dir,
+            &thumb_dir,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(prepared.kind, sdw_core::MediaKind::Image);
+        assert_eq!(prepared.title.as_ref(), "AppIcon");
+        assert_eq!(prepared.ext.as_str(), "png");
+        assert_eq!((prepared.width, prepared.height), (Some(32), Some(32)));
+        assert!(prepared.byte_size > 0);
+        assert!(sdw_library::cas_file_path(&media_dir, &prepared.sha256, &prepared.ext).is_file());
+        assert!(sdw_library::thumb_file_path(&thumb_dir, &prepared.sha256).is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

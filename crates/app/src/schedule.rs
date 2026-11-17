@@ -85,6 +85,14 @@ fn compile(item: &ScheduleItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>) {
                 passage.translation()
             )
         }
+        ScheduleItem::Media(media) => {
+            if let Some(duration_ms) = media.duration_ms {
+                let secs = duration_ms / 1000;
+                format!("{} · {}:{:02}", deck.kind.label(), secs / 60, secs % 60)
+            } else {
+                deck.kind.label().to_owned()
+            }
+        }
     };
 
     (Arc::new(deck), meta.into_boxed_str())

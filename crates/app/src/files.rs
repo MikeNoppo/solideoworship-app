@@ -6,30 +6,48 @@ use rfd::AsyncFileDialog;
 use crate::i18n::t;
 
 const EXTENSION: &str = "sdw";
+const MEDIA_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "webp", "mp4", "mov", "mkv", "webm", "m4v", "avi", "mp3", "wav", "ogg",
+    "flac", "aac", "m4a",
+];
 
 pub fn pick_schedule(parent: window::Id) -> Task<Option<PathBuf>> {
     pick(
         parent,
         t().files.open_schedule,
         t().files.schedule_filter,
-        EXTENSION,
+        &[EXTENSION],
     )
 }
 
 pub fn pick_bible(parent: window::Id) -> Task<Option<PathBuf>> {
-    pick(parent, t().files.pick_bible, t().files.bible_filter, "xml")
+    pick(
+        parent,
+        t().files.pick_bible,
+        t().files.bible_filter,
+        &["xml"],
+    )
+}
+
+pub fn pick_media(parent: window::Id) -> Task<Option<PathBuf>> {
+    pick(
+        parent,
+        t().files.pick_media,
+        t().files.media_filter,
+        MEDIA_EXTENSIONS,
+    )
 }
 
 fn pick(
     parent: window::Id,
     title: &'static str,
     filter: &'static str,
-    extension: &'static str,
+    extensions: &'static [&'static str],
 ) -> Task<Option<PathBuf>> {
     window::run(parent, move |window| {
         AsyncFileDialog::new()
             .set_title(title)
-            .add_filter(filter, &[extension])
+            .add_filter(filter, extensions)
             .set_parent(window)
             .pick_file()
     })

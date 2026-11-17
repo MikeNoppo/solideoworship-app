@@ -10,6 +10,9 @@ targets = [
 [advisories]
 unmaintained = "workspace"
 yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0253", reason = "Transitive via cryoglyph 0.1.0 (iced 0.14.0); keys do not panic on Drop" },
+]
 
 [licenses]
 allow = [

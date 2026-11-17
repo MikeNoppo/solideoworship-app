@@ -110,7 +110,7 @@ impl Category {
 
     fn for_kind(kind: ContentKind) -> Self {
         match kind {
-            ContentKind::Song => Self::Song,
+            ContentKind::Song | ContentKind::Media => Self::Song,
             ContentKind::Scripture => Self::Scripture,
         }
     }
@@ -298,12 +298,15 @@ impl ThemeDialog {
         let (song, scripture) = match current {
             Some(item @ ScheduleItem::Song(_)) => (item.clone(), sample_passage()),
             Some(item @ ScheduleItem::Passage(_)) => (sample_song(), item.clone()),
-            None => (sample_song(), sample_passage()),
+            Some(ScheduleItem::Media(_)) | None => (sample_song(), sample_passage()),
         };
-        let kind = current.map_or(ContentKind::Song, ScheduleItem::kind);
+        let kind = match current.map(ScheduleItem::kind) {
+            Some(ContentKind::Scripture) => ContentKind::Scripture,
+            Some(ContentKind::Song | ContentKind::Media) | None => ContentKind::Song,
+        };
         let deck = match kind {
-            ContentKind::Song => &song,
             ContentKind::Scripture => &scripture,
+            ContentKind::Song | ContentKind::Media => &song,
         }
         .compile(&settings.styles);
 
@@ -695,6 +698,7 @@ impl ThemeDialog {
         match self.kind {
             ContentKind::Song => &mut self.draft.styles.song.theme,
             ContentKind::Scripture => &mut self.draft.styles.scripture.theme,
+            ContentKind::Media => &mut self.draft.styles.media,
         }
     }
 
@@ -716,8 +720,8 @@ impl ThemeDialog {
     fn recompile(&mut self) {
         self.preview_settings = self.draft.clone().clamped();
         let sample = match self.kind {
-            ContentKind::Song => &self.song,
             ContentKind::Scripture => &self.scripture,
+            ContentKind::Song | ContentKind::Media => &self.song,
         };
 
         self.deck = sample.compile(&self.preview_settings.styles);
@@ -746,7 +750,7 @@ impl ThemeDialog {
             line_height: format!("{:.2}", theme.line_height).into_boxed_str(),
             margin: pixels(theme.margin),
             limit: match self.kind {
-                ContentKind::Song => self
+                ContentKind::Song | ContentKind::Media => self
                     .draft
                     .styles
                     .song
@@ -763,7 +767,7 @@ impl ThemeDialog {
 
 fn kind_index(kind: ContentKind) -> usize {
     match kind {
-        ContentKind::Song => 0,
+        ContentKind::Song | ContentKind::Media => 0,
         ContentKind::Scripture => 1,
     }
 }

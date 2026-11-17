@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::format::SlideFormat;
+use crate::media::MediaRef;
 use crate::theme::{CANVAS_WIDTH, SlideTheme};
 
 pub const MIN_BOX_SIZE: f32 = 0.08;
@@ -77,12 +78,14 @@ pub struct Slide {
     pub format: Option<Arc<SlideFormat>>,
     pub formatted_body: Option<Box<str>>,
     pub formatted_footer: Option<Box<str>>,
+    pub media: Option<MediaRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentKind {
     Song,
     Scripture,
+    Media,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

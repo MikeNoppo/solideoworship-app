@@ -1,6 +1,7 @@
 pub mod control;
 pub mod library;
 pub mod live;
+pub mod media;
 pub mod preview;
 pub mod schedule;
 pub mod splash;
@@ -99,6 +100,14 @@ pub struct Card<'a> {
 }
 
 pub fn slide_card<'a, M: Clone + 'a>(card: Card<'a>, on_press: M) -> Element<'a, M> {
+    slide_card_with_media(card, slide::MediaBackdrop::default(), on_press)
+}
+
+pub fn slide_card_with_media<'a, M: Clone + 'a>(
+    card: Card<'a>,
+    backdrop: slide::MediaBackdrop<'a>,
+    on_press: M,
+) -> Element<'a, M> {
     let (border, border_width) = if card.is_selected {
         (style::INVERSE, FRAME)
     } else {
@@ -110,11 +119,12 @@ pub fn slide_card<'a, M: Clone + 'a>(card: Card<'a>, on_press: M) -> Element<'a,
         (11.0, 12.0, 8.0)
     };
 
-    let frame = container(slide::thumbnail(
+    let frame = container(slide::thumbnail_with_media(
         card.slide,
         card.theme,
         card.width - FRAME * 2.0,
         4.0,
+        backdrop,
     ))
     .padding(FRAME)
     .style(move |_theme| container::Style {

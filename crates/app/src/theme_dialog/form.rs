@@ -463,7 +463,7 @@ impl ThemeDialog {
 
     fn content_form(&self) -> Element<'_, Message> {
         match self.kind {
-            ContentKind::Song => column![
+            ContentKind::Song | ContentKind::Media => column![
                 ui::eyebrow(t().settings.content),
                 self.toggle(
                     t().settings.show_heading,
@@ -645,7 +645,7 @@ impl ThemeDialog {
         ));
 
         let (limit_title, less, more, range) = match self.kind {
-            ContentKind::Song => {
+            ContentKind::Song | ContentKind::Media => {
                 let lines = self.draft.styles.song.max_lines;
 
                 (

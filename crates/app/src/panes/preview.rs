@@ -1,12 +1,14 @@
-use iced::widget::{Column, Row, column, container, row};
+use iced::widget::{Column, Row, column, container, row, stack};
 use iced::{Bottom, Center, Element, Fill};
-use sdw_core::Presentation;
+use sdw_core::slide::ContentKind;
+use sdw_core::{MediaKind, Presentation};
 
 use crate::App;
 use crate::i18n::t;
 use crate::icon;
 use crate::message::Message;
-use crate::panes::{Card, columns, slide_card};
+use crate::panes::{Card, columns, slide_card_with_media};
+use crate::render::slide::{self, Visibility};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
 
@@ -72,17 +74,59 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
         .floor()
         .max(MIN_WIDTH);
 
-    let rows = preview.slides().chunks(COLUMNS).enumerate().fold(
-        Column::new().spacing(ROW_GAP),
-        |rows, (chunk, slides)| {
-            let cells =
-                slides
-                    .iter()
-                    .enumerate()
-                    .fold(Row::new().spacing(GAP), |cells, (offset, item)| {
+    let content_view: Element<'_, Message> = if preview.deck().kind == ContentKind::Media
+        && let Some(item) = preview.slides().first()
+    {
+        let backdrop = app.preview_stage_backdrop(item, theme);
+        let stage = slide::stage_with_media(Some(item), theme, Visibility::FULL, backdrop);
+        let overlay: Option<Element<'_, Message>> = if app.preview_media_missing {
+            Some(
+                container(ui::empty(
+                    icon::MONITOR_X,
+                    false,
+                    t().slides.media_missing,
+                    None::<&str>,
+                ))
+                .center(Fill)
+                .into(),
+            )
+        } else if let Some(media) = item.media.as_ref()
+            && media.kind == MediaKind::Audio
+        {
+            Some(
+                container(ui::empty(
+                    icon::MUSIC,
+                    false,
+                    &media.title,
+                    Some(t().slides.audio_track),
+                ))
+                .center(Fill)
+                .into(),
+            )
+        } else {
+            None
+        };
+        let framed: Element<'_, Message> = if let Some(overlay) = overlay {
+            stack![stage, overlay].into()
+        } else {
+            stage
+        };
+        container(framed)
+            .padding(12)
+            .center(Fill)
+            .style(style::boxed(Some(style::SLIDE_BG), style::BORDER, 8.0))
+            .into()
+    } else {
+        let rows = preview.slides().chunks(COLUMNS).enumerate().fold(
+            Column::new().spacing(ROW_GAP),
+            |rows, (chunk, slides)| {
+                let cells = slides.iter().enumerate().fold(
+                    Row::new().spacing(GAP),
+                    |cells, (offset, item)| {
                         let index = chunk * COLUMNS + offset;
+                        let backdrop = app.thumbnail_backdrop(item, theme);
 
-                        cells.push(slide_card(
+                        cells.push(slide_card_with_media(
                             Card {
                                 slide: item,
                                 label_rule: crate::panes::label_rule(
@@ -97,17 +141,27 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
                                 is_live: live_index == Some(index),
                                 compact: false,
                             },
+                            backdrop,
                             Message::PreviewSlideSelected(index),
                         ))
-                    });
+                    },
+                );
 
-            rows.push(cells)
-        },
-    );
+                rows.push(cells)
+            },
+        );
 
-    let grid = ui::scroll(rows);
+        ui::scroll(rows).into()
+    };
 
-    column![header, grid].spacing(16).height(Fill).into()
+    let mut content = column![header, content_view].spacing(16).height(Fill);
+    if let Some(transport) =
+        crate::panes::media::transport_bar(app, crate::media_engine::MediaSlot::Preview)
+    {
+        content = content.push(transport);
+    }
+
+    content.into()
 }
 
 pub fn empty<'a>() -> Element<'a, Message> {
