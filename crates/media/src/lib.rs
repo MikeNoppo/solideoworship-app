@@ -6,7 +6,7 @@ pub mod hash;
 pub mod image;
 pub mod video;
 
-pub use audio::AudioRingBuffer;
+pub use audio::{AudioConsumer, AudioProducer, AudioRingBuffer};
 pub use error::MediaError;
 #[cfg(feature = "ffmpeg")]
 pub use ffmpeg::{MediaPlayer, MediaProbe, MediaSink, generate_video_thumbnail, probe_media};

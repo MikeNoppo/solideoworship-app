@@ -22,7 +22,7 @@ use image::codecs::webp::WebPEncoder;
 use sdw_core::MediaKind;
 
 use crate::MediaError;
-use crate::audio::{AudioOutput, AudioRingBuffer};
+use crate::audio::{AudioOutput, AudioProducer, AudioRingBuffer};
 use crate::image::{fit_within, temp_thumb_path};
 use crate::video::{FramePool, PixelFormat, PlaybackState, PlaybackStatus, VideoFrame};
 
@@ -416,7 +416,7 @@ struct PlayerContext<S: MediaSink> {
     demuxer: DemuxerWithStreamInfo<File>,
     info: StreamInfo,
     decoders: PlayerDecoders,
-    audio_ring: Arc<AudioRingBuffer>,
+    audio_ring: AudioProducer,
     _audio_output: Option<AudioOutput>,
     use_audio_clock: bool,
     paused_seeked: bool,
@@ -678,7 +678,7 @@ impl<S: MediaSink> PlayerContext<S> {
                             drain_resampled_audio(
                                 resampler,
                                 channels,
-                                &self.audio_ring,
+                                &mut self.audio_ring,
                                 &mut self.audio_backlog,
                                 &mut self.audio_backlog_offset,
                             )?;
@@ -714,7 +714,7 @@ impl<S: MediaSink> PlayerContext<S> {
                         drain_resampled_audio(
                             resampler,
                             channels,
-                            &self.audio_ring,
+                            &mut self.audio_ring,
                             &mut self.audio_backlog,
                             &mut self.audio_backlog_offset,
                         )?;
@@ -736,11 +736,11 @@ fn run_player(
     rx: Receiver<PlayerCommand>,
     sink: impl MediaSink,
 ) {
-    let audio_ring = AudioRingBuffer::new(AUDIO_RING_SAMPLES);
+    let (audio_ring, audio_consumer) = AudioRingBuffer::channel(AUDIO_RING_SAMPLES);
     audio_ring.set_muted(muted);
     let audio_output = info
         .audio_index
-        .and_then(|_| AudioOutput::open(Arc::clone(&audio_ring)));
+        .and_then(|_| AudioOutput::open(audio_consumer));
     let output_rate = audio_output
         .as_ref()
         .map_or(FALLBACK_AUDIO_RATE, |out| out.sample_rate);
@@ -917,7 +917,7 @@ fn run_player(
 fn drain_resampled_audio(
     resampler: &mut AudioResampler,
     channels: usize,
-    audio_ring: &AudioRingBuffer,
+    audio_ring: &mut AudioProducer,
     audio_backlog: &mut Vec<f32>,
     audio_backlog_offset: &mut usize,
 ) -> Result<(), MediaError> {
@@ -939,7 +939,7 @@ fn drain_resampled_audio(
 
 fn push_f32_samples(
     bytes: &[u8],
-    audio_ring: &AudioRingBuffer,
+    audio_ring: &mut AudioProducer,
     audio_backlog: &mut Vec<f32>,
     audio_backlog_offset: &mut usize,
 ) {
