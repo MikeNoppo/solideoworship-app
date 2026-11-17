@@ -155,7 +155,7 @@ def test_upgrades(directory):
             env.update(SDW_UPDATE_PUBLIC_KEY=public, SDW_TEST_EXECUTABLE=str(executable), SDW_TEST_PACKAGE=str(package), SDW_TEST_VERSION=f"0.1.0-beta.{100 + index}")
             if index == 2:
                 env["SDW_TEST_REJECT"] = "1"
-            run("cargo", "test", "-p", "sdw-app", "--lib", "--locked", "--profile", "ci", "native_package_update", "--", "--ignored", env=env, cwd=ROOT)
+            run("cargo", "test", "-p", "sdw-app", "--lib", "--locked", "--release", "native_package_update", "--", "--ignored", env=env, cwd=ROOT)
             probe(executable, "0.1.0-beta.101")
         if system == "windows":
             windows_remove(installed, packages[1], fmt)
