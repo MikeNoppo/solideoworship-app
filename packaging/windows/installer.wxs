@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<?define Win64 = "yes"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="SolideoWorship" Language="1033" Version="{{version}}" Manufacturer="MikeNoppo" UpgradeCode="{{upgrade_code}}">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"/>

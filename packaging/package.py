@@ -171,7 +171,8 @@ def invoke(config, path):
     env = os.environ.copy()
     if "appimage" in config["formats"]:
         env.setdefault("NO_STRIP", "1")
-    run("cargo", "packager", "--config", path, cwd=ROOT, env=env)
+    verbosity = ["--verbose"] if "wix" in config["formats"] else []
+    run("cargo", "packager", *verbosity, "--config", path, cwd=ROOT, env=env)
 
 
 def export_one(directory, pattern, destination):
