@@ -110,7 +110,7 @@ Artifacts are written under `target/dist/<platform>-<arch>/` (respecting `CARGO_
 
 MSI versions use `major.minor.(patch * 1000 + rank)`, where beta ranks are 1–499, release candidate ranks are 501–998, and stable is 999. This preserves upgrade ordering in Windows Installer's first three fields. Unsupported version shapes or overflows fail packaging instead of reusing an upgrade version.
 
-The release workflow tests clean installs, signed upgrades between two fixture versions, and rejection of a package whose executable fails preflight. Native installation tests run only on disposable Actions runners; run `python3 -m unittest discover -s packaging -p 'test_*.py'` for the portable packaging tests.
+The release workflow tests clean installs, signed upgrades between two fixture versions, and rejection of a package whose executable fails preflight. Windows system installation tests run only on disposable Actions runners; Unix smoke tests use temporary installation directories. Run `python3 -m unittest discover -s packaging -p 'test_*.py'` for the portable packaging tests.
 
 ## License
 

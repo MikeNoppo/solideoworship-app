@@ -24,7 +24,8 @@ def windows_install(package, directory, fmt, scope):
 
 def windows_remove(directory, package, fmt, scope="AllUsers"):
     if fmt == "nsis":
-        run(directory / "uninstall.exe", "/S", f"/{scope}", f"_?={directory}")
+        command = f'"{directory / "uninstall.exe"}" /S /{scope} _?={directory}'
+        subprocess.run(command, check=True)
     else:
         run("msiexec.exe", "/x", package, "/qn", "/norestart")
 
@@ -128,15 +129,15 @@ def test_upgrades(directory):
             env.update(SDW_UPDATE_PUBLIC_KEY=public, SDW_TEST_EXECUTABLE=str(executable), SDW_TEST_PACKAGE=str(package), SDW_TEST_VERSION=f"0.1.0-beta.{100 + index}")
             if index == 2:
                 env["SDW_TEST_REJECT"] = "1"
-            run("cargo", "test", "-p", "sdw-app", "--lib", "--profile", "ci", "native_package_update", "--", "--ignored", env=env, cwd=ROOT)
+            run("cargo", "test", "-p", "sdw-app", "--lib", "--locked", "--profile", "ci", "native_package_update", "--", "--ignored", env=env, cwd=ROOT)
             probe(executable, "0.1.0-beta.101")
         if system == "windows":
             windows_remove(installed, packages[1], fmt)
 
 
 if __name__ == "__main__":
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        raise SystemExit("Run native installation smoke tests only on disposable GitHub Actions runners")
+    if native_platform() == "windows" and os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Run Windows system installation tests only on disposable GitHub Actions runners")
     parser = argparse.ArgumentParser()
     parser.add_argument("dist", type=Path)
     parser.add_argument("version")
