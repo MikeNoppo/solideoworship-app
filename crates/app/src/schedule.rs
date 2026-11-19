@@ -37,7 +37,7 @@ impl Entry {
     }
 
     fn replace(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
-        let background = self.source.background.take();
+        let background = self.source.background().cloned();
         *self = Self {
             key: self.key,
             ..Self::new(
@@ -71,11 +71,11 @@ impl Entry {
     }
 
     pub fn item(&self) -> &ScheduleItem {
-        &self.source.item
+        self.source.item()
     }
 
     pub fn background(&self) -> Option<&BackgroundMedia> {
-        self.source.background.as_ref()
+        self.source.background()
     }
 
     pub fn deck(&self) -> &SlideDeck {
@@ -87,7 +87,7 @@ fn compile(source: &ScheduledItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>
     let deck = source.compile(styles);
     let slides = count(deck.len(), t().slides.count_one, t().slides.count_other);
 
-    let meta = match &source.item {
+    let meta = match source.item() {
         ScheduleItem::Song(_) => format!("{} · {slides}", deck.kind.label()),
         ScheduleItem::Passage(passage) => {
             format!(
@@ -306,11 +306,10 @@ impl Schedule {
         let Some(entry) = self.entries.get_mut(index) else {
             return false;
         };
-        if !entry.source.item.accepts_background() || entry.source.background == background {
+        if !entry.source.set_background(background) {
             return false;
         }
 
-        entry.source.background = background;
         entry.compile(styles);
         self.revision += 1;
         if self.selected == Some(index) {
@@ -327,7 +326,7 @@ impl Schedule {
                 .background()
                 .is_some_and(|background| &background.media().sha256 == sha256)
             {
-                entry.source.background = None;
+                entry.source.set_background(None);
                 entry.compile(styles);
                 selected_changed |= self.selected == Some(index);
                 self.revision += 1;
@@ -514,7 +513,7 @@ mod tests {
             schedule.entries()[copy].deck().background,
             Some(background('a'))
         );
-        assert_eq!(schedule.items()[copy].background, Some(background('a')));
+        assert_eq!(schedule.items()[copy].background(), Some(&background('a')));
     }
 
     fn schedule(titles: &[&str]) -> Schedule {

@@ -47,8 +47,8 @@ impl ScheduleItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScheduledItem {
-    pub item: ScheduleItem,
-    pub background: Option<BackgroundMedia>,
+    item: ScheduleItem,
+    background: Option<BackgroundMedia>,
 }
 
 impl ScheduledItem {
@@ -60,8 +60,25 @@ impl ScheduledItem {
     }
 
     pub fn with_background(item: ScheduleItem, background: Option<BackgroundMedia>) -> Self {
-        let background = background.filter(|_| item.accepts_background());
-        Self { item, background }
+        let mut scheduled = Self::new(item);
+        scheduled.set_background(background);
+        scheduled
+    }
+
+    pub fn item(&self) -> &ScheduleItem {
+        &self.item
+    }
+
+    pub fn background(&self) -> Option<&BackgroundMedia> {
+        self.background.as_ref()
+    }
+
+    pub fn set_background(&mut self, background: Option<BackgroundMedia>) -> bool {
+        if !self.item.accepts_background() || self.background == background {
+            return false;
+        }
+        self.background = background;
+        true
     }
 
     pub fn compile(&self, styles: &Styles) -> SlideDeck {
@@ -125,9 +142,22 @@ mod tests {
 
         assert!(!item.accepts_background());
         assert!(ScheduleItem::Passage(passage()).accepts_background());
-        let scheduled = ScheduledItem::with_background(item, Some(image));
-        assert_eq!(scheduled.background, None);
+        let mut scheduled = ScheduledItem::with_background(item, Some(image.clone()));
+        assert_eq!(scheduled.background(), None);
+        assert!(!scheduled.set_background(Some(image)));
         assert_eq!(scheduled.compile(&Styles::default()).background, None);
+    }
+
+    #[test]
+    fn set_background_reports_only_real_changes() {
+        let image = BackgroundMedia::for_media(media(MediaKind::Image)).unwrap();
+        let mut scheduled = ScheduledItem::new(ScheduleItem::Passage(passage()));
+
+        assert!(scheduled.set_background(Some(image.clone())));
+        assert!(!scheduled.set_background(Some(image.clone())));
+        assert_eq!(scheduled.background(), Some(&image));
+        assert!(scheduled.set_background(None));
+        assert!(!scheduled.set_background(None));
     }
 
     fn passage() -> Passage {

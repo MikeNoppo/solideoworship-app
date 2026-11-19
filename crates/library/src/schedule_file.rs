@@ -57,11 +57,11 @@ impl From<io::Error> for ScheduleFileError {
 }
 
 pub fn save(path: &Path, items: &[ScheduledItem]) -> Result<(), ScheduleFileError> {
-    let version = if items.iter().any(|entry| entry.background.is_some()) {
+    let version = if items.iter().any(|entry| entry.background().is_some()) {
         VERSION
     } else if items
         .iter()
-        .any(|entry| matches!(entry.item, ScheduleItem::Media(_)))
+        .any(|entry| matches!(entry.item(), ScheduleItem::Media(_)))
     {
         2
     } else {
@@ -147,8 +147,8 @@ struct EntryDto {
 impl From<&ScheduledItem> for EntryDto {
     fn from(entry: &ScheduledItem) -> Self {
         Self {
-            item: ItemDto::from(&entry.item),
-            background: entry.background.as_ref().map(BackgroundMediaDto::from),
+            item: ItemDto::from(entry.item()),
+            background: entry.background().map(BackgroundMediaDto::from),
         }
     }
 }
@@ -466,8 +466,10 @@ mod tests {
         let dir = TempDir::new("schedule-background");
         let path = dir.path().join("background.sdw");
         let mut items = items();
-        items[0].background = BackgroundMedia::for_media(media(MediaKind::Video));
-        items[1].background = BackgroundMedia::for_media(media(MediaKind::Image));
+        let video = BackgroundMedia::for_media(media(MediaKind::Video));
+        let image = BackgroundMedia::for_media(media(MediaKind::Image));
+        assert!(items[0].set_background(video));
+        assert!(items[1].set_background(image));
 
         save(&path, &items).unwrap();
         let json = fs::read_to_string(&path).unwrap();
