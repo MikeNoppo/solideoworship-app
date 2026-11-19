@@ -185,6 +185,17 @@ impl<'a, Message: Clone + 'a> From<Popover<'a, Message>> for Element<'a, Message
     }
 }
 
+fn vertical(anchor: Rectangle, gap: f32, height: f32, bounds_height: f32) -> f32 {
+    let below = anchor.y + anchor.height + gap;
+    if below + height <= bounds_height {
+        below
+    } else if anchor.y >= height + gap {
+        anchor.y - height - gap
+    } else {
+        below.min((bounds_height - height).max(0.0))
+    }
+}
+
 struct Popup<'a, 'b, Message> {
     popup: &'b mut Element<'a, Message>,
     tree: &'b mut Tree,
@@ -208,14 +219,12 @@ impl<Message: Clone> overlay::Overlay<Message, Theme, Renderer> for Popup<'_, '_
                 self.anchor
                     .x
                     .clamp(0.0, (bounds.width - size.width).max(0.0)),
-                (self.anchor.y + self.anchor.height + self.gap)
-                    .min((bounds.height - size.height).max(0.0)),
+                vertical(self.anchor, self.gap, size.height, bounds.height),
             ),
             Align::End => Point::new(
                 (self.anchor.x + self.anchor.width - size.width)
                     .clamp(0.0, (bounds.width - size.width).max(0.0)),
-                (self.anchor.y + self.anchor.height + self.gap)
-                    .min((bounds.height - size.height).max(0.0)),
+                vertical(self.anchor, self.gap, size.height, bounds.height),
             ),
             Align::At(point) => Point::new(
                 point.x.clamp(0.0, (bounds.width - size.width).max(0.0)),
@@ -451,5 +460,24 @@ impl<Message: 'static> Widget<Message, Theme, Renderer> for RightClick<'_, Messa
 impl<'a, Message: 'static> From<RightClick<'a, Message>> for Element<'a, Message> {
     fn from(right_click: RightClick<'a, Message>) -> Self {
         Self::new(right_click)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::{Point, Rectangle, Size};
+
+    use super::vertical;
+
+    #[test]
+    fn vertical_places_below_flips_above_or_clamps_within_bounds() {
+        let top_anchor = Rectangle::new(Point::new(0.0, 20.0), Size::new(80.0, 32.0));
+        assert_eq!(vertical(top_anchor, 6.0, 180.0, 720.0), 58.0);
+
+        let bottom_anchor = Rectangle::new(Point::new(0.0, 560.0), Size::new(80.0, 32.0));
+        assert_eq!(vertical(bottom_anchor, 6.0, 180.0, 720.0), 374.0);
+
+        let tight_anchor = Rectangle::new(Point::new(0.0, 80.0), Size::new(80.0, 32.0));
+        assert_eq!(vertical(tight_anchor, 6.0, 180.0, 220.0), 40.0);
     }
 }

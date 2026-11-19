@@ -7,6 +7,7 @@ use sdw_library::SongSummary;
 use crate::bible_tab;
 use crate::drag;
 use crate::i18n::{Label, t};
+use crate::illustration::Illustration;
 use crate::message::{LibraryTab, Message};
 use crate::panes::ResizablePane;
 use crate::style::{self, Tone};
@@ -310,18 +311,46 @@ fn songs(app: &App) -> Element<'_, Message> {
 
     if app.song_results.is_empty() {
         return placeholder(if is_searching {
-            ui::empty(
-                icon::SEARCH_X,
-                false,
+            ui::empty_state(
+                Illustration::Search.view(112.0, 70.0),
                 &app.captions.no_match,
                 Some(t().library.no_match_body),
+                Some(
+                    row![
+                        action(
+                            Tone::Secondary,
+                            None,
+                            t().library.clear,
+                            None,
+                            Some(Message::SearchChanged(String::new())),
+                        ),
+                        action(
+                            Tone::Outline,
+                            Some(icon::PLUS),
+                            t().library.add_song,
+                            None,
+                            Some(Message::SongCreateRequested),
+                        ),
+                    ]
+                    .spacing(8)
+                    .into(),
+                ),
             )
         } else {
-            ui::empty(
-                icon::LIBRARY,
-                false,
+            ui::empty_state(
+                Illustration::Songs.view(112.0, 70.0),
                 t().library.empty_title,
                 Some(t().library.empty_body),
+                Some(
+                    action(
+                        Tone::Primary,
+                        Some(icon::PLUS),
+                        t().library.add_song,
+                        None,
+                        Some(Message::SongCreateRequested),
+                    )
+                    .into(),
+                ),
             )
         });
     }
@@ -451,7 +480,7 @@ pub fn unavailable_view<'a>() -> Element<'a, Message> {
 fn unavailable<'a>() -> Element<'a, Message> {
     placeholder(ui::empty(
         icon::DATABASE,
-        false,
+        true,
         t().library.unavailable_title,
         Some(t().library.unavailable_body),
     ))
@@ -459,7 +488,7 @@ fn unavailable<'a>() -> Element<'a, Message> {
 
 fn placeholder(content: Element<'_, Message>) -> Element<'_, Message> {
     container(content)
-        .padding(Padding::ZERO.bottom(12))
+        .padding(Padding::ZERO.bottom(4))
         .center(Fill)
         .into()
 }

@@ -9,6 +9,7 @@ use sdw_library::{BibleBook, BibleId, BibleSummary};
 
 use crate::i18n::{Localize, count, fill, grouped, t};
 use crate::icon;
+use crate::illustration::Illustration;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
 use crate::work::Outcome;
@@ -70,6 +71,7 @@ pub enum Message {
     VerseSelected(Option<u16>),
     RangeExtended(i8),
     Submitted,
+    ManageRequested,
 }
 
 #[derive(Debug, PartialEq)]
@@ -77,6 +79,7 @@ pub enum Action {
     None,
     Lookup(BibleId, Reference),
     Add(Passage),
+    Manage,
 }
 
 impl Default for BibleTab {
@@ -258,6 +261,7 @@ impl BibleTab {
                     Action::None
                 }
             },
+            Message::ManageRequested => Action::Manage,
         }
     }
 
@@ -490,17 +494,26 @@ impl BibleTab {
 
     pub fn body(&self, control_width: f32) -> Element<'_, Message> {
         if self.bibles.is_empty() {
-            return centered(ui::empty(
-                icon::BOOK_X,
-                false,
+            return centered(ui::empty_state(
+                Illustration::Bible.view(112.0, 70.0),
                 t().bible.no_bibles_title,
                 Some(t().bible.no_bibles_body),
+                Some(
+                    action(
+                        Tone::Primary,
+                        Some(icon::PLUS),
+                        t().bible.import_bible,
+                        None,
+                        Some(Message::ManageRequested),
+                    )
+                    .into(),
+                ),
             ));
         }
 
         let detail: Element<'_, Message> = if let Some(invalid) = &self.invalid {
             centered(ui::empty_with(
-                icon::view(icon::CIRCLE_ALERT, 20.0, style::LIVE),
+                ui::error_badge(icon::CIRCLE_ALERT),
                 &invalid.title,
                 Some(invalid.body),
             ))
@@ -514,30 +527,32 @@ impl BibleTab {
                 )
             });
 
-            centered(
-                column![
-                    ui::empty(
-                        icon::BOOK_OPEN,
-                        false,
-                        t().bible.idle_title,
-                        Some(t().bible.idle_body)
-                    ),
-                    examples,
-                ]
-                .spacing(14)
-                .align_x(Center),
-            )
+            centered(ui::empty_state(
+                Illustration::Bible.view(98.0, 62.0),
+                t().bible.idle_title,
+                Some(t().bible.idle_body),
+                Some(examples.into()),
+            ))
         } else {
             match (&self.found, &self.missing) {
                 (Some(found), _) => self.passage(found),
-                (None, Some(Missing::NotFound(body))) => centered(ui::empty(
-                    icon::SEARCH_X,
-                    false,
+                (None, Some(Missing::NotFound(body))) => centered(ui::empty_state(
+                    Illustration::Search.view(98.0, 62.0),
                     t().bible.not_found_title,
                     Some(body),
+                    Some(
+                        action(
+                            Tone::Secondary,
+                            None,
+                            t().library.clear,
+                            None,
+                            Some(Message::InputChanged(String::new())),
+                        )
+                        .into(),
+                    ),
                 )),
                 (None, Some(Missing::Failed(error))) => centered(ui::empty_with(
-                    icon::view(icon::CIRCLE_ALERT, 20.0, style::LIVE),
+                    ui::error_badge(icon::CIRCLE_ALERT),
                     t().bible.lookup_failed,
                     Some(error),
                 )),
@@ -803,9 +818,9 @@ fn centered<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
     container(content)
         .padding(Padding {
             top: 0.0,
-            right: 40.0,
-            bottom: 24.0,
-            left: 40.0,
+            right: 24.0,
+            bottom: 8.0,
+            left: 24.0,
         })
         .center(Fill)
         .into()
@@ -1270,5 +1285,11 @@ mod tests {
         assert_eq!(tab.active_book(), Some(matthew));
         assert_eq!(tab.active_chapter(), Some(5));
         let _ = tab.body(1120.0);
+    }
+
+    #[test]
+    fn manage_requested_emits_manage_action() {
+        let mut tab = BibleTab::default();
+        assert_eq!(tab.update(Message::ManageRequested), Action::Manage);
     }
 }

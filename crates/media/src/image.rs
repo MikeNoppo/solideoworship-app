@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::hash::Hash;
-use std::io::BufWriter;
+use std::io::{BufRead, BufWriter, Cursor, Seek};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
@@ -209,14 +209,32 @@ pub(crate) fn temp_thumb_path(dest: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn decode_rgba_source(path: &Path) -> Result<image::RgbaImage, MediaError> {
+pub fn decode_image_bytes(bytes: &[u8]) -> Result<DecodedRgba, MediaError> {
+    let reader = ImageReader::new(Cursor::new(bytes));
+    let rgba = decode_rgba_reader(reader)?;
+    Ok(DecodedRgba {
+        width: rgba.width(),
+        height: rgba.height(),
+        pixels: Arc::from(rgba.into_raw()),
+    })
+}
+
+fn decode_limits() -> Limits {
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_EDGE_PX);
     limits.max_image_height = Some(MAX_IMAGE_EDGE_PX);
     limits.max_alloc = Some(MAX_DECODE_ALLOC_BYTES);
+    limits
+}
 
-    let mut reader = ImageReader::open(path)?;
-    reader.limits(limits);
+fn decode_rgba_source(path: &Path) -> Result<image::RgbaImage, MediaError> {
+    decode_rgba_reader(ImageReader::open(path)?)
+}
+
+fn decode_rgba_reader<R: BufRead + Seek>(
+    mut reader: ImageReader<R>,
+) -> Result<image::RgbaImage, MediaError> {
+    reader.limits(decode_limits());
     let dynamic = reader
         .with_guessed_format()?
         .decode()
@@ -273,8 +291,8 @@ mod tests {
     use sdw_core::MediaHash;
 
     use super::{
-        CachedBytes, DecodedRgba, ImageCache, ImageCacheKey, ImageTier, decode_image_capped,
-        fit_within, generate_image_thumbnail,
+        CachedBytes, DecodedRgba, ImageCache, ImageCacheKey, ImageTier, decode_image_bytes,
+        decode_image_capped, fit_within, generate_image_thumbnail,
     };
 
     const SHA_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -378,5 +396,20 @@ mod tests {
         assert_eq!(decoded_stage.byte_len(), 400 * 225 * 4);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decodes_valid_png_bytes_and_rejects_invalid_bytes() {
+        let mut png = Vec::new();
+        let img = ImageBuffer::from_pixel(4, 3, Rgba([10u8, 20, 30, 255]));
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+
+        let decoded = decode_image_bytes(&png).unwrap();
+        assert_eq!((decoded.width, decoded.height), (4, 3));
+        assert_eq!(decoded.pixels.len(), 4 * 3 * 4);
+        assert_eq!(&decoded.pixels[..4], &[10, 20, 30, 255]);
+        assert!(decode_image_bytes(b"not an image").is_err());
     }
 }

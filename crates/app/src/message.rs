@@ -53,6 +53,21 @@ impl LibraryTab {
     pub const ALL: [Self; 3] = [Self::Songs, Self::Scripture, Self::Media];
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediaView {
+    LargeIcons,
+    MediumIcons,
+    SmallIcons,
+    #[default]
+    List,
+    Details,
+}
+
+impl MediaView {
+    pub const GRID_MODES: [Self; 3] = [Self::LargeIcons, Self::MediumIcons, Self::SmallIcons];
+    pub const LIST_MODES: [Self; 2] = [Self::List, Self::Details];
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
     Recovered,
@@ -68,6 +83,7 @@ pub enum Notice {
 pub enum Menu {
     Schedule,
     Screens,
+    MediaView,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +263,7 @@ pub enum Message {
 
     MediaLoaded(Outcome<Vec<MediaSummary>>),
     MediaFilterSelected(Option<MediaKind>),
+    MediaViewChanged(MediaView),
     MediaSearchChanged(String),
     MediaImportRequested,
     MediaImportPicked(Option<PathBuf>),
@@ -303,7 +320,8 @@ impl Message {
             | Self::BugReport(..)
             | Self::MediaImageDecoded(..)
             | Self::MediaPlayerOpened(..)
-            | Self::MediaEngineEvent(..) => false,
+            | Self::MediaEngineEvent(..)
+            | Self::MediaViewChanged(..) => false,
             Self::SplashOpened
             | Self::SplashElapsed
             | Self::ControlOpened
