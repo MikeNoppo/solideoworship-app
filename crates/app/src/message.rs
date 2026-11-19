@@ -156,10 +156,8 @@ pub enum Message {
     WindowCloseRequested(window::Id),
     WindowClosed(window::Id),
     WindowResized(window::Id, iced::Size),
-    SplitHovered(bool),
-    SplitStarted,
-    SplitMoved(window::Id, f32),
-    SplitEnded,
+    SplitResized(f32),
+    SplitReset,
 
     SelectedRemoved,
     ScheduleRemoved(usize),
@@ -271,10 +269,8 @@ impl Message {
         match self {
             Self::AnimationFrame(..)
             | Self::WindowResized(..)
-            | Self::SplitHovered(..)
-            | Self::SplitStarted
-            | Self::SplitMoved(..)
-            | Self::SplitEnded
+            | Self::SplitResized(..)
+            | Self::SplitReset
             | Self::BibleIndexLoaded(..)
             | Self::FontsLoaded
             | Self::RowHovered(..)

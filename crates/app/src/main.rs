@@ -22,6 +22,7 @@ mod recovery;
 mod render;
 mod report;
 mod schedule;
+mod splitter;
 mod style;
 mod theme_dialog;
 mod ui;
@@ -191,12 +192,6 @@ enum Drag {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct SplitDrag {
-    anchor_y: Option<f32>,
-    start_ratio: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
 struct ScheduleMenu {
     position: iced::Point,
     target: Option<usize>,
@@ -305,8 +300,6 @@ struct App {
     hovered_row: Option<usize>,
     drag: Option<Drag>,
     split_ratio: f32,
-    split_hovered: bool,
-    splitter_drag: Option<SplitDrag>,
     modal_ticket: u64,
     schedule_save_id: u64,
     schedule_save: Option<ScheduleSave>,
@@ -662,31 +655,14 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SplitHovered(hovered) => {
-                self.split_hovered = hovered;
-                Task::none()
-            }
-            Message::SplitStarted => {
-                self.splitter_drag = Some(SplitDrag {
-                    anchor_y: None,
-                    start_ratio: self.split_ratio(),
-                });
-                Task::none()
-            }
-            Message::SplitMoved(id, y) => {
-                if self.control.is_some_and(|control| control != id) {
-                    return Task::none();
-                }
-                if let Some(drag) = &mut self.splitter_drag {
-                    let anchor_y = *drag.anchor_y.get_or_insert(y);
-                    let body_height = (self.control_height - 91.0).max(200.0);
-                    self.split_ratio = (drag.start_ratio + (y - anchor_y) / body_height)
-                        .clamp(MIN_SPLIT, MAX_SPLIT);
+            Message::SplitResized(ratio) => {
+                if ratio.is_finite() {
+                    self.split_ratio = ratio.clamp(MIN_SPLIT, MAX_SPLIT);
                 }
                 Task::none()
             }
-            Message::SplitEnded => {
-                self.splitter_drag = None;
+            Message::SplitReset => {
+                self.split_ratio = DEFAULT_SPLIT;
                 Task::none()
             }
 
@@ -1866,18 +1842,6 @@ impl App {
             None => {}
         }
 
-        if self.splitter_drag.is_some() {
-            subscriptions.push(event::listen_with(|event, _status, window| match event {
-                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    Some(Message::SplitMoved(window, position.y))
-                }
-                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
-                    iced::mouse::Button::Left,
-                )) => Some(Message::SplitEnded),
-                _ => None,
-            }));
-        }
-
         if self.toast.is_some() {
             subscriptions.push(
                 iced::time::every(TOAST_TIME)
@@ -2374,6 +2338,14 @@ impl App {
         let top = (self.split_ratio() * SPLIT_SCALE).round() as u16;
         let bottom = (SPLIT_SCALE as u16).saturating_sub(top).max(1);
         (top.max(1), bottom)
+    }
+
+    fn split_body_height(&self) -> f32 {
+        (self.control_height - 91.0).max(200.0)
+    }
+
+    fn splitters_enabled(&self) -> bool {
+        self.drag.is_none() && self.modal.is_none()
     }
 
     fn load_bibles(&self) -> Task<Message> {
@@ -4822,29 +4794,24 @@ mod tests {
     #[test]
     fn splitter_drag_adjusts_and_clamps_split_ratio() {
         let mut app = live_with_two_songs();
-        let control = window::Id::unique();
-        let other = window::Id::unique();
-        app.control = Some(control);
-        app.control_height = 891.0;
 
         assert_eq!(app.split_portions(), (550, 450));
 
-        let _ = app.update(Message::SplitStarted);
-        let _ = app.update(Message::SplitMoved(other, 100.0));
-        assert_eq!(app.split_portions(), (550, 450));
-
-        let _ = app.update(Message::SplitMoved(control, 400.0));
-        let _ = app.update(Message::SplitMoved(control, 480.0));
+        let _ = app.update(Message::SplitResized(0.65));
         assert!((app.split_ratio() - 0.65).abs() < 0.001);
 
-        let _ = app.update(Message::SplitMoved(control, 1000.0));
+        let _ = app.update(Message::SplitResized(f32::NAN));
+        assert!((app.split_ratio() - 0.65).abs() < 0.001);
+
+        let _ = app.update(Message::SplitResized(1.5));
         assert!((app.split_ratio() - super::MAX_SPLIT).abs() < 0.001);
 
-        let _ = app.update(Message::SplitMoved(control, 0.0));
+        let _ = app.update(Message::SplitResized(0.05));
         assert!((app.split_ratio() - super::MIN_SPLIT).abs() < 0.001);
 
-        let _ = app.update(Message::SplitEnded);
-        assert!(app.splitter_drag.is_none());
+        let _ = app.update(Message::SplitReset);
+        assert!((app.split_ratio() - super::DEFAULT_SPLIT).abs() < 0.001);
+        assert_eq!(app.split_portions(), (550, 450));
     }
 
     #[test]
