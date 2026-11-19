@@ -856,7 +856,7 @@ impl App {
                     target: Some(drop),
                     ..
                 }) => {
-                    self.drop_media(id, drop);
+                    self.apply_media_drop(id, drop);
                     Task::none()
                 }
                 Some(Drag::Song { target: None, .. } | Drag::Media { target: None, .. }) | None => {
@@ -2702,7 +2702,7 @@ impl App {
         Task::batch(tasks)
     }
 
-    fn drop_media(&mut self, id: MediaId, drop: MediaDrop) {
+    fn apply_media_drop(&mut self, id: MediaId, drop: MediaDrop) {
         let Some(media) = self
             .media_results
             .iter()
@@ -5421,7 +5421,7 @@ mod tests {
         app
     }
 
-    fn drop_media(app: &mut App, id: i64, drop: Option<MediaDrop>) {
+    fn drag_media_onto(app: &mut App, id: i64, drop: Option<MediaDrop>) {
         let _ = app.update(Message::MediaDragStarted(
             sdw_library::MediaId(id),
             iced::Point::new(500.0, 500.0),
@@ -5438,7 +5438,7 @@ mod tests {
         let mut app = media_drag_app();
         let image = background_of(&app.media_results[0]);
 
-        drop_media(&mut app, 1, Some(MediaDrop::Background(1)));
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
 
         assert_eq!(app.schedule.entries().len(), 2);
         assert_eq!(app.schedule.entries()[0].background(), None);
@@ -5513,11 +5513,11 @@ mod tests {
                 .any(|entry| entry.background().is_some())
         );
 
-        drop_media(&mut app, 3, Some(MediaDrop::Background(0)));
+        drag_media_onto(&mut app, 3, Some(MediaDrop::Background(0)));
         assert_eq!(app.schedule.entries()[0].background(), None);
 
-        drop_media(&mut app, 2, Some(MediaDrop::Insert(0)));
-        drop_media(&mut app, 1, Some(MediaDrop::Background(0)));
+        drag_media_onto(&mut app, 2, Some(MediaDrop::Insert(0)));
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(0)));
         assert_eq!(app.schedule.entries()[0].background(), None);
         assert_eq!(app.schedule.entries().len(), 3);
     }
@@ -5527,7 +5527,7 @@ mod tests {
         let mut app = media_drag_app();
         let global = background_of(&app.media_results[1]);
         app.settings.styles.song.theme.background_media = Some(global.clone());
-        drop_media(&mut app, 1, Some(MediaDrop::Background(1)));
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
 
         let _ = app.update(Message::ScheduleContextMenu(
             Some(1),
@@ -5563,7 +5563,7 @@ mod tests {
         let _ = app.update(Message::GoLive);
         assert_eq!(app.live_theme.background_media.as_ref(), Some(&global));
 
-        drop_media(&mut app, 1, Some(MediaDrop::Background(0)));
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(0)));
         assert_eq!(app.live_theme.background_media.as_ref(), Some(&global));
         assert_eq!(app.live.as_ref().unwrap().deck().background, None);
 
