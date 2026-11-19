@@ -5437,6 +5437,7 @@ mod tests {
     fn dropping_media_onto_an_item_sets_only_that_item_background() {
         let mut app = media_drag_app();
         let image = background_of(&app.media_results[0]);
+        app.schedule.select(0);
 
         drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
 
@@ -5552,6 +5553,21 @@ mod tests {
                 .iter()
                 .all(|entry| entry.background().is_none())
         );
+    }
+
+    #[test]
+    fn deleting_media_from_the_library_clears_item_backgrounds_that_use_it() {
+        let mut app = media_drag_app();
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(0)));
+        drag_media_onto(&mut app, 2, Some(MediaDrop::Background(1)));
+        let video = background_of(&app.media_results[1]);
+        let deleted = app.media_results[0].clone();
+
+        let _ = app.update(Message::MediaDeleted(Ok(Some(deleted))));
+
+        assert_eq!(app.schedule.entries()[0].background(), None);
+        assert_eq!(app.schedule.entries()[0].deck().background, None);
+        assert_eq!(app.schedule.entries()[1].background(), Some(&video));
     }
 
     #[test]

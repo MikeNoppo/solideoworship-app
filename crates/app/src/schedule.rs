@@ -526,6 +526,26 @@ mod tests {
     }
 
     #[test]
+    fn editing_a_library_song_keeps_its_item_background() {
+        let mut schedule = Schedule::default();
+        let id = song_ids(1)[0];
+        schedule.push(song("A"), Some(id), &Styles::default());
+        assert!(schedule.set_background(0, Some(background('a')), &Styles::default()));
+
+        let edited = Song::new("A edited", "new\n\nlines", None);
+        schedule.replace_song(id, &edited, &Styles::default());
+
+        let entry = &schedule.entries()[0];
+        assert_eq!(&*entry.deck().title, "A edited");
+        assert_eq!(entry.background(), Some(&background('a')));
+        assert_eq!(entry.deck().background, Some(background('a')));
+        assert_eq!(
+            schedule.preview().unwrap().deck().background,
+            Some(background('a'))
+        );
+    }
+
+    #[test]
     fn duplicate_keeps_the_item_background() {
         let mut schedule = with_backgrounds();
 
