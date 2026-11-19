@@ -178,69 +178,63 @@ fn context_menu(app: &App, menu: ScheduleMenu) -> Element<'static, Message> {
     ))
     .on_enter(Message::ScheduleAddSubmenu(true));
 
-    let actions = mouse_area(
-        column![
+    let clear_background = target
+        .filter(|&index| entries[index].background().is_some())
+        .map(|index| {
             ui::menu_item(
+                Some(icon::ERASER),
+                t().schedule.clear_background,
+                None,
+                Some(Message::ScheduleBackgroundCleared(index)),
+            )
+        });
+
+    let actions = mouse_area(
+        Column::new()
+            .push(ui::menu_item(
                 Some(icon::PLAY),
                 t().toolbar.go_live,
                 None,
                 target.map(|_| Message::GoLive),
-            ),
-            ui::menu_item(
+            ))
+            .push(ui::menu_item(
                 Some(icon::PENCIL),
                 t().slides.edit_song,
                 None,
                 song_id.map(Message::SongEditRequested),
-            ),
-        ]
-        .push(
-            target
-                .filter(|&index| entries[index].background().is_some())
-                .map(|index| {
-                    ui::menu_item(
-                        Some(icon::ERASER),
-                        t().schedule.clear_background,
-                        None,
-                        Some(Message::ScheduleBackgroundCleared(index)),
-                    )
-                }),
-        )
-        .push(
-            column![
-                separator(),
-                ui::menu_item(
-                    None,
-                    t().schedule.move_up,
-                    None,
-                    target
-                        .filter(|&index| index > 0)
-                        .map(|index| Message::ScheduleMoved(index, index - 1)),
-                ),
-                ui::menu_item(
-                    None,
-                    t().schedule.move_down,
-                    None,
-                    target
-                        .filter(|&index| index + 1 < total)
-                        .map(|index| Message::ScheduleMoved(index, index + 1)),
-                ),
-                separator(),
-                ui::menu_item(
-                    None,
-                    t().schedule.duplicate,
-                    None,
-                    target.map(Message::ScheduleDuplicated),
-                ),
-                ui::menu_item(
-                    Some(icon::TRASH_2),
-                    t().schedule.remove,
-                    None,
-                    target.map(Message::ScheduleRemoved),
-                ),
-            ]
+            ))
+            .push(clear_background)
+            .push(separator())
+            .push(ui::menu_item(
+                None,
+                t().schedule.move_up,
+                None,
+                target
+                    .filter(|&index| index > 0)
+                    .map(|index| Message::ScheduleMoved(index, index - 1)),
+            ))
+            .push(ui::menu_item(
+                None,
+                t().schedule.move_down,
+                None,
+                target
+                    .filter(|&index| index + 1 < total)
+                    .map(|index| Message::ScheduleMoved(index, index + 1)),
+            ))
+            .push(separator())
+            .push(ui::menu_item(
+                None,
+                t().schedule.duplicate,
+                None,
+                target.map(Message::ScheduleDuplicated),
+            ))
+            .push(ui::menu_item(
+                Some(icon::TRASH_2),
+                t().schedule.remove,
+                None,
+                target.map(Message::ScheduleRemoved),
+            ))
             .spacing(2),
-        )
-        .spacing(2),
     )
     .on_enter(Message::ScheduleAddSubmenu(false));
 
