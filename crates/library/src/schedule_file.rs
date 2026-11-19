@@ -4,7 +4,7 @@ use std::{fmt, fs, io};
 
 use sdw_core::bible::{Book, Passage, Reference, Verse};
 use sdw_core::{MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, ScheduledItem, Song};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::settings::BackgroundMediaDto;
 use crate::songs::{
@@ -140,8 +140,19 @@ struct FileDto {
 struct EntryDto {
     #[serde(flatten)]
     item: ItemDto,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_background"
+    )]
     background: Option<BackgroundMediaDto>,
+}
+
+fn lenient_background<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BackgroundMediaDto>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| serde_json::from_value(value).ok()))
 }
 
 impl From<&ScheduledItem> for EntryDto {
@@ -491,6 +502,36 @@ mod tests {
             items,
             scheduled(vec![ScheduleItem::Song(Song::new("A", "one", None))])
         );
+    }
+
+    #[test]
+    fn structurally_broken_item_background_is_dropped_without_losing_the_schedule() {
+        for background in [
+            r#"{"type":"image"}"#,
+            r#"{"type":"slideshow","media":{}}"#,
+            r#"{"type":"video","media":{"sha256":5}}"#,
+            "5",
+            r#""image""#,
+            "[]",
+        ] {
+            let text = format!(
+                r#"{{"format":"solideoworship-schedule","version":3,"items":[
+                    {{"type":"song","title":"A","lyrics":"one","copyright":null,
+                     "background":{background}}},
+                    {{"type":"song","title":"B","lyrics":"two","copyright":null}}
+                ]}}"#
+            );
+
+            let items = open_text("schedule-broken-background", &text).unwrap();
+            assert_eq!(
+                items,
+                scheduled(vec![
+                    ScheduleItem::Song(Song::new("A", "one", None)),
+                    ScheduleItem::Song(Song::new("B", "two", None)),
+                ]),
+                "background {background}"
+            );
+        }
     }
 
     #[test]
