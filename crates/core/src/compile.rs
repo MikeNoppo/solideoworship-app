@@ -109,6 +109,7 @@ fn custom_song_deck(
         kind: ContentKind::Song,
         slides,
         sections,
+        background: None,
     }
 }
 
@@ -152,6 +153,7 @@ fn song_with_footer(
         kind: ContentKind::Song,
         slides: slides.slides,
         sections: slides.sections,
+        background: None,
     }
 }
 
@@ -246,6 +248,7 @@ fn scripture_deck(
         kind: ContentKind::Scripture,
         slides,
         sections: Vec::new(),
+        background: None,
     }
 }
 

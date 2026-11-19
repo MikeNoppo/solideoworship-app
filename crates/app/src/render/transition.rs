@@ -292,6 +292,7 @@ mod tests {
             title: "Test".into(),
             kind: ContentKind::Song,
             sections: Vec::new(),
+            background: None,
             slides: vec![Slide {
                 body: body.into(),
                 label: None,
@@ -531,6 +532,7 @@ mod tests {
                 title: "Other".into(),
                 kind: ContentKind::Song,
                 sections: Vec::new(),
+                background: None,
                 slides: vec![Slide {
                     body: "Second".into(),
                     label: None,

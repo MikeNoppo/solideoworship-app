@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::format::SlideFormat;
-use crate::media::MediaRef;
+use crate::media::{BackgroundMedia, MediaRef};
 use crate::theme::{CANVAS_WIDTH, SlideTheme};
 
 pub const MIN_BOX_SIZE: f32 = 0.08;
@@ -103,9 +103,14 @@ pub struct SlideDeck {
     pub kind: ContentKind,
     pub slides: Vec<Slide>,
     pub sections: Vec<SlideSection>,
+    pub background: Option<BackgroundMedia>,
 }
 
 impl SlideDeck {
+    pub fn background_or<'a>(&'a self, theme: &'a SlideTheme) -> Option<&'a BackgroundMedia> {
+        self.background.as_ref().or(theme.background_media.as_ref())
+    }
+
     pub fn section_at(&self, index: usize) -> Option<&SlideSection> {
         if index >= self.len() {
             return None;
