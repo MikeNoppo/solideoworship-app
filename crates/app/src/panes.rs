@@ -104,6 +104,7 @@ impl PaneWidths {
             return;
         }
         let current = self.resolve(window_width);
+        let defaults = default_columns(window_width);
         match pane {
             ResizablePane::Schedule => {
                 let max = if window_width > 0.0 {
@@ -112,7 +113,11 @@ impl PaneWidths {
                 } else {
                     MAX_SCHEDULE_WIDTH
                 };
-                if window_width > 0.0 && self.live.is_some_and(|saved| saved > current.live) {
+                let requested_live = self
+                    .live
+                    .unwrap_or(defaults.live)
+                    .clamp(MIN_LIVE_WIDTH, MAX_LIVE_WIDTH);
+                if window_width > 0.0 && requested_live > current.live {
                     self.live = Some(current.live);
                 }
                 self.schedule = Some(width.clamp(MIN_SCHEDULE_WIDTH, max).round());
@@ -124,8 +129,11 @@ impl PaneWidths {
                 } else {
                     MAX_LIVE_WIDTH
                 };
-                if window_width > 0.0 && self.schedule.is_some_and(|saved| saved > current.schedule)
-                {
+                let requested_schedule = self
+                    .schedule
+                    .unwrap_or(defaults.schedule)
+                    .clamp(MIN_SCHEDULE_WIDTH, MAX_SCHEDULE_WIDTH);
+                if window_width > 0.0 && requested_schedule > current.schedule {
                     self.schedule = Some(current.schedule);
                 }
                 self.live = Some(width.clamp(MIN_LIVE_WIDTH, max).round());
@@ -417,6 +425,29 @@ mod tests {
         let after_live_drag = widths.resolve(1120.0);
         assert_eq!(after_live_drag.schedule, before.schedule);
         assert_eq!(after_live_drag.live, before.live - 30.0);
+    }
+
+    #[test]
+    fn dragging_after_narrow_window_shrink_locks_default_opposing_pane() {
+        let mut widths = PaneWidths::default();
+        widths.set(ResizablePane::Schedule, 480.0, 1480.0);
+
+        let before = widths.resolve(1120.0);
+        assert!(before.live < 300.0);
+        widths.set(ResizablePane::Schedule, 440.0, 1120.0);
+        let after = widths.resolve(1120.0);
+        assert_eq!(after.live, before.live);
+        assert_eq!(after.schedule, 440.0);
+
+        let mut widths = PaneWidths::default();
+        widths.set(ResizablePane::Live, 560.0, 1480.0);
+
+        let before = widths.resolve(1120.0);
+        assert!(before.schedule < 240.0);
+        widths.set(ResizablePane::Live, 500.0, 1120.0);
+        let after = widths.resolve(1120.0);
+        assert_eq!(after.schedule, before.schedule);
+        assert_eq!(after.live, 500.0);
     }
 
     #[test]
