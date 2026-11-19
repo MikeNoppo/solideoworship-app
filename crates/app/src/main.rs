@@ -12,6 +12,7 @@ mod files;
 mod focus;
 mod i18n;
 mod icon;
+mod illustration;
 mod logo;
 mod media_engine;
 mod message;
@@ -61,8 +62,8 @@ use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
 use crate::media_engine::{MediaEngine, MediaEvent, MediaSlot, ViewportSlot};
 use crate::message::{
-    LibraryTab, MediaDrop, Menu, Message, Notice, OpenedSchedule, Pending, StartupLibrary, Step,
-    UnsavedChoice, Zoom,
+    LibraryTab, MediaDrop, MediaView, Menu, Message, Notice, OpenedSchedule, Pending,
+    StartupLibrary, Step, UnsavedChoice, Zoom,
 };
 use crate::recovery::Recovery;
 use crate::render::slide::MediaBackdrop;
@@ -330,6 +331,7 @@ struct App {
     media_results: Vec<MediaSummary>,
     media_imports_in_flight: usize,
     media_filter: Option<MediaKind>,
+    media_view: MediaView,
     media_search: String,
     media_click: Option<(MediaId, Instant)>,
     preview_media_missing: bool,
@@ -970,6 +972,9 @@ impl App {
             }
 
             Message::LibraryTabSelected(tab) => {
+                if self.menu == Some(Menu::MediaView) {
+                    self.menu = None;
+                }
                 self.library_tab = tab;
                 match tab {
                     LibraryTab::Songs => self.search_songs(),
@@ -1614,6 +1619,11 @@ impl App {
             Message::MediaFilterSelected(kind) => {
                 self.media_filter = kind;
                 self.load_media()
+            }
+            Message::MediaViewChanged(view) => {
+                self.media_view = view;
+                self.dismiss_menus();
+                Task::none()
             }
             Message::MediaSearchChanged(query) => {
                 self.media_search = query;
@@ -2420,6 +2430,7 @@ impl App {
                     .push(ScheduleItem::Passage(passage), None, &self.settings.styles);
                 Task::none()
             }
+            bible_tab::Action::Manage => self.handle(Message::BibleManagerRequested),
         }
     }
 
@@ -2979,7 +2990,7 @@ mod tests {
     use crate::display::Display;
     use crate::editor;
     use crate::i18n::{fill, t};
-    use crate::message::{MediaDrop, Message, Pending, UnsavedChoice};
+    use crate::message::{LibraryTab, MediaDrop, MediaView, Menu, Message, Pending, UnsavedChoice};
 
     fn dirty_app() -> App {
         let mut app = App::default();
@@ -5642,6 +5653,56 @@ mod tests {
         assert!(sdw_library::thumb_file_path(&thumb_dir, &prepared.sha256).is_file());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn media_view_menu_and_modes_render_cleanly_and_bible_empty_cta_opens_manager() {
+        let mut app = App {
+            control_width: 1280.0,
+            ..App::default()
+        };
+        assert_eq!(app.media_view, MediaView::List);
+
+        let all_modes = [
+            MediaView::LargeIcons,
+            MediaView::MediumIcons,
+            MediaView::SmallIcons,
+            MediaView::List,
+            MediaView::Details,
+        ];
+
+        let _ = app.update(Message::LibraryTabSelected(LibraryTab::Media));
+
+        for mode in all_modes {
+            assert!(!Message::MediaViewChanged(mode).refreshes_captions());
+            let _ = app.update(Message::MenuToggled(Menu::MediaView));
+            assert_eq!(app.menu, Some(Menu::MediaView));
+            let _ = crate::panes::control::view(&app);
+
+            let _ = app.update(Message::MediaViewChanged(mode));
+            assert_eq!(app.media_view, mode);
+            assert!(app.menu.is_none());
+            let _ = crate::panes::control::view(&app);
+        }
+
+        app.media_results = vec![
+            media_summary(1, MediaKind::Image, 'a'),
+            media_summary(2, MediaKind::Video, 'b'),
+            media_summary(3, MediaKind::Audio, 'c'),
+        ];
+        for mode in all_modes {
+            let _ = app.update(Message::MediaViewChanged(mode));
+            let _ = crate::panes::control::view(&app);
+        }
+
+        let _ = app.update(Message::MenuToggled(Menu::MediaView));
+        assert_eq!(app.menu, Some(Menu::MediaView));
+        let _ = app.update(Message::LibraryTabSelected(LibraryTab::Songs));
+        assert!(app.menu.is_none());
+
+        assert!(app.modal.is_none());
+        let _ = app.update(Message::Bible(crate::bible_tab::Message::ManageRequested));
+        assert!(matches!(app.modal, Some(Modal::Bibles(_))));
     }
 }
 
