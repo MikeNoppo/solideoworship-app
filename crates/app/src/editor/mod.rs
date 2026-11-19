@@ -19,7 +19,7 @@ use sdw_core::theme::{SlideTheme, SongStyle};
 use sdw_core::{Song, SongSlide, compile};
 use sdw_library::SongId;
 
-use self::canvas::{PaneSplitter, Target};
+use self::canvas::Target;
 pub use self::format_panel::FormatMessage;
 use self::format_panel::FormatState;
 use self::history::{EditGroup, History, SlideDraft, Snapshot};
@@ -666,7 +666,9 @@ impl Editor {
         } else {
             let mut panes = row![
                 self.sidebar(theme, labels),
-                PaneSplitter::new(self.sidebar_width, Message::SidebarResized),
+                crate::splitter::vertical(self.sidebar_width, Message::SidebarResized)
+                    .on_reset(Message::SidebarResized(DEFAULT_SIDEBAR_W))
+                    .leading_background(style::SURFACE),
                 self.stage_pane(theme, modal_w, modal_h),
             ];
             if self.format_open {

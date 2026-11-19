@@ -9,7 +9,7 @@ use super::glyph;
 use super::transport::format_duration;
 use crate::i18n::{Label, t};
 use crate::message::Message;
-use crate::panes::columns;
+use crate::splitter;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, icon_button, label};
 use crate::{App, drag, icon};
@@ -75,7 +75,7 @@ pub(super) fn media_list(app: &App) -> Element<'_, Message> {
 }
 
 pub(super) fn media_details(app: &App) -> Element<'_, Message> {
-    let available = workspace_width(app.control_width);
+    let available = workspace_width(app.control_width, app.columns().library_sidebar);
     let show_size = available >= 560.0;
     let show_type = available >= 430.0;
 
@@ -110,7 +110,7 @@ pub(super) fn media_details(app: &App) -> Element<'_, Message> {
 }
 
 pub(super) fn media_grid(app: &App, spec: GridSpec) -> Element<'_, Message> {
-    let (cols, card_width) = grid_layout(app.control_width, spec);
+    let (cols, card_width) = grid_layout(app.control_width, app.columns().library_sidebar, spec);
     let rows =
         app.media_results
             .chunks(cols)
@@ -126,17 +126,17 @@ pub(super) fn media_grid(app: &App, spec: GridSpec) -> Element<'_, Message> {
     ui::scroll(rows).into()
 }
 
-fn workspace_width(control_width: f32) -> f32 {
+fn workspace_width(control_width: f32, sidebar_width: f32) -> f32 {
     (control_width
-        - columns(control_width).library_sidebar
-        - 1.0
+        - sidebar_width
+        - splitter::THICKNESS
         - WORKSPACE_HORIZONTAL_PADDING
         - ui::SCROLL_GUTTER)
         .max(104.0)
 }
 
-fn grid_layout(control_width: f32, spec: GridSpec) -> (usize, f32) {
-    let available = workspace_width(control_width).max(spec.min_width);
+fn grid_layout(control_width: f32, sidebar_width: f32, spec: GridSpec) -> (usize, f32) {
+    let available = workspace_width(control_width, sidebar_width).max(spec.min_width);
     let cols = ((available + spec.gap) / (spec.min_width + spec.gap))
         .floor()
         .max(1.0) as usize;
@@ -699,8 +699,11 @@ mod tests {
     fn grid_layout_scales_columns_and_fits_workspace_width_for_all_specs() {
         for spec in [GridSpec::LARGE, GridSpec::MEDIUM, GridSpec::SMALL] {
             for width in [500.0, 720.0, 1024.0, 1280.0, 1440.0, 1920.0] {
-                let (cols, card_width) = grid_layout(width, spec);
-                let available = workspace_width(width).max(spec.min_width);
+                let sidebar = crate::panes::PaneWidths::default()
+                    .resolve(width)
+                    .library_sidebar;
+                let (cols, card_width) = grid_layout(width, sidebar, spec);
+                let available = workspace_width(width, sidebar).max(spec.min_width);
                 let total_row = cols as f32 * card_width + (cols - 1) as f32 * spec.gap;
 
                 assert!(cols >= 1);
@@ -709,15 +712,22 @@ mod tests {
             }
         }
 
-        let (large_720, _) = grid_layout(720.0, GridSpec::LARGE);
+        let sidebar_720 = crate::panes::PaneWidths::default()
+            .resolve(720.0)
+            .library_sidebar;
+        let (large_720, _) = grid_layout(720.0, sidebar_720, GridSpec::LARGE);
         assert!(large_720 >= 2);
 
-        let (large_cols, _) = grid_layout(1280.0, GridSpec::LARGE);
-        let (medium_cols, _) = grid_layout(1280.0, GridSpec::MEDIUM);
-        let (small_cols, _) = grid_layout(1280.0, GridSpec::SMALL);
+        let sidebar_1280 = crate::panes::PaneWidths::default()
+            .resolve(1280.0)
+            .library_sidebar;
+        let (large_cols, _) = grid_layout(1280.0, sidebar_1280, GridSpec::LARGE);
+        let (medium_cols, _) = grid_layout(1280.0, sidebar_1280, GridSpec::MEDIUM);
+        let (small_cols, _) = grid_layout(1280.0, sidebar_1280, GridSpec::SMALL);
         assert!(large_cols > 1);
         assert!(medium_cols > large_cols);
         assert!(small_cols > medium_cols);
+        assert!(workspace_width(1280.0, 400.0) < workspace_width(1280.0, 210.0));
     }
 
     #[test]

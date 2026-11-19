@@ -29,8 +29,12 @@ impl Editor {
         } else {
             0.0
         };
-        let avail_w =
-            (modal_w - self.sidebar_width - 7.0 - format_w - STAGE_PADDING * 2.0).max(160.0);
+        let avail_w = (modal_w
+            - self.sidebar_width
+            - crate::splitter::THICKNESS
+            - format_w
+            - STAGE_PADDING * 2.0)
+            .max(160.0);
         let avail_h = (modal_h - CHROME_HEIGHT - STAGE_PADDING * 2.0).max(120.0);
         (avail_w / CANVAS_WIDTH)
             .min(avail_h / theme.layout.height())

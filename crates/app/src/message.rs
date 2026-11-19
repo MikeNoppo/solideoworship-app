@@ -13,6 +13,7 @@ use sdw_media::ImageCacheKey;
 use crate::display::Display;
 use crate::files::{SaveFailure, SaveTarget};
 use crate::media_engine::{DecodedImage, MediaEvent, MediaSlot, OpenedPlayer};
+use crate::panes::ResizablePane;
 use crate::report::CrashRecord;
 use crate::theme_dialog;
 use crate::work::Outcome;
@@ -172,10 +173,10 @@ pub enum Message {
     WindowCloseRequested(window::Id),
     WindowClosed(window::Id),
     WindowResized(window::Id, iced::Size),
-    SplitHovered(bool),
-    SplitStarted,
-    SplitMoved(window::Id, f32),
-    SplitEnded,
+    SplitResized(f32),
+    SplitReset,
+    PaneResized(ResizablePane, f32),
+    PaneReset(ResizablePane),
 
     SelectedRemoved,
     ScheduleRemoved(usize),
@@ -288,10 +289,10 @@ impl Message {
         match self {
             Self::AnimationFrame(..)
             | Self::WindowResized(..)
-            | Self::SplitHovered(..)
-            | Self::SplitStarted
-            | Self::SplitMoved(..)
-            | Self::SplitEnded
+            | Self::SplitResized(..)
+            | Self::SplitReset
+            | Self::PaneResized(..)
+            | Self::PaneReset(..)
             | Self::BibleIndexLoaded(..)
             | Self::FontsLoaded
             | Self::RowHovered(..)

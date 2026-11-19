@@ -1,9 +1,10 @@
-use iced::widget::{Space, center, column, container, mouse_area, opaque, row, stack, text};
+use iced::widget::{center, column, container, opaque, row, stack, text};
 use iced::{Center, Element, Fill, FillPortion, Padding, Point};
 
 use crate::i18n::t;
 use crate::message::{Message, Notice};
-use crate::panes::{library, live, preview, schedule, toolbar, unsaved, welcome};
+use crate::panes::{ResizablePane, library, live, preview, schedule, toolbar, unsaved, welcome};
+use crate::splitter;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
 use crate::{App, Drag, Modal, Toast, icon};
@@ -42,20 +43,27 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into(),
     };
 
+    let layout = app.columns();
     let (top_portion, bottom_portion) = app.split_portions();
+    let split_enabled = app.splitters_enabled();
 
     let top_row = row![
         schedule::view(app),
-        ui::line(style::BORDER),
+        crate::panes::pane_splitter(ResizablePane::Schedule, layout.schedule, split_enabled),
         center_pane,
-        ui::line(style::BORDER),
+        crate::panes::pane_splitter(ResizablePane::Live, layout.live, split_enabled)
+            .inverted()
+            .trailing_background(style::SURFACE),
         live::view(app),
     ]
     .height(FillPortion(top_portion));
 
     let body = column![
         top_row,
-        splitter(app),
+        splitter::horizontal(app.split_ratio(), Message::SplitResized)
+            .scale(1.0 / app.split_body_height())
+            .on_reset(Message::SplitReset)
+            .enabled(split_enabled),
         container(library::view(app))
             .width(Fill)
             .height(FillPortion(bottom_portion)),
@@ -177,42 +185,6 @@ fn drag_ghost<'a>(
         })
         .width(Fill)
         .height(Fill)
-        .into()
-}
-
-fn splitter<'a>(app: &'a App) -> Element<'a, Message> {
-    let active = app.splitter_drag.is_some() || app.split_hovered;
-    let line_color = if active {
-        style::BORDER_STRONG
-    } else {
-        style::BORDER
-    };
-    let grip_color = if app.splitter_drag.is_some() {
-        style::TEXT_2
-    } else if app.split_hovered {
-        style::TEXT_3
-    } else {
-        style::BORDER_STRONG
-    };
-
-    let bar = stack![
-        container(ui::hrule(line_color)).center_y(Fill),
-        container(
-            container(Space::new())
-                .width(36)
-                .height(3)
-                .style(style::rounded(grip_color, 1.5)),
-        )
-        .center(Fill),
-    ]
-    .width(Fill)
-    .height(7);
-
-    mouse_area(bar)
-        .on_press(Message::SplitStarted)
-        .on_enter(Message::SplitHovered(true))
-        .on_exit(Message::SplitHovered(false))
-        .interaction(iced::mouse::Interaction::ResizingVertically)
         .into()
 }
 

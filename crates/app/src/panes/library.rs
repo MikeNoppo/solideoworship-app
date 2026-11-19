@@ -9,7 +9,7 @@ use crate::drag;
 use crate::i18n::{Label, t};
 use crate::illustration::Illustration;
 use crate::message::{LibraryTab, Message};
-use crate::panes::columns;
+use crate::panes::ResizablePane;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, icon_button, label};
 use crate::{App, icon};
@@ -18,7 +18,7 @@ pub const SEARCH: &str = "library-search";
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let enabled = app.library_unavailable.is_none();
-    let sidebar_width = columns(app.control_width).library_sidebar;
+    let sidebar_width = app.columns().library_sidebar;
 
     let tabs = LibraryTab::ALL
         .iter()
@@ -146,7 +146,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
     column![
         header,
         ui::hrule(style::BORDER),
-        row![sidebar, ui::line(style::BORDER), workspace].height(Fill),
+        row![
+            sidebar,
+            crate::panes::pane_splitter(
+                ResizablePane::LibrarySidebar,
+                sidebar_width,
+                app.splitters_enabled(),
+            )
+            .leading_background(style::SURFACE),
+            workspace,
+        ]
+        .height(Fill),
     ]
     .height(Fill)
     .into()

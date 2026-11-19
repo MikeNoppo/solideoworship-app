@@ -7,7 +7,7 @@ use crate::i18n::t;
 use crate::icon;
 use crate::logo;
 use crate::message::{Message, Step};
-use crate::panes::{columns, label_chip, label_rule};
+use crate::panes::{label_chip, label_rule};
 use crate::render::transition;
 use crate::style::{self, Tone};
 use crate::ui::{self, label};
@@ -15,7 +15,7 @@ use crate::ui::{self, label};
 const PADDING: f32 = 14.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    let width = columns(app.control_width).live;
+    let width = app.columns().live;
     let is_open = app.output.is_some();
     let live = app.live.as_ref();
     let layout = if live.is_some() {
@@ -23,7 +23,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     } else {
         app.settings.styles.song.theme.layout
     };
-    let thumb_width = if width < 330.0 { 116.0 } else { 136.0 };
+    let thumb_width = (width - 184.0).min(width * 0.38).round().clamp(96.0, 168.0);
     let thumb_height = (thumb_width / layout.ratio()).round();
 
     let (badge, badge_fill, badge_color) = match (is_open, live.is_some()) {
