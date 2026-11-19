@@ -6,6 +6,7 @@ use sdw_core::{MediaKind, Presentation};
 use crate::App;
 use crate::i18n::t;
 use crate::icon;
+use crate::illustration::Illustration;
 use crate::message::Message;
 use crate::panes::{Card, columns, slide_card_with_media};
 use crate::render::slide::{self, Visibility};
@@ -195,11 +196,11 @@ pub fn empty<'a>() -> Element<'a, Message> {
 
     column![
         header,
-        container(ui::empty(
-            icon::LAYOUT_GRID,
-            false,
+        container(ui::empty_state(
+            Illustration::Preview.view(140.0, 88.0),
             t().slides.nothing_to_preview,
             Some(t().slides.nothing_to_preview_body),
+            None,
         ))
         .padding(24)
         .center(Fill)

@@ -4,15 +4,15 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::{env, fs};
 
-use sdw_core::OutputState;
 use sdw_core::bible::ReferenceError;
 use sdw_core::settings::{CanvasFormat, FontWeight, SettingsError};
 use sdw_core::slide::ContentKind;
 use sdw_core::theme::{ReferenceFormat, ReferencePosition, TextAlign};
+use sdw_core::{MediaKind, OutputState};
 use sdw_library::Error;
 use sdw_library::schedule_file::ScheduleFileError;
 
-use crate::message::LibraryTab;
+use crate::message::{LibraryTab, MediaView};
 use crate::report;
 use crate::theme_dialog::{Category, ColorSlot, FontSlot, MarginSide, TransitionTarget};
 use sdw_core::transition::TransitionMode;
@@ -130,6 +130,28 @@ impl Label for LibraryTab {
             Self::Songs => t().library.songs,
             Self::Scripture => t().common.bible,
             Self::Media => t().library.media,
+        }
+    }
+}
+
+impl Label for MediaView {
+    fn label(self) -> &'static str {
+        match self {
+            Self::LargeIcons => t().library.media_view_large,
+            Self::MediumIcons => t().library.media_view_medium,
+            Self::SmallIcons => t().library.media_view_small,
+            Self::List => t().library.media_view_list,
+            Self::Details => t().library.media_view_details,
+        }
+    }
+}
+
+impl Label for MediaKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Image => t().library.media_kind_image,
+            Self::Video => t().library.media_kind_video,
+            Self::Audio => t().library.media_kind_audio,
         }
     }
 }

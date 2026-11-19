@@ -1,18 +1,21 @@
-use iced::widget::{
-    Column, Space, button, column, container, hover, image, row, slider, stack, text, text_input,
-};
-use iced::{Center, ContentFit, Element, Fill, Padding, Pixels};
+mod transport;
+mod views;
+
+use iced::widget::{Column, Space, button, column, container, row, stack, text_input};
+use iced::{Center, Element, Fill, Padding, Pixels};
 use sdw_core::MediaKind;
 use sdw_core::slide::ContentKind;
-use sdw_library::MediaSummary;
-use sdw_media::{ImageCacheKey, ImageTier, PlaybackState};
 
-use crate::i18n::t;
-use crate::media_engine::MediaSlot;
-use crate::message::Message;
+pub use transport::transport_bar;
+use views::{GridSpec, media_details, media_grid, media_list};
+
+use crate::i18n::{Label, t};
+use crate::illustration::Illustration;
+use crate::message::{MediaView, Menu, Message};
+use crate::popover::{Align, popover};
 use crate::style::{self, Tone};
 use crate::ui::{self, action, icon_button, label};
-use crate::{App, drag, icon};
+use crate::{App, icon};
 
 pub fn sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
     let filters = [
@@ -131,42 +134,105 @@ pub fn sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
 }
 
 pub fn body(app: &App, enabled: bool) -> Element<'_, Message> {
-    let search = search_bar(app, enabled);
     if app.library_unavailable.is_some() {
         return super::library::unavailable_view();
     }
 
+    let controls = row![search_bar(app, enabled), view_switcher(app, enabled)]
+        .spacing(8)
+        .align_y(Center);
+
     let is_searching = !app.media_search.trim().is_empty();
     let list: Element<'_, Message> = if app.media_results.is_empty() {
         let content = if is_searching {
-            ui::empty(
-                icon::SEARCH_X,
-                false,
+            ui::empty_state(
+                Illustration::Search.view(112.0, 70.0),
                 &app.captions.media_no_match,
-                None::<&str>,
+                Some(t().library.media_no_match_body),
+                Some(
+                    row![
+                        action(
+                            Tone::Secondary,
+                            None,
+                            t().library.clear,
+                            None,
+                            Some(Message::MediaSearchChanged(String::new())),
+                        ),
+                        action(
+                            Tone::Outline,
+                            Some(icon::PLUS),
+                            t().library.import_media,
+                            None,
+                            enabled.then_some(Message::MediaImportRequested),
+                        ),
+                    ]
+                    .spacing(8)
+                    .into(),
+                ),
+            )
+        } else if let Some(kind) = app.media_filter {
+            let title = match kind {
+                MediaKind::Image => t().library.media_images_empty,
+                MediaKind::Video => t().library.media_videos_empty,
+                MediaKind::Audio => t().library.media_audio_empty,
+            };
+            ui::empty_state(
+                Illustration::Media.view(112.0, 70.0),
+                title,
+                Some(t().library.media_body),
+                Some(
+                    row![
+                        action(
+                            Tone::Primary,
+                            Some(icon::PLUS),
+                            t().library.import_media,
+                            None,
+                            enabled.then_some(Message::MediaImportRequested),
+                        ),
+                        action(
+                            Tone::Secondary,
+                            None,
+                            t().library.media_show_all,
+                            None,
+                            Some(Message::MediaFilterSelected(None)),
+                        ),
+                    ]
+                    .spacing(8)
+                    .into(),
+                ),
             )
         } else {
-            ui::empty(
-                icon::LAYOUT_GRID,
-                false,
+            ui::empty_state(
+                Illustration::Media.view(112.0, 70.0),
                 t().library.media_title,
                 Some(t().library.media_body),
+                Some(
+                    action(
+                        Tone::Primary,
+                        Some(icon::PLUS),
+                        t().library.import_media,
+                        None,
+                        enabled.then_some(Message::MediaImportRequested),
+                    )
+                    .into(),
+                ),
             )
         };
         container(content)
-            .padding(Padding::ZERO.bottom(12))
+            .padding(Padding::ZERO.bottom(4))
             .center(Fill)
             .into()
     } else {
-        let rows = app
-            .media_results
-            .iter()
-            .fold(Column::new().spacing(4), |list, item| {
-                list.push(media_row(app, item))
-            });
+        let items: Element<'_, Message> = match app.media_view {
+            MediaView::LargeIcons => media_grid(app, GridSpec::LARGE),
+            MediaView::MediumIcons => media_grid(app, GridSpec::MEDIUM),
+            MediaView::SmallIcons => media_grid(app, GridSpec::SMALL),
+            MediaView::List => media_list(app),
+            MediaView::Details => media_details(app),
+        };
 
         column![
-            ui::scroll(rows),
+            items,
             row![
                 icon::view(icon::MOUSE_POINTER_CLICK, 12.0, style::TEXT_3),
                 label(t().library.media_hint, 12.0, style::INTER, style::TEXT_3),
@@ -179,7 +245,152 @@ pub fn body(app: &App, enabled: bool) -> Element<'_, Message> {
         .into()
     };
 
-    column![search, list].spacing(10).height(Fill).into()
+    column![controls, list].spacing(10).height(Fill).into()
+}
+
+fn view_icon(mode: MediaView) -> (&'static str, f32) {
+    match mode {
+        MediaView::LargeIcons => (icon::MONITOR, 15.0),
+        MediaView::MediumIcons => (icon::LAYOUT_GRID, 14.0),
+        MediaView::SmallIcons => (icon::LAYOUT_GRID, 11.0),
+        MediaView::List => (icon::ROWS_3, 14.0),
+        MediaView::Details => (icon::FILE_TEXT, 14.0),
+    }
+}
+
+fn view_switcher(app: &App, enabled: bool) -> Element<'_, Message> {
+    let (glyph, icon_size) = view_icon(app.media_view);
+    let is_open = enabled && app.menu == Some(Menu::MediaView);
+
+    let trigger = button(
+        row![
+            container(icon::view(
+                glyph,
+                icon_size,
+                style::fade(style::TEXT_2, enabled),
+            ))
+            .center(16),
+            label(
+                t().library.media_view,
+                12.5,
+                style::MEDIUM,
+                style::fade(style::TEXT, enabled),
+            ),
+            icon::view(
+                icon::CHEVRON_DOWN,
+                12.0,
+                style::fade(style::TEXT_3, enabled),
+            ),
+        ]
+        .spacing(7)
+        .height(Fill)
+        .align_y(Center),
+    )
+    .height(32)
+    .padding([0, 10])
+    .on_press_maybe(enabled.then_some(Message::MenuToggled(Menu::MediaView)))
+    .style(style::pressable(
+        if is_open {
+            Tone::Toggled
+        } else {
+            Tone::Secondary
+        },
+        8.0,
+    ));
+
+    popover(
+        trigger,
+        is_open.then(|| view_menu(app)),
+        Align::End,
+        Message::MenuDismissed,
+    )
+    .into()
+}
+
+fn view_menu(app: &App) -> Element<'_, Message> {
+    let grid_items = MediaView::GRID_MODES
+        .into_iter()
+        .fold(Column::new().spacing(2), |col, mode| {
+            col.push(view_menu_item(mode, app.media_view == mode))
+        });
+    let list_items = MediaView::LIST_MODES
+        .into_iter()
+        .fold(Column::new().spacing(2), |col, mode| {
+            col.push(view_menu_item(mode, app.media_view == mode))
+        });
+
+    container(
+        column![
+            grid_items,
+            container(ui::hrule(style::BORDER)).padding([4, 0]),
+            list_items,
+        ]
+        .spacing(2),
+    )
+    .width(196)
+    .padding(6)
+    .style(style::menu)
+    .into()
+}
+
+fn view_menu_item<'a>(mode: MediaView, is_selected: bool) -> Element<'a, Message> {
+    let (glyph, icon_size) = view_icon(mode);
+    let rail = container(
+        container(Space::new())
+            .width(if is_selected { 3 } else { 2 })
+            .height(14)
+            .style(style::rounded(
+                if is_selected {
+                    style::INVERSE
+                } else {
+                    style::BORDER_STRONG
+                },
+                if is_selected { 1.5 } else { 1.0 },
+            )),
+    )
+    .center_x(6)
+    .center_y(16);
+
+    let text_color = if is_selected {
+        style::TEXT
+    } else {
+        style::TEXT_2
+    };
+
+    button(
+        row![
+            rail,
+            container(icon::view(glyph, icon_size, text_color)).center(16),
+            label(
+                mode.label(),
+                13.0,
+                if is_selected {
+                    style::SEMIBOLD
+                } else {
+                    style::INTER
+                },
+                text_color,
+            )
+            .width(Fill),
+        ]
+        .push(is_selected.then(|| icon::view(icon::CHECK, 13.0, style::TEXT)))
+        .spacing(10)
+        .height(Fill)
+        .align_y(Center),
+    )
+    .width(Fill)
+    .height(32)
+    .padding([0, 10])
+    .on_press(Message::MediaViewChanged(mode))
+    .style(style::pressable(
+        if is_selected {
+            Tone::Selected
+        } else {
+            Tone::Row
+        },
+        6.0,
+    ))
+    .into()
 }
 
 fn search_bar(app: &App, enabled: bool) -> Element<'_, Message> {
@@ -234,230 +445,4 @@ pub fn glyph(kind: MediaKind) -> &'static str {
         MediaKind::Video => icon::PLAY,
         MediaKind::Audio => icon::MUSIC,
     }
-}
-
-fn media_row<'a>(app: &'a App, item: &'a MediaSummary) -> Element<'a, Message> {
-    let thumb_key = ImageCacheKey {
-        sha256: item.sha256.clone(),
-        tier: ImageTier::Thumb,
-    };
-    let thumb_widget: Element<'a, Message> = match (item.kind, app.media.image_handle(&thumb_key)) {
-        (MediaKind::Image | MediaKind::Video, Some(handle)) => container(
-            image(handle.clone())
-                .width(56)
-                .height(32)
-                .content_fit(ContentFit::Cover),
-        )
-        .width(56)
-        .height(32)
-        .clip(true)
-        .style(style::rounded(style::SLIDE_BG, 4.0))
-        .into(),
-        (kind, _) => container(icon::view(glyph(kind), 14.0, style::TEXT_3))
-            .center_x(56)
-            .center_y(32)
-            .style(style::boxed(Some(style::RAISED), style::BORDER, 4.0))
-            .into(),
-    };
-
-    let detail = match (item.width, item.height, item.duration_ms) {
-        (Some(w), Some(h), Some(ms)) => format!("{w}×{h} · {}", format_duration(ms)),
-        (Some(w), Some(h), None) => format!("{w}×{h}"),
-        (None, None, Some(ms)) => format!("{} · {}", t().slides.audio_track, format_duration(ms)),
-        _ => item.ext.as_str().to_ascii_uppercase(),
-    };
-
-    let media_id = item.id;
-    let base = drag::draggable(
-        row![
-            thumb_widget,
-            column![
-                label(&item.title, 13.0, style::MEDIUM, style::TEXT),
-                text(detail)
-                    .size(11.5)
-                    .font(style::INTER)
-                    .color(style::TEXT_3),
-            ]
-            .spacing(2)
-            .width(Fill),
-        ]
-        .spacing(10)
-        .height(Fill)
-        .align_y(Center),
-    )
-    .width(Fill)
-    .height(48)
-    .padding([0, 10])
-    .tone(Tone::Row)
-    .radius(6.0)
-    .dragging(app.drag.is_some())
-    .on_press(Message::MediaPreviewed(media_id))
-    .on_drag(move |position| Message::MediaDragStarted(media_id, position));
-
-    let mut actions = row![].spacing(4).align_y(Center);
-    if item.kind != MediaKind::Audio {
-        actions = actions
-            .push(action(
-                Tone::Secondary,
-                None,
-                t().library.set_song_bg,
-                None,
-                Some(Message::MediaSetBackground(ContentKind::Song, media_id)),
-            ))
-            .push(action(
-                Tone::Secondary,
-                None,
-                t().library.set_bible_bg,
-                None,
-                Some(Message::MediaSetBackground(
-                    ContentKind::Scripture,
-                    media_id,
-                )),
-            ));
-    }
-    actions = actions
-        .push(ui::hint(
-            icon_button(
-                icon::PLUS,
-                style::TEXT_2,
-                28.0,
-                Some(Message::MediaPicked(media_id)),
-            ),
-            t().library.add,
-        ))
-        .push(ui::hint(
-            icon_button(
-                icon::TRASH_2,
-                style::TEXT_3,
-                28.0,
-                Some(Message::MediaDeleteRequested(media_id)),
-            ),
-            t().common.delete,
-        ));
-
-    let overlay: Element<'_, Message> = if app.drag.is_some() {
-        Space::new().into()
-    } else {
-        container(
-            container(actions)
-                .padding([0, 6])
-                .center_y(48)
-                .style(style::fill(style::RAISED)),
-        )
-        .align_right(Fill)
-        .center_y(48)
-        .into()
-    };
-
-    hover(base, overlay)
-}
-
-pub fn transport_bar<'a>(app: &'a App, slot: MediaSlot) -> Option<Element<'a, Message>> {
-    let status = app.media.status(slot)?;
-    let is_playing = status.state == PlaybackState::Playing;
-    let duration_ms = status.duration_ms.unwrap_or(0);
-    let max_val = duration_ms.max(1) as f32;
-    let current_val = (status.position_ms as f32).clamp(0.0, max_val);
-
-    let play_pause = action(
-        Tone::Secondary,
-        Some(if is_playing { icon::SQUARE } else { icon::PLAY }),
-        if is_playing {
-            t().slides.pause
-        } else {
-            t().slides.play
-        },
-        None,
-        Some(Message::MediaPlayToggle(slot)),
-    );
-
-    let stop = ui::hint(
-        icon_button(
-            icon::SQUARE,
-            style::TEXT_2,
-            28.0,
-            Some(Message::MediaStop(slot)),
-        ),
-        t().slides.stop,
-    );
-
-    let time_text = if duration_ms > 0 {
-        format!(
-            "{} / {}",
-            format_duration(status.position_ms),
-            format_duration(duration_ms)
-        )
-    } else {
-        format_duration(status.position_ms)
-    };
-
-    let seek_slider: Element<'a, Message> = if duration_ms > 0 {
-        slider(0.0..=max_val, current_val, move |pos| {
-            Message::MediaSeekChanged(slot, pos.round() as u64)
-        })
-        .on_release(Message::MediaSeekCommitted(slot))
-        .step(250.0_f32)
-        .width(Fill)
-        .into()
-    } else {
-        Space::new().width(Fill).into()
-    };
-
-    let loop_btn = action(
-        if status.looping {
-            Tone::Primary
-        } else {
-            Tone::Secondary
-        },
-        Some(icon::REFRESH_CW),
-        t().slides.loop_on,
-        None,
-        Some(Message::MediaLoopToggle(slot)),
-    );
-
-    let mut controls = row![
-        play_pause,
-        stop,
-        seek_slider,
-        text(time_text)
-            .size(11.5)
-            .font(style::MEDIUM)
-            .color(style::TEXT_2),
-        loop_btn
-    ]
-    .spacing(8)
-    .align_y(Center);
-
-    if slot == MediaSlot::Live {
-        controls = controls.push(action(
-            if status.muted {
-                Tone::Secondary
-            } else {
-                Tone::Primary
-            },
-            None,
-            if status.muted {
-                t().slides.unmute
-            } else {
-                t().slides.mute
-            },
-            None,
-            Some(Message::MediaMuteToggle(slot)),
-        ));
-    }
-
-    Some(
-        container(controls)
-            .padding([8, 12])
-            .width(Fill)
-            .style(style::boxed(Some(style::RAISED), style::BORDER, 8.0))
-            .into(),
-    )
-}
-
-fn format_duration(ms: u64) -> String {
-    let total_secs = ms / 1000;
-    let mins = total_secs / 60;
-    let secs = total_secs % 60;
-    format!("{mins}:{secs:02}")
 }

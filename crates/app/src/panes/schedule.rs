@@ -4,12 +4,13 @@ use sdw_core::{BackgroundMedia, ContentKind};
 
 use crate::i18n::t;
 use crate::icon;
+use crate::illustration::Illustration;
 use crate::message::{MediaDrop, Message};
 use crate::panes::{columns, live_badge, media};
 use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
-use crate::style;
-use crate::ui::{self, label};
+use crate::style::{self, Tone};
+use crate::ui::{self, action, label};
 use crate::{App, Drag, ScheduleMenu};
 
 const ROW_HEIGHT: f32 = 52.0;
@@ -47,16 +48,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let body: Element<'_, Message> = if app.schedule.is_empty() {
         let is_drop_target = song_drop == Some(Some(0));
+        let cta = app.library_unavailable.is_none().then(|| {
+            action(
+                Tone::Secondary,
+                Some(icon::PLUS),
+                t().library.add_song,
+                None,
+                app.drag.is_none().then_some(Message::SongCreateRequested),
+            )
+            .into()
+        });
 
         container(
-            container(ui::empty(
-                icon::LIST_PLUS,
-                true,
+            container(ui::empty_state(
+                Illustration::Schedule.view(118.0, 74.0),
                 t().schedule.empty_title,
                 Some(t().schedule.empty_body),
+                cta,
             ))
             .width(Fill)
-            .padding([24, 16])
+            .padding([20, 12])
             .style(style::boxed(
                 is_drop_target.then_some(style::SURFACE),
                 if is_drop_target {
@@ -69,9 +80,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )
         .padding(Padding {
             top: 0.0,
-            right: 12.0,
-            bottom: 80.0,
-            left: 12.0,
+            right: 6.0,
+            bottom: 32.0,
+            left: 6.0,
         })
         .center(Fill)
         .into()
@@ -117,21 +128,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             None => rows,
         };
 
-        let tip = (app.schedule.entries().len() <= 2).then(|| {
-            container(
-                column![
-                    label(t().schedule.tip_title, 12.0, style::SEMIBOLD, style::TEXT),
-                    label(t().schedule.tip_body, 12.0, style::INTER, style::TEXT_3)
-                        .line_height(1.45),
-                ]
-                .spacing(6),
-            )
-            .padding(12)
-            .width(Fill)
-            .style(style::boxed(Some(style::SURFACE), style::BORDER, 8.0))
-        });
-
-        column![ui::scroll(rows)].push(tip).spacing(4).into()
+        ui::scroll(rows).into()
     };
 
     let pane = right_click(

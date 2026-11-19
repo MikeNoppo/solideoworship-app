@@ -13,7 +13,7 @@ pub use ffmpeg::{MediaPlayer, MediaProbe, MediaSink, generate_video_thumbnail, p
 pub use hash::sha256_file;
 pub use image::{
     ByteLruCache, CachedBytes, DecodedRgba, ImageCache, ImageCacheKey, ImageTier,
-    decode_image_capped, generate_image_thumbnail,
+    decode_image_bytes, decode_image_capped, generate_image_thumbnail,
 };
 pub use video::{
     ColorMatrix, ColorRange, FramePool, PixelFormat, PlaybackState, PlaybackStatus, SeekDebouncer,

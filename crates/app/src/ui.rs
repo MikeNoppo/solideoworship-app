@@ -286,19 +286,44 @@ pub fn empty_with<'a, M: 'a>(
     title: &'a str,
     body: Option<&'a str>,
 ) -> Element<'a, M> {
-    column![
-        symbol.into(),
-        label(title, 13.0, style::SEMIBOLD, style::TEXT)
-    ]
-    .push(body.map(|body| {
-        label(body, 12.0, style::INTER, style::TEXT_3)
-            .line_height(1.45)
-            .align_x(Center)
-            .width(Fill)
-    }))
-    .spacing(10)
-    .align_x(Center)
-    .into()
+    empty_state(symbol, title, body, None)
+}
+
+pub fn empty_state<'a, M: 'a>(
+    visual: impl Into<Element<'a, M>>,
+    title: &'a str,
+    body: Option<&'a str>,
+    cta: Option<Element<'a, M>>,
+) -> Element<'a, M> {
+    let copy = container(
+        column![label(title, 13.5, style::SEMIBOLD, style::TEXT).align_x(Center)]
+            .push(body.map(|body| {
+                label(body, 12.0, style::INTER, style::TEXT_3)
+                    .line_height(1.5)
+                    .align_x(Center)
+            }))
+            .spacing(5)
+            .align_x(Center),
+    )
+    .max_width(360)
+    .center_x(Fill);
+
+    column![visual.into(), copy]
+        .push(cta.map(|action| container(action).padding(Padding::ZERO.top(4))))
+        .spacing(10)
+        .align_x(Center)
+        .into()
+}
+
+pub fn error_badge<'a, M: 'a>(glyph: &'static str) -> Element<'a, M> {
+    container(icon::view(glyph, 18.0, style::LIVE))
+        .center(40)
+        .style(style::boxed(
+            Some(style::LIVE_SOFT),
+            style::LIVE.scale_alpha(0.35),
+            10.0,
+        ))
+        .into()
 }
 
 pub fn sheet<'a, M: 'a>(
