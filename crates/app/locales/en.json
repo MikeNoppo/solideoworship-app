@@ -107,6 +107,7 @@
     "move_down": "Move down",
     "duplicate": "Duplicate item",
     "remove": "Remove from schedule",
+    "clear_background": "Remove item background",
     "removed": "“{title}” was removed from the schedule",
     "background_set": "“{title}” is now the background for “{item}”"
   },
@@ -279,7 +280,7 @@
     "media_audio": "Audio",
     "import_media": "Import media",
     "media_search": "Search media by title",
-    "media_hint": "Click to preview, double-click to add to the schedule, or assign as slide background.",
+    "media_hint": "Click to preview, double-click to add to the schedule, or drag onto a schedule item to use it as that item’s background.",
     "media_title": "Your media library is empty",
     "media_body": "Import images, videos, or audio tracks to play them live or use them as song and Bible backgrounds.",
     "set_song_bg": "Song bg",

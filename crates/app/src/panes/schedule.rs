@@ -1,11 +1,11 @@
-use iced::widget::{Column, Space, column, container, mouse_area, opaque, row, space, stack};
+use iced::widget::{Column, Space, column, container, mouse_area, opaque, row, space, stack, text};
 use iced::{Bottom, Center, Element, Fill, Padding, Point, Top};
-use sdw_core::{ContentKind, MediaKind};
+use sdw_core::{BackgroundMedia, ContentKind, MediaKind};
 
 use crate::i18n::t;
 use crate::icon;
 use crate::message::{MediaDrop, Message};
-use crate::panes::{columns, live_badge};
+use crate::panes::{columns, live_badge, media};
 use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
 use crate::style;
@@ -193,37 +193,54 @@ fn context_menu(app: &App, menu: ScheduleMenu) -> Element<'static, Message> {
                 None,
                 song_id.map(Message::SongEditRequested),
             ),
-            separator(),
-            ui::menu_item(
-                None,
-                t().schedule.move_up,
-                None,
-                target
-                    .filter(|&index| index > 0)
-                    .map(|index| Message::ScheduleMoved(index, index - 1)),
-            ),
-            ui::menu_item(
-                None,
-                t().schedule.move_down,
-                None,
-                target
-                    .filter(|&index| index + 1 < total)
-                    .map(|index| Message::ScheduleMoved(index, index + 1)),
-            ),
-            separator(),
-            ui::menu_item(
-                None,
-                t().schedule.duplicate,
-                None,
-                target.map(Message::ScheduleDuplicated),
-            ),
-            ui::menu_item(
-                Some(icon::TRASH_2),
-                t().schedule.remove,
-                None,
-                target.map(Message::ScheduleRemoved),
-            ),
         ]
+        .push(
+            target
+                .filter(|&index| entries[index].background().is_some())
+                .map(|index| {
+                    ui::menu_item(
+                        Some(icon::ERASER),
+                        t().schedule.clear_background,
+                        None,
+                        Some(Message::ScheduleBackgroundCleared(index)),
+                    )
+                }),
+        )
+        .push(
+            column![
+                separator(),
+                ui::menu_item(
+                    None,
+                    t().schedule.move_up,
+                    None,
+                    target
+                        .filter(|&index| index > 0)
+                        .map(|index| Message::ScheduleMoved(index, index - 1)),
+                ),
+                ui::menu_item(
+                    None,
+                    t().schedule.move_down,
+                    None,
+                    target
+                        .filter(|&index| index + 1 < total)
+                        .map(|index| Message::ScheduleMoved(index, index + 1)),
+                ),
+                separator(),
+                ui::menu_item(
+                    None,
+                    t().schedule.duplicate,
+                    None,
+                    target.map(Message::ScheduleDuplicated),
+                ),
+                ui::menu_item(
+                    Some(icon::TRASH_2),
+                    t().schedule.remove,
+                    None,
+                    target.map(Message::ScheduleRemoved),
+                ),
+            ]
+            .spacing(2),
+        )
         .spacing(2),
     )
     .on_enter(Message::ScheduleAddSubmenu(false));
@@ -309,6 +326,23 @@ fn media_drop(y: f32, len: usize, takes_background: impl Fn(usize) -> bool) -> M
     MediaDrop::Insert(insertion_index(y, len))
 }
 
+fn background_chip(background: &BackgroundMedia) -> Element<'_, Message> {
+    let media = background.media();
+    container(
+        row![
+            icon::view(media::glyph(media.kind), 11.0, style::TEXT_3),
+            label(&media.title, 11.0, style::INTER, style::TEXT_3).wrapping(text::Wrapping::None),
+        ]
+        .spacing(4)
+        .align_y(Center),
+    )
+    .padding([1, 6])
+    .max_width(160)
+    .clip(true)
+    .style(style::boxed(Some(style::RAISED), style::BORDER, 4.0))
+    .into()
+}
+
 fn drop_line<'a>() -> Element<'a, Message> {
     row![
         ui::dot(6.0, style::INVERSE),
@@ -358,7 +392,10 @@ fn item<'a>(
             .style(style::boxed(Some(style::RAISED), style::BORDER, 6.0)),
         column![
             label(&entry.deck().title, 13.0, style::MEDIUM, style::TEXT),
-            label(entry.meta(), 12.0, style::INTER, style::TEXT_3),
+            row![label(entry.meta(), 12.0, style::INTER, style::TEXT_3)]
+                .push(entry.background().map(background_chip))
+                .spacing(6)
+                .align_y(Center),
         ]
         .spacing(2)
         .width(Fill),

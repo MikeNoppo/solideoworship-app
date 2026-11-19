@@ -706,6 +706,13 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ScheduleBackgroundCleared(index) => {
+                self.dismiss_menus();
+                let _ = self
+                    .schedule
+                    .set_background(index, None, &self.settings.styles);
+                Task::none()
+            }
             Message::ScheduleContextMenu(target, position) => {
                 if self.modal.is_some() {
                     return Task::none();
@@ -5515,6 +5522,38 @@ mod tests {
         drop_media(&mut app, 1, Some(MediaDrop::Background(0)));
         assert_eq!(app.schedule.entries()[0].background(), None);
         assert_eq!(app.schedule.entries().len(), 3);
+    }
+
+    #[test]
+    fn clearing_an_item_background_falls_back_to_the_global_background() {
+        let mut app = media_drag_app();
+        let global = background_of(&app.media_results[1]);
+        app.settings.styles.song.theme.background_media = Some(global.clone());
+        drop_media(&mut app, 1, Some(MediaDrop::Background(1)));
+
+        let _ = app.update(Message::ScheduleContextMenu(
+            Some(1),
+            iced::Point::new(40.0, 40.0),
+        ));
+        let _ = crate::panes::control::view(&app);
+        let _ = app.update(Message::ScheduleBackgroundCleared(1));
+
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.schedule.entries()[1].background(), None);
+        let preview = app.schedule.preview().unwrap().deck();
+        assert_eq!(
+            preview.background_or(&app.settings.styles.song.theme),
+            Some(&global)
+        );
+
+        let _ = app.update(Message::ScheduleBackgroundCleared(0));
+        let _ = app.update(Message::ScheduleBackgroundCleared(99));
+        assert!(
+            app.schedule
+                .entries()
+                .iter()
+                .all(|entry| entry.background().is_none())
+        );
     }
 
     #[test]

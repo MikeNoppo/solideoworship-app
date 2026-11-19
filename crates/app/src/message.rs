@@ -165,6 +165,7 @@ pub enum Message {
     ScheduleRemoved(usize),
     ScheduleMoved(usize, usize),
     ScheduleDuplicated(usize),
+    ScheduleBackgroundCleared(usize),
     ScheduleContextMenu(Option<usize>, iced::Point),
     ScheduleAddSubmenu(bool),
     ScheduleScriptureRequested,
@@ -329,6 +330,7 @@ impl Message {
             | Self::ScheduleRemoved(..)
             | Self::ScheduleMoved(..)
             | Self::ScheduleDuplicated(..)
+            | Self::ScheduleBackgroundCleared(..)
             | Self::ScheduleContextMenu(..)
             | Self::ScheduleScriptureRequested
             | Self::DragStarted(..)
