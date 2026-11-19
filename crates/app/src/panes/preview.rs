@@ -61,6 +61,7 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
     .align_y(Center);
 
     let theme = app.settings.styles.theme(preview.deck().kind);
+    let background = preview.deck().background_or(theme);
     let live_index = app
         .live
         .as_ref()
@@ -77,7 +78,7 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
     let content_view: Element<'_, Message> = if preview.deck().kind == ContentKind::Media
         && let Some(item) = preview.slides().first()
     {
-        let backdrop = app.preview_stage_backdrop(item, theme);
+        let backdrop = app.preview_stage_backdrop(item, background);
         let stage = slide::stage_with_media(Some(item), theme, Visibility::FULL, backdrop);
         let overlay: Option<Element<'_, Message>> = if app.preview_media_missing {
             Some(
@@ -124,7 +125,7 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
                     Row::new().spacing(GAP),
                     |cells, (offset, item)| {
                         let index = chunk * COLUMNS + offset;
-                        let backdrop = app.thumbnail_backdrop(item, theme);
+                        let backdrop = app.thumbnail_backdrop(item, background);
 
                         cells.push(slide_card_with_media(
                             Card {

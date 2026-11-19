@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use sdw_core::{Presentation, ScheduleItem, ScheduledItem, SlideDeck, Song, Styles};
+use sdw_core::{
+    BackgroundMedia, MediaHash, Presentation, ScheduleItem, ScheduledItem, SlideDeck, Song, Styles,
+};
 use sdw_library::SongId;
 
 use crate::i18n::{Label, count, t};
@@ -70,6 +72,10 @@ impl Entry {
 
     pub fn item(&self) -> &ScheduleItem {
         &self.source.item
+    }
+
+    pub fn background(&self) -> Option<&BackgroundMedia> {
+        self.source.background.as_ref()
     }
 
     pub fn deck(&self) -> &SlideDeck {
@@ -291,6 +297,26 @@ impl Schedule {
         self.refresh_preview();
     }
 
+    pub fn clear_backgrounds_of(&mut self, sha256: &MediaHash, styles: &Styles) {
+        let mut selected_changed = false;
+
+        for (index, entry) in self.entries.iter_mut().enumerate() {
+            if entry
+                .background()
+                .is_some_and(|background| &background.media().sha256 == sha256)
+            {
+                entry.source.background = None;
+                entry.compile(styles);
+                selected_changed |= self.selected == Some(index);
+                self.revision += 1;
+            }
+        }
+
+        if selected_changed {
+            self.refresh_preview();
+        }
+    }
+
     pub fn contains_song(&self, id: SongId) -> bool {
         self.entries.iter().any(|entry| entry.origin == Some(id))
     }
@@ -388,7 +414,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    use sdw_core::{ScheduleItem, ScheduledItem, Song, Styles};
+    use sdw_core::{
+        BackgroundMedia, MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, ScheduledItem,
+        Song, Styles,
+    };
     use sdw_library::{Library, SongId};
 
     use super::{Entry, Schedule};
@@ -402,6 +431,68 @@ mod tests {
             .iter()
             .map(|title| ScheduledItem::new(song(title)))
             .collect()
+    }
+
+    fn background(digit: char) -> BackgroundMedia {
+        BackgroundMedia::for_media(MediaRef {
+            sha256: MediaHash::parse(&digit.to_string().repeat(64)).unwrap(),
+            ext: MediaExt::parse("png").unwrap(),
+            title: Arc::from("Backdrop"),
+            kind: MediaKind::Image,
+            width: None,
+            height: None,
+            duration_ms: None,
+        })
+        .unwrap()
+    }
+
+    fn with_backgrounds() -> Schedule {
+        let mut schedule = Schedule::default();
+        schedule.load(
+            PathBuf::from("bg.sdw"),
+            vec![
+                ScheduledItem::with_background(song("A"), Some(background('a'))),
+                ScheduledItem::with_background(song("B"), Some(background('b'))),
+                ScheduledItem::new(song("C")),
+            ],
+            &Styles::default(),
+        );
+        schedule
+    }
+
+    #[test]
+    fn deleted_media_clears_only_matching_item_backgrounds() {
+        let mut schedule = with_backgrounds();
+        schedule.select(0);
+        let unrelated = MediaHash::parse(&"f".repeat(64)).unwrap();
+
+        schedule.clear_backgrounds_of(&unrelated, &Styles::default());
+        assert!(!schedule.is_dirty());
+
+        let deleted = background('a');
+        schedule.clear_backgrounds_of(&deleted.media().sha256, &Styles::default());
+
+        assert!(schedule.is_dirty());
+        assert_eq!(schedule.entries()[0].background(), None);
+        assert_eq!(schedule.entries()[0].deck().background, None);
+        assert_eq!(schedule.preview().unwrap().deck().background, None);
+        assert_eq!(schedule.entries()[1].background(), Some(&background('b')));
+    }
+
+    #[test]
+    fn duplicate_keeps_the_item_background() {
+        let mut schedule = with_backgrounds();
+
+        let copy = schedule.duplicate(0).unwrap();
+        assert_eq!(
+            schedule.entries()[copy].background(),
+            Some(&background('a'))
+        );
+        assert_eq!(
+            schedule.entries()[copy].deck().background,
+            Some(background('a'))
+        );
+        assert_eq!(schedule.items()[copy].background, Some(background('a')));
     }
 
     fn schedule(titles: &[&str]) -> Schedule {

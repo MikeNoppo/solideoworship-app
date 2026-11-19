@@ -44,7 +44,7 @@ use sdw_core::slide::{ContentKind, Slide};
 use sdw_core::theme::SlideTheme;
 use sdw_core::transition::TransitionSpec;
 use sdw_core::{
-    BackgroundMedia, MediaFit, MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song,
+    BackgroundMedia, MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song,
 };
 use sdw_library::{MediaId, MediaSummary, SongId, SongSummary, schedule_file};
 use sdw_media::PlaybackState;
@@ -873,7 +873,11 @@ impl App {
                         let _ = live.go_to(preview.index());
                     }
 
-                    self.live_theme = self.settings.styles.theme(preview.deck().kind).clone();
+                    let theme = self.settings.styles.theme(preview.deck().kind);
+                    self.live_theme = SlideTheme {
+                        background_media: preview.deck().background_or(theme).cloned(),
+                        ..theme.clone()
+                    };
                     self.live_sections = preview
                         .slides()
                         .iter()
@@ -1664,6 +1668,8 @@ impl App {
                     self.media.evict_media(&summary.sha256);
                     let text = fill(t().library.media_deleted, &[("title", &summary.title)]);
                     self.show_toast(Toast::Done(text.into_boxed_str()));
+                    self.schedule
+                        .clear_backgrounds_of(&summary.sha256, &self.settings.styles);
                     let clear_bg_task = self.clear_deleted_backgrounds(&summary.sha256);
                     Task::batch([clear_bg_task, self.load_media()])
                 }
@@ -1677,18 +1683,8 @@ impl App {
                 let Some(summary) = self.media_results.iter().find(|item| item.id == id) else {
                     return Task::none();
                 };
-                let bg = match summary.kind {
-                    MediaKind::Image => BackgroundMedia::Image {
-                        media: media_engine::media_ref(summary),
-                        fit: MediaFit::Cover,
-                    },
-                    MediaKind::Video => BackgroundMedia::Video {
-                        media: media_engine::media_ref(summary),
-                        fit: MediaFit::Cover,
-                        loop_playback: true,
-                        muted: true,
-                    },
-                    MediaKind::Audio => return Task::none(),
+                let Some(bg) = BackgroundMedia::for_media(media_engine::media_ref(summary)) else {
+                    return Task::none();
                 };
                 self.set_theme_background(kind, Some(bg))
             }
@@ -2553,18 +2549,22 @@ impl App {
         if !frame.background_media_visible {
             return MediaBackdrop::default();
         }
-        self.media
-            .stage_backdrop(frame.slide, frame.theme, MediaSlot::Live, viewport)
+        self.media.stage_backdrop(
+            frame.slide,
+            frame.theme.background_media.as_ref(),
+            MediaSlot::Live,
+            viewport,
+        )
     }
 
     pub(crate) fn preview_stage_backdrop<'a>(
         &'a self,
         slide: &'a Slide,
-        theme: &'a SlideTheme,
+        background: Option<&'a BackgroundMedia>,
     ) -> MediaBackdrop<'a> {
         self.media.stage_backdrop(
             Some(slide),
-            theme,
+            background,
             MediaSlot::Preview,
             ViewportSlot::Preview,
         )
@@ -2573,9 +2573,9 @@ impl App {
     pub(crate) fn thumbnail_backdrop<'a>(
         &'a self,
         slide: &'a Slide,
-        theme: &'a SlideTheme,
+        background: Option<&'a BackgroundMedia>,
     ) -> MediaBackdrop<'a> {
-        self.media.thumbnail_backdrop(slide, theme)
+        self.media.thumbnail_backdrop(slide, background)
     }
 
     fn load_media(&self) -> Task<Message> {
@@ -2605,7 +2605,7 @@ impl App {
         let preview_plan = self.schedule.preview().and_then(|preview| {
             let slide = Some(preview.current());
             let theme = self.settings.styles.theme(preview.deck().kind);
-            media_engine::plan_slot_media(slide, theme)
+            media_engine::plan_slot_media(slide, preview.deck().background_or(theme))
         });
         let preview_missing = media_engine::prepare_slot_sync(
             &mut self.media,
@@ -2627,7 +2627,7 @@ impl App {
         } else {
             let slide = self.live.as_ref().map(Presentation::current);
             let theme = self.scene_theme();
-            media_engine::plan_slot_media(slide, theme)
+            media_engine::plan_slot_media(slide, theme.background_media.as_ref())
         };
         let live_missing = media_engine::prepare_slot_sync(
             &mut self.media,
@@ -2878,7 +2878,7 @@ mod tests {
     use std::path::PathBuf;
 
     use iced::window;
-    use sdw_core::{OutputState, ScheduleItem, ScheduledItem, Song};
+    use sdw_core::{BackgroundMedia, MediaKind, OutputState, ScheduleItem, ScheduledItem, Song};
 
     use sdw_library::{Library, SongSummary};
 
@@ -5259,6 +5259,55 @@ mod tests {
             app.schedule.entries()[0].deck().title.as_ref(),
             "Motion Wave"
         );
+    }
+
+    fn media_summary(id: i64, kind: MediaKind, digit: char) -> sdw_library::MediaSummary {
+        sdw_library::MediaSummary {
+            id: sdw_library::MediaId(id),
+            sha256: sdw_core::MediaHash::parse(&digit.to_string().repeat(64)).unwrap(),
+            kind,
+            title: std::sync::Arc::from(format!("Media {id}")),
+            ext: sdw_core::MediaExt::parse("png").unwrap(),
+            width: None,
+            height: None,
+            duration_ms: None,
+            byte_size: 1,
+        }
+    }
+
+    fn background_of(summary: &sdw_library::MediaSummary) -> BackgroundMedia {
+        BackgroundMedia::for_media(crate::media_engine::media_ref(summary)).unwrap()
+    }
+
+    #[test]
+    fn go_live_snapshots_the_item_background_before_the_theme_background() {
+        let mut app = App::default();
+        let global = background_of(&media_summary(1, MediaKind::Video, 'a'));
+        let own = background_of(&media_summary(2, MediaKind::Image, 'b'));
+        app.settings.styles.song.theme.background_media = Some(global.clone());
+        app.schedule.load(
+            PathBuf::from("bg.sdw"),
+            vec![
+                ScheduledItem::with_background(
+                    ScheduleItem::Song(Song::new("Own", "one", None)),
+                    Some(own.clone()),
+                ),
+                ScheduledItem::new(ScheduleItem::Song(Song::new("Global", "one", None))),
+            ],
+            &app.settings.styles,
+        );
+
+        app.schedule.select(0);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&own));
+        assert_eq!(
+            app.settings.styles.song.theme.background_media.as_ref(),
+            Some(&global)
+        );
+
+        app.schedule.select(1);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&global));
     }
 
     #[test]
