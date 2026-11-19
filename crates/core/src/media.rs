@@ -17,6 +17,10 @@ impl MediaKind {
         }
     }
 
+    pub const fn is_visual(self) -> bool {
+        matches!(self, Self::Image | Self::Video)
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "image" => Some(Self::Image),
@@ -151,6 +155,13 @@ mod tests {
             assert_eq!(MediaKind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(MediaKind::parse("unknown"), None);
+    }
+
+    #[test]
+    fn only_images_and_videos_are_visual() {
+        assert!(MediaKind::Image.is_visual());
+        assert!(MediaKind::Video.is_visual());
+        assert!(!MediaKind::Audio.is_visual());
     }
 
     #[test]

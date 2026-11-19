@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use sdw_core::{
-    BackgroundMedia, MediaHash, Presentation, ScheduleItem, ScheduledItem, SlideDeck, Song, Styles,
+    BackgroundMedia, MediaHash, MediaKind, Presentation, ScheduleItem, ScheduledItem, SlideDeck,
+    Song, Styles,
 };
 use sdw_library::SongId;
 
@@ -318,6 +319,14 @@ impl Schedule {
         true
     }
 
+    pub fn takes_background(&self, index: usize, kind: MediaKind) -> bool {
+        kind.is_visual()
+            && self
+                .entries
+                .get(index)
+                .is_some_and(|entry| entry.item().accepts_background())
+    }
+
     pub fn clear_backgrounds_of(&mut self, sha256: &MediaHash, styles: &Styles) {
         let mut selected_changed = false;
 
@@ -498,6 +507,22 @@ mod tests {
         assert_eq!(schedule.entries()[0].deck().background, None);
         assert_eq!(schedule.preview().unwrap().deck().background, None);
         assert_eq!(schedule.entries()[1].background(), Some(&background('b')));
+    }
+
+    #[test]
+    fn only_visual_media_can_become_the_background_of_songs_and_passages() {
+        let mut schedule = with_backgrounds();
+        schedule.push(
+            ScheduleItem::Media(background('d').media().clone()),
+            None,
+            &Styles::default(),
+        );
+
+        assert!(schedule.takes_background(0, MediaKind::Image));
+        assert!(schedule.takes_background(2, MediaKind::Video));
+        assert!(!schedule.takes_background(0, MediaKind::Audio));
+        assert!(!schedule.takes_background(3, MediaKind::Image));
+        assert!(!schedule.takes_background(99, MediaKind::Image));
     }
 
     #[test]

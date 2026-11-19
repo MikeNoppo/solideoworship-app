@@ -1,6 +1,6 @@
 use iced::widget::{Column, Space, column, container, mouse_area, opaque, row, space, stack, text};
 use iced::{Bottom, Center, Element, Fill, Padding, Point, Top};
-use sdw_core::{BackgroundMedia, ContentKind, MediaKind};
+use sdw_core::{BackgroundMedia, ContentKind};
 
 use crate::i18n::t;
 use crate::icon;
@@ -107,11 +107,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 Message::SongDropTarget(Some(insertion_index(position.y, len)))
             }),
             Some(Drag::Media { kind, .. }) => {
-                let takes_background = *kind != MediaKind::Audio;
-                let entries = app.schedule.entries();
+                let kind = *kind;
                 rows.on_move(move |position| {
                     Message::MediaDropTarget(Some(media_drop(position.y, len, |index| {
-                        takes_background && entries[index].item().accepts_background()
+                        app.schedule.takes_background(index, kind)
                     })))
                 })
             }
