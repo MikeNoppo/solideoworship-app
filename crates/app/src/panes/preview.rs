@@ -7,8 +7,9 @@ use crate::App;
 use crate::i18n::t;
 use crate::icon;
 use crate::message::Message;
-use crate::panes::{Card, columns, slide_card_with_media};
+use crate::panes::{Card, slide_card_with_media};
 use crate::render::slide::{self, Visibility};
+use crate::splitter;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
 
@@ -68,9 +69,13 @@ pub fn view<'a>(app: &'a App, preview: &'a Presentation) -> Element<'a, Message>
         .filter(|_| app.output.is_some() && entry.is_some_and(|entry| app.is_live(entry)))
         .map(Presentation::index);
 
-    let layout = columns(app.control_width);
-    let available =
-        app.control_width - layout.schedule - layout.live - 2.0 - PADDING * 2.0 - ui::SCROLL_GUTTER;
+    let layout = app.columns();
+    let available = app.control_width
+        - layout.schedule
+        - layout.live
+        - splitter::THICKNESS * 2.0
+        - PADDING * 2.0
+        - ui::SCROLL_GUTTER;
     let width = ((available - GAP * (COLUMNS - 1) as f32) / COLUMNS as f32)
         .floor()
         .max(MIN_WIDTH);

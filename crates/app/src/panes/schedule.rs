@@ -5,7 +5,7 @@ use sdw_core::{BackgroundMedia, ContentKind};
 use crate::i18n::t;
 use crate::icon;
 use crate::message::{MediaDrop, Message};
-use crate::panes::{columns, live_badge, media};
+use crate::panes::{live_badge, media};
 use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
 use crate::style;
@@ -136,7 +136,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let pane = right_click(
         container(column![header, body].spacing(4))
-            .width(columns(app.control_width).schedule)
+            .width(app.columns().schedule)
             .height(Fill)
             .padding([16, 12]),
         |position| Message::ScheduleContextMenu(None, position),

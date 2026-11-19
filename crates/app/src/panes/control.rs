@@ -3,7 +3,7 @@ use iced::{Center, Element, Fill, FillPortion, Padding, Point};
 
 use crate::i18n::t;
 use crate::message::{Message, Notice};
-use crate::panes::{library, live, preview, schedule, toolbar, unsaved, welcome};
+use crate::panes::{ResizablePane, library, live, preview, schedule, toolbar, unsaved, welcome};
 use crate::splitter;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, label};
@@ -43,14 +43,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into(),
     };
 
+    let layout = app.columns();
     let (top_portion, bottom_portion) = app.split_portions();
     let split_enabled = app.splitters_enabled();
 
     let top_row = row![
         schedule::view(app),
-        ui::line(style::BORDER),
+        crate::panes::pane_splitter(ResizablePane::Schedule, layout.schedule, split_enabled),
         center_pane,
-        ui::line(style::BORDER),
+        crate::panes::pane_splitter(ResizablePane::Live, layout.live, split_enabled)
+            .inverted()
+            .trailing_background(style::SURFACE),
         live::view(app),
     ]
     .height(FillPortion(top_portion));

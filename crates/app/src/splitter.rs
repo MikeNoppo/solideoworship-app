@@ -147,6 +147,7 @@ pub struct Splitter<Message> {
     scale: f32,
     enabled: bool,
     leading_background: Option<Color>,
+    trailing_background: Option<Color>,
     on_resize: fn(f32) -> Message,
     on_reset: Option<Message>,
 }
@@ -167,6 +168,7 @@ impl<Message> Splitter<Message> {
             scale: 1.0,
             enabled: true,
             leading_background: None,
+            trailing_background: None,
             on_resize,
             on_reset: None,
         }
@@ -177,6 +179,11 @@ impl<Message> Splitter<Message> {
         self
     }
 
+    pub fn inverted(mut self) -> Self {
+        self.scale = -self.scale.abs();
+        self
+    }
+
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -184,6 +191,11 @@ impl<Message> Splitter<Message> {
 
     pub fn leading_background(mut self, color: Color) -> Self {
         self.leading_background = Some(color);
+        self
+    }
+
+    pub fn trailing_background(mut self, color: Color) -> Self {
+        self.trailing_background = Some(color);
         self
     }
 
@@ -398,6 +410,10 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Splitter<Message> {
     ) {
         let bounds = layout.bounds();
         let half = (THICKNESS - 1.0) * 0.5;
+        let span = match self.axis {
+            Axis::Vertical => bounds.width,
+            Axis::Horizontal => bounds.height,
+        };
         let state = tree.state.downcast_ref::<State>();
         let dragging = self.enabled && state.dragging.is_some();
         let hovered = self.enabled && state.hovered;
@@ -416,6 +432,15 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Splitter<Message> {
 
         if let Some(color) = self.leading_background {
             fill_rect(renderer, strip_rect(self.axis, bounds, 0.0, half), color);
+        }
+
+        if let Some(color) = self.trailing_background {
+            let trailing = (span - half - 1.0).max(0.0);
+            fill_rect(
+                renderer,
+                strip_rect(self.axis, bounds, half + 1.0, trailing),
+                color,
+            );
         }
 
         fill_rect(

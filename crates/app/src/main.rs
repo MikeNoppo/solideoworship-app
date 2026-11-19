@@ -300,6 +300,7 @@ struct App {
     hovered_row: Option<usize>,
     drag: Option<Drag>,
     split_ratio: f32,
+    pane_widths: panes::PaneWidths,
     modal_ticket: u64,
     schedule_save_id: u64,
     schedule_save: Option<ScheduleSave>,
@@ -663,6 +664,14 @@ impl App {
             }
             Message::SplitReset => {
                 self.split_ratio = DEFAULT_SPLIT;
+                Task::none()
+            }
+            Message::PaneResized(pane, width) => {
+                self.pane_widths.set(pane, width, self.control_width);
+                Task::none()
+            }
+            Message::PaneReset(pane) => {
+                self.pane_widths.reset(pane);
                 Task::none()
             }
 
@@ -2338,6 +2347,10 @@ impl App {
         let top = (self.split_ratio() * SPLIT_SCALE).round() as u16;
         let bottom = (SPLIT_SCALE as u16).saturating_sub(top).max(1);
         (top.max(1), bottom)
+    }
+
+    fn columns(&self) -> crate::panes::Columns {
+        self.pane_widths.resolve(self.control_width)
     }
 
     fn split_body_height(&self) -> f32 {
@@ -4812,6 +4825,44 @@ mod tests {
         let _ = app.update(Message::SplitReset);
         assert!((app.split_ratio() - super::DEFAULT_SPLIT).abs() < 0.001);
         assert_eq!(app.split_portions(), (550, 450));
+    }
+
+    #[test]
+    fn pane_resize_adjusts_clamps_and_resets_main_panes() {
+        use crate::panes::ResizablePane;
+
+        assert!(!Message::SplitResized(0.6).refreshes_captions());
+        assert!(!Message::SplitReset.refreshes_captions());
+        assert!(!Message::PaneResized(ResizablePane::Schedule, 300.0).refreshes_captions());
+        assert!(!Message::PaneReset(ResizablePane::Schedule).refreshes_captions());
+
+        let mut app = live_with_two_songs();
+        app.control_width = 1480.0;
+        app.control_height = 920.0;
+
+        let _ = app.update(Message::PaneResized(ResizablePane::Schedule, 340.0));
+        let _ = app.update(Message::PaneResized(ResizablePane::Live, 430.0));
+        let _ = app.update(Message::PaneResized(ResizablePane::LibrarySidebar, 310.0));
+
+        let cols = app.columns();
+        assert_eq!(cols.schedule, 340.0);
+        assert_eq!(cols.live, 430.0);
+        assert_eq!(cols.library_sidebar, 310.0);
+
+        for tab in crate::LibraryTab::ALL {
+            let _ = app.update(Message::LibraryTabSelected(tab));
+            let _ = crate::panes::control::view(&app);
+        }
+
+        let _ = app.update(Message::PaneResized(ResizablePane::LibrarySidebar, 900.0));
+        assert_eq!(app.columns().library_sidebar, 440.0);
+
+        let _ = app.update(Message::PaneReset(ResizablePane::LibrarySidebar));
+        assert_eq!(app.columns().library_sidebar, 240.0);
+        let _ = app.update(Message::PaneReset(ResizablePane::Schedule));
+        let _ = app.update(Message::PaneReset(ResizablePane::Live));
+        assert_eq!(app.columns().schedule, 270.0);
+        assert_eq!(app.columns().live, 360.0);
     }
 
     #[test]
