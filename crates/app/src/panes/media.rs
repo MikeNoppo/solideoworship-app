@@ -87,10 +87,7 @@ pub fn sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
     let active_bgs = bg_entries
         .into_iter()
         .filter_map(|(kind, label_text, bg)| {
-            let media = match bg? {
-                sdw_core::BackgroundMedia::Image { media, .. }
-                | sdw_core::BackgroundMedia::Video { media, .. } => media,
-            };
+            let media = bg?.media();
             Some(
                 row![
                     column![

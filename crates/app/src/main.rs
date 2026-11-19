@@ -2765,11 +2765,9 @@ impl App {
             &mut settings.styles.song.theme.background_media,
             &mut settings.styles.scripture.theme.background_media,
         ] {
-            let matches_sha = bg.as_ref().is_some_and(|item| match item {
-                BackgroundMedia::Image { media, .. } | BackgroundMedia::Video { media, .. } => {
-                    &media.sha256 == sha256
-                }
-            });
+            let matches_sha = bg
+                .as_ref()
+                .is_some_and(|item| &item.media().sha256 == sha256);
             if matches_sha {
                 *bg = None;
                 changed = true;
