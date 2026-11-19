@@ -12,7 +12,7 @@ use crate::media_engine::MediaSlot;
 use crate::message::Message;
 use crate::style::{self, Tone};
 use crate::ui::{self, action, icon_button, label};
-use crate::{App, icon};
+use crate::{App, drag, icon};
 
 pub fn sidebar(app: &App, enabled: bool) -> Element<'_, Message> {
     let filters = [
@@ -231,6 +231,14 @@ fn search_bar(app: &App, enabled: bool) -> Element<'_, Message> {
     .into()
 }
 
+pub fn glyph(kind: MediaKind) -> &'static str {
+    match kind {
+        MediaKind::Image => icon::MONITOR,
+        MediaKind::Video => icon::PLAY,
+        MediaKind::Audio => icon::MUSIC,
+    }
+}
+
 fn media_row<'a>(app: &'a App, item: &'a MediaSummary) -> Element<'a, Message> {
     let thumb_key = ImageCacheKey {
         sha256: item.sha256.clone(),
@@ -248,18 +256,11 @@ fn media_row<'a>(app: &'a App, item: &'a MediaSummary) -> Element<'a, Message> {
         .clip(true)
         .style(style::rounded(style::SLIDE_BG, 4.0))
         .into(),
-        (kind, _) => {
-            let glyph = match kind {
-                MediaKind::Image => icon::MONITOR,
-                MediaKind::Video => icon::PLAY,
-                MediaKind::Audio => icon::MUSIC,
-            };
-            container(icon::view(glyph, 14.0, style::TEXT_3))
-                .center_x(56)
-                .center_y(32)
-                .style(style::boxed(Some(style::RAISED), style::BORDER, 4.0))
-                .into()
-        }
+        (kind, _) => container(icon::view(glyph(kind), 14.0, style::TEXT_3))
+            .center_x(56)
+            .center_y(32)
+            .style(style::boxed(Some(style::RAISED), style::BORDER, 4.0))
+            .into(),
     };
 
     let detail = match (item.width, item.height, item.duration_ms) {
@@ -270,7 +271,7 @@ fn media_row<'a>(app: &'a App, item: &'a MediaSummary) -> Element<'a, Message> {
     };
 
     let media_id = item.id;
-    let base = button(
+    let base = drag::draggable(
         row![
             thumb_widget,
             column![
@@ -284,13 +285,17 @@ fn media_row<'a>(app: &'a App, item: &'a MediaSummary) -> Element<'a, Message> {
             .width(Fill),
         ]
         .spacing(10)
+        .height(Fill)
         .align_y(Center),
     )
     .width(Fill)
     .height(48)
     .padding([0, 10])
+    .tone(Tone::Row)
+    .radius(6.0)
+    .dragging(app.drag.is_some())
     .on_press(Message::MediaPreviewed(media_id))
-    .style(style::pressable(Tone::Row, 6.0));
+    .on_drag(move |position| Message::MediaDragStarted(media_id, position));
 
     let mut actions = row![].spacing(4).align_y(Center);
     if item.kind != MediaKind::Audio {
@@ -333,14 +338,19 @@ fn media_row<'a>(app: &'a App, item: &'a MediaSummary) -> Element<'a, Message> {
             t().common.delete,
         ));
 
-    let overlay = container(
-        container(actions)
-            .padding([0, 6])
-            .center_y(48)
-            .style(style::fill(style::RAISED)),
-    )
-    .align_right(Fill)
-    .center_y(48);
+    let overlay: Element<'_, Message> = if app.drag.is_some() {
+        Space::new().into()
+    } else {
+        container(
+            container(actions)
+                .padding([0, 6])
+                .center_y(48)
+                .style(style::fill(style::RAISED)),
+        )
+        .align_right(Fill)
+        .center_y(48)
+        .into()
+    };
 
     hover(base, overlay)
 }

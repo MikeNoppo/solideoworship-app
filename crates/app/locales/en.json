@@ -107,7 +107,8 @@
     "move_down": "Move down",
     "duplicate": "Duplicate item",
     "remove": "Remove from schedule",
-    "removed": "“{title}” was removed from the schedule"
+    "removed": "“{title}” was removed from the schedule",
+    "background_set": "“{title}” is now the background for “{item}”"
   },
   "welcome": {
     "eyebrow": "WELCOME",

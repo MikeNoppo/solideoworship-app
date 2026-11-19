@@ -297,6 +297,28 @@ impl Schedule {
         self.refresh_preview();
     }
 
+    pub fn set_background(
+        &mut self,
+        index: usize,
+        background: Option<BackgroundMedia>,
+        styles: &Styles,
+    ) -> bool {
+        let Some(entry) = self.entries.get_mut(index) else {
+            return false;
+        };
+        if !entry.source.item.accepts_background() || entry.source.background == background {
+            return false;
+        }
+
+        entry.source.background = background;
+        entry.compile(styles);
+        self.revision += 1;
+        if self.selected == Some(index) {
+            self.refresh_preview();
+        }
+        true
+    }
+
     pub fn clear_backgrounds_of(&mut self, sha256: &MediaHash, styles: &Styles) {
         let mut selected_changed = false;
 

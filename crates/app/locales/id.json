@@ -107,7 +107,8 @@
     "move_down": "Pindah ke bawah",
     "duplicate": "Duplikat item",
     "remove": "Hapus dari susunan acara",
-    "removed": "“{title}” dihapus dari susunan acara"
+    "removed": "“{title}” dihapus dari susunan acara",
+    "background_set": "“{title}” kini menjadi latar untuk “{item}”"
   },
   "welcome": {
     "eyebrow": "SELAMAT DATANG",

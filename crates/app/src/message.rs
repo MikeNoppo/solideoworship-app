@@ -78,6 +78,28 @@ pub enum Pending {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaDrop {
+    Insert(usize),
+    Background(usize),
+}
+
+impl MediaDrop {
+    pub fn insertion(self) -> Option<usize> {
+        match self {
+            Self::Insert(index) => Some(index),
+            Self::Background(_) => None,
+        }
+    }
+
+    pub fn background(self) -> Option<usize> {
+        match self {
+            Self::Background(index) => Some(index),
+            Self::Insert(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsavedChoice {
     Save,
     Discard,
@@ -150,10 +172,12 @@ pub enum Message {
     DragStarted(usize),
     DragOver(usize),
     SongDragStarted(SongId, iced::Point),
+    MediaDragStarted(MediaId, iced::Point),
     DragMoved(window::Id, iced::Point),
     DragEnteredSchedule,
     DragExitedSchedule,
     SongDropTarget(Option<usize>),
+    MediaDropTarget(Option<MediaDrop>),
     DragEnded,
     PreviewSlideSelected(usize),
     LiveSlideSelected(usize),
@@ -256,10 +280,12 @@ impl Message {
             | Self::ScheduleAddSubmenu(..)
             | Self::DragOver(..)
             | Self::SongDragStarted(..)
+            | Self::MediaDragStarted(..)
             | Self::DragMoved(..)
             | Self::DragEnteredSchedule
             | Self::DragExitedSchedule
             | Self::SongDropTarget(..)
+            | Self::MediaDropTarget(..)
             | Self::ToastDismissed
             | Self::ToastExpired(..)
             | Self::ModalDismissed
