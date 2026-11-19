@@ -4,7 +4,7 @@ use std::time::{Instant, SystemTime};
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
 use sdw_core::slide::ContentKind;
-use sdw_core::{MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song};
+use sdw_core::{MediaKind, OutputState, Presentation, ScheduledItem, Settings, Song};
 use sdw_library::{
     BibleBook, BibleId, BibleSummary, ImportReport, MediaId, MediaSummary, SongId, SongSummary,
 };
@@ -103,7 +103,7 @@ impl From<Settings> for StartupLibrary {
     }
 }
 
-pub type OpenedSchedule = (PathBuf, Vec<ScheduleItem>, Option<SystemTime>);
+pub type OpenedSchedule = (PathBuf, Vec<ScheduledItem>, Option<SystemTime>);
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -112,7 +112,7 @@ pub enum Message {
     SplashElapsed,
     ControlOpened,
     LibraryOpened(Outcome<Box<StartupLibrary>>),
-    RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
+    RecoveryLoaded(Outcome<Option<Vec<ScheduledItem>>>),
     CrashLoaded(Outcome<Option<CrashRecord>>),
     FontsLoaded,
     Update(crate::app_update::Event),

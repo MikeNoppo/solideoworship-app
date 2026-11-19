@@ -204,7 +204,7 @@ enum Toast {
     Done(Box<str>),
     Removed {
         index: usize,
-        entry: Entry,
+        entry: Box<Entry>,
         text: Box<str>,
     },
 }
@@ -1128,7 +1128,7 @@ impl App {
             Message::ToastAccepted => match self.toast.take() {
                 Some(Toast::Saved { id, .. }) => self.update(Message::SongPicked(id)),
                 Some(Toast::Removed { index, entry, .. }) => {
-                    self.schedule.reinsert(index, entry);
+                    self.schedule.reinsert(index, *entry);
                     Task::none()
                 }
                 _ => Task::none(),
@@ -1916,7 +1916,11 @@ impl App {
         self.hovered_row = None;
         self.drag = None;
         let text = fill(t().schedule.removed, &[("title", &entry.deck().title)]).into_boxed_str();
-        self.show_toast(Toast::Removed { index, entry, text });
+        self.show_toast(Toast::Removed {
+            index,
+            entry: Box::new(entry),
+            text,
+        });
     }
 
     fn flash(&mut self, text: String) {
@@ -2874,7 +2878,7 @@ mod tests {
     use std::path::PathBuf;
 
     use iced::window;
-    use sdw_core::{OutputState, ScheduleItem, Song};
+    use sdw_core::{OutputState, ScheduleItem, ScheduledItem, Song};
 
     use sdw_library::{Library, SongSummary};
 
@@ -3941,8 +3945,8 @@ mod tests {
     fn schedule_is_restored_from_recovery_file() {
         let mut app = App::default();
 
-        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Recovered", "one", None),
+        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduledItem::new(
+            ScheduleItem::Song(Song::new("Recovered", "one", None)),
         )]))));
 
         assert_eq!(app.schedule.entries().len(), 1);
@@ -3953,8 +3957,8 @@ mod tests {
     fn recovery_does_not_overwrite_filled_schedule() {
         let mut app = dirty_app();
 
-        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Recovered", "one", None),
+        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduledItem::new(
+            ScheduleItem::Song(Song::new("Recovered", "one", None)),
         )]))));
 
         assert!(!app.schedule.is_recovered());

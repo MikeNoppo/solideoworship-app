@@ -3,15 +3,16 @@ use std::sync::Arc;
 use std::{fmt, fs, io};
 
 use sdw_core::bible::{Book, Passage, Reference, Verse};
-use sdw_core::{MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, Song};
+use sdw_core::{MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, ScheduledItem, Song};
 use serde::{Deserialize, Serialize};
 
+use crate::settings::BackgroundMediaDto;
 use crate::songs::{
     SlideFormatDto, SongSlideDto, decode_format, decode_slides, encode_format, encode_slides,
 };
 
 const FORMAT: &str = "solideoworship-schedule";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 #[derive(Debug)]
 pub enum ScheduleFileError {
@@ -55,19 +56,21 @@ impl From<io::Error> for ScheduleFileError {
     }
 }
 
-pub fn save(path: &Path, items: &[ScheduleItem]) -> Result<(), ScheduleFileError> {
-    let version = if items
-        .iter()
-        .any(|item| matches!(item, ScheduleItem::Media(_)))
-    {
+pub fn save(path: &Path, items: &[ScheduledItem]) -> Result<(), ScheduleFileError> {
+    let version = if items.iter().any(|entry| entry.background.is_some()) {
         VERSION
+    } else if items
+        .iter()
+        .any(|entry| matches!(entry.item, ScheduleItem::Media(_)))
+    {
+        2
     } else {
         1
     };
     let file = FileDto {
         format: FORMAT.to_owned(),
         version,
-        items: items.iter().map(ItemDto::from).collect(),
+        items: items.iter().map(EntryDto::from).collect(),
     };
     let json = serde_json::to_string_pretty(&file).map_err(io::Error::from)?;
     let temporary = temporary_path(path);
@@ -86,7 +89,7 @@ pub fn save(path: &Path, items: &[ScheduleItem]) -> Result<(), ScheduleFileError
     Ok(())
 }
 
-pub fn open(path: &Path) -> Result<Vec<ScheduleItem>, ScheduleFileError> {
+pub fn open(path: &Path) -> Result<Vec<ScheduledItem>, ScheduleFileError> {
     let json = fs::read_to_string(path)?;
 
     let header: Header = serde_json::from_str(&json).map_err(|_| ScheduleFileError::NotSchedule)?;
@@ -105,8 +108,9 @@ pub fn open(path: &Path) -> Result<Vec<ScheduleItem>, ScheduleFileError> {
     file.items
         .into_iter()
         .enumerate()
-        .map(|(index, item)| {
-            item.into_item()
+        .map(|(index, entry)| {
+            entry
+                .into_scheduled()
                 .ok_or(ScheduleFileError::InvalidItem { index })
         })
         .collect()
@@ -129,7 +133,34 @@ struct Header {
 struct FileDto {
     format: String,
     version: u32,
-    items: Vec<ItemDto>,
+    items: Vec<EntryDto>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EntryDto {
+    #[serde(flatten)]
+    item: ItemDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    background: Option<BackgroundMediaDto>,
+}
+
+impl From<&ScheduledItem> for EntryDto {
+    fn from(entry: &ScheduledItem) -> Self {
+        Self {
+            item: ItemDto::from(&entry.item),
+            background: entry.background.as_ref().map(BackgroundMediaDto::from),
+        }
+    }
+}
+
+impl EntryDto {
+    fn into_scheduled(self) -> Option<ScheduledItem> {
+        let background = self.background.and_then(BackgroundMediaDto::into_media);
+        Some(ScheduledItem::with_background(
+            self.item.into_item()?,
+            background,
+        ))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -284,13 +315,22 @@ impl ItemDto {
 mod tests {
     use std::fs;
 
+    use std::sync::Arc;
+
     use sdw_core::bible::{Book, Passage, Reference, Verse};
-    use sdw_core::{ScheduleItem, Song};
+    use sdw_core::{
+        BackgroundMedia, MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, ScheduledItem,
+        Song,
+    };
 
     use super::{ScheduleFileError, open, save};
     use crate::test_support::TempDir;
 
-    fn items() -> Vec<ScheduleItem> {
+    fn scheduled(items: Vec<ScheduleItem>) -> Vec<ScheduledItem> {
+        items.into_iter().map(ScheduledItem::from).collect()
+    }
+
+    fn items() -> Vec<ScheduledItem> {
         let reference = Reference::new(Book::from_number(43).unwrap(), 3, Some((16, 17))).unwrap();
         let verses = vec![
             Verse {
@@ -303,11 +343,26 @@ mod tests {
             },
         ];
 
-        vec![
+        scheduled(vec![
             ScheduleItem::Song(Song::new("Kaulah Harapan", "[Reff]\none", Some("© Test"))),
             ScheduleItem::Passage(Passage::new(reference, "TB", verses).unwrap()),
             ScheduleItem::Song(Song::new("Tanpa Copyright", "two", None)),
-        ]
+        ])
+    }
+
+    fn media(kind: MediaKind) -> MediaRef {
+        MediaRef {
+            sha256: MediaHash::parse(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .unwrap(),
+            ext: MediaExt::parse("mp4").unwrap(),
+            title: Arc::from("Worship Loop"),
+            kind,
+            width: Some(1920),
+            height: Some(1080),
+            duration_ms: Some(15_000),
+        }
     }
 
     #[test]
@@ -358,7 +413,7 @@ mod tests {
         assert!(json.contains("\"type\": \"passage\""));
     }
 
-    fn open_text(name: &str, text: &str) -> Result<Vec<ScheduleItem>, ScheduleFileError> {
+    fn open_text(name: &str, text: &str) -> Result<Vec<ScheduledItem>, ScheduleFileError> {
         let dir = TempDir::new(name);
         let path = dir.path().join("test.sdw");
         fs::write(&path, text).unwrap();
@@ -386,37 +441,54 @@ mod tests {
         assert!(matches!(
             open_text(
                 "schedule-newer",
-                r#"{"format":"solideoworship-schedule","version":3,"items":[]}"#
+                r#"{"format":"solideoworship-schedule","version":4,"items":[]}"#
             ),
-            Err(ScheduleFileError::NewerVersion(3))
+            Err(ScheduleFileError::NewerVersion(4))
         ));
     }
 
     #[test]
     fn media_schedule_uses_version_2_and_round_trips_references_without_bytes() {
-        use sdw_core::{MediaExt, MediaHash, MediaKind, MediaRef};
-        use std::sync::Arc;
-
         let dir = TempDir::new("schedule-media");
         let path = dir.path().join("media.sdw");
-        let items = vec![ScheduleItem::Media(MediaRef {
-            sha256: MediaHash::parse(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            )
-            .unwrap(),
-            ext: MediaExt::parse("mp4").unwrap(),
-            title: Arc::from("Worship Loop"),
-            kind: MediaKind::Video,
-            width: Some(1920),
-            height: Some(1080),
-            duration_ms: Some(15_000),
-        })];
+        let items = scheduled(vec![ScheduleItem::Media(media(MediaKind::Video))]);
 
         save(&path, &items).unwrap();
         let json = fs::read_to_string(&path).unwrap();
         assert!(json.contains("\"version\": 2"));
         assert!(json.contains("\"type\": \"media\""));
+        assert!(!json.contains("\"background\""));
         assert_eq!(open(&path).unwrap(), items);
+    }
+
+    #[test]
+    fn item_backgrounds_use_version_3_and_round_trip() {
+        let dir = TempDir::new("schedule-background");
+        let path = dir.path().join("background.sdw");
+        let mut items = items();
+        items[0].background = BackgroundMedia::for_media(media(MediaKind::Video));
+        items[1].background = BackgroundMedia::for_media(media(MediaKind::Image));
+
+        save(&path, &items).unwrap();
+        let json = fs::read_to_string(&path).unwrap();
+        assert!(json.contains("\"version\": 3"));
+        assert!(json.contains("\"background\""));
+        assert_eq!(open(&path).unwrap(), items);
+    }
+
+    #[test]
+    fn unreadable_item_background_is_dropped_without_losing_the_item() {
+        let text = r#"{"format":"solideoworship-schedule","version":3,"items":[
+            {"type":"song","title":"A","lyrics":"one","copyright":null,
+             "background":{"type":"image","media":{"sha256":"bad","ext":"png","title":"x",
+             "kind":"image","width":null,"height":null,"duration_ms":null}}}
+        ]}"#;
+
+        let items = open_text("schedule-bad-background", text).unwrap();
+        assert_eq!(
+            items,
+            scheduled(vec![ScheduleItem::Song(Song::new("A", "one", None))])
+        );
     }
 
     #[test]
@@ -470,7 +542,7 @@ mod tests {
                 footer_box: Some(SlideBox::new(0.1, 0.85, 0.8, 0.1)),
             }],
         );
-        let items = vec![ScheduleItem::Song(song)];
+        let items = scheduled(vec![ScheduleItem::Song(song)]);
         save(&path, &items).unwrap();
         assert_eq!(open(&path).unwrap(), items);
     }
@@ -484,7 +556,11 @@ mod tests {
         let items = open_text("schedule-empty-layout", text).unwrap();
         assert_eq!(
             items,
-            vec![ScheduleItem::Song(Song::new("A", "[Verse 1]\nLine", None))]
+            scheduled(vec![ScheduleItem::Song(Song::new(
+                "A",
+                "[Verse 1]\nLine",
+                None
+            ))])
         );
     }
 
@@ -507,7 +583,7 @@ mod tests {
         format.footer_on_top = false;
 
         let song = Song::new("Styled", "Line 1\nLine 2", Some("© 2026")).with_format(format);
-        let items = vec![ScheduleItem::Song(song)];
+        let items = scheduled(vec![ScheduleItem::Song(song)]);
         save(&path, &items).unwrap();
         assert_eq!(open(&path).unwrap(), items);
     }

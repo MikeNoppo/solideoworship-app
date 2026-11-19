@@ -2,7 +2,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use sdw_core::ScheduleItem;
+use sdw_core::ScheduledItem;
 use sdw_library::schedule_file::{self, ScheduleFileError};
 
 use crate::i18n::{Localize, fill, t};
@@ -18,7 +18,7 @@ pub struct Recovery {
 
 #[derive(Debug, PartialEq)]
 pub enum Job {
-    Write(PathBuf, Vec<ScheduleItem>),
+    Write(PathBuf, Vec<ScheduledItem>),
     Delete(PathBuf),
 }
 
@@ -73,7 +73,7 @@ impl Job {
     }
 }
 
-pub fn load(path: &Path) -> Outcome<Option<Vec<ScheduleItem>>> {
+pub fn load(path: &Path) -> Outcome<Option<Vec<ScheduledItem>>> {
     match schedule_file::open(path) {
         Ok(items) => Ok(Some(items).filter(|items| !items.is_empty())),
         Err(ScheduleFileError::Io(error)) if error.kind() == ErrorKind::NotFound => Ok(None),
@@ -88,7 +88,7 @@ mod tests {
     use std::path::PathBuf;
     use std::{env, fs, process};
 
-    use sdw_core::{ScheduleItem, Song, Styles};
+    use sdw_core::{ScheduleItem, ScheduledItem, Song, Styles};
 
     use super::{Job, Recovery, load};
     use crate::schedule::Schedule;
@@ -129,7 +129,10 @@ mod tests {
 
         assert_eq!(
             recovery.sync(&schedule),
-            Some(Job::Write(PathBuf::from("recovery.sdw"), vec![song("A")]))
+            Some(Job::Write(
+                PathBuf::from("recovery.sdw"),
+                vec![song("A").into()]
+            ))
         );
     }
 
@@ -153,8 +156,8 @@ mod tests {
 
         assert_eq!(load(&path), Ok(None));
 
-        Job::Write(path.clone(), vec![song("A")]).run();
-        assert_eq!(load(&path), Ok(Some(vec![song("A")])));
+        Job::Write(path.clone(), vec![song("A").into()]).run();
+        assert_eq!(load(&path), Ok(Some(vec![ScheduledItem::from(song("A"))])));
 
         Job::Delete(path.clone()).run();
         assert_eq!(load(&path), Ok(None));
