@@ -2723,16 +2723,14 @@ impl App {
                 );
             }
             MediaDrop::Background(index) => {
-                let title = Arc::clone(&media.title);
-                let Some(background) = BackgroundMedia::for_media(media) else {
-                    return;
-                };
-                if !self
-                    .schedule
-                    .set_background(index, Some(background), &self.settings.styles)
-                {
+                if !self.schedule.takes_background(index, media.kind) {
                     return;
                 }
+                let title = Arc::clone(&media.title);
+                let background = BackgroundMedia::for_media(media);
+                let _ = self
+                    .schedule
+                    .set_background(index, background, &self.settings.styles);
                 self.schedule.select(index);
                 let item = &self.schedule.entries()[index].deck().title;
                 let text = fill(
@@ -5553,6 +5551,31 @@ mod tests {
                 .iter()
                 .all(|entry| entry.background().is_none())
         );
+    }
+
+    #[test]
+    fn dropping_the_same_background_again_still_selects_the_item() {
+        let mut app = media_drag_app();
+        let image = background_of(&app.media_results[0]);
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
+        app.schedule.select(0);
+        app.toast = None;
+        let revision = app.schedule.revision();
+
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
+
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(app.schedule.entries()[1].background(), Some(&image));
+        assert_eq!(app.schedule.revision(), revision);
+        assert!(matches!(app.toast, Some(super::Toast::Done(_))));
+
+        app.schedule.select(0);
+        app.toast = None;
+        drag_media_onto(&mut app, 3, Some(MediaDrop::Background(1)));
+
+        assert_eq!(app.schedule.selected(), Some(0));
+        assert_eq!(app.schedule.entries()[1].background(), Some(&image));
+        assert!(app.toast.is_none());
     }
 
     #[test]
