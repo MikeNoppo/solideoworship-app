@@ -1,6 +1,6 @@
 use crate::bible::Passage;
 use crate::compile;
-use crate::media::MediaRef;
+use crate::media::{BackgroundMedia, MediaRef};
 use crate::slide::{ContentKind, Slide, SlideDeck};
 use crate::song::Song;
 use crate::theme::Styles;
@@ -35,18 +35,130 @@ impl ScheduleItem {
                     ..Slide::default()
                 }],
                 sections: Vec::new(),
+                background: None,
             },
         }
+    }
+
+    pub fn accepts_background(&self) -> bool {
+        self.kind() != ContentKind::Media
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScheduledItem {
+    item: ScheduleItem,
+    background: Option<BackgroundMedia>,
+}
+
+impl ScheduledItem {
+    pub fn new(item: ScheduleItem) -> Self {
+        Self {
+            item,
+            background: None,
+        }
+    }
+
+    pub fn with_background(item: ScheduleItem, background: Option<BackgroundMedia>) -> Self {
+        let mut scheduled = Self::new(item);
+        scheduled.set_background(background);
+        scheduled
+    }
+
+    pub fn item(&self) -> &ScheduleItem {
+        &self.item
+    }
+
+    pub fn background(&self) -> Option<&BackgroundMedia> {
+        self.background.as_ref()
+    }
+
+    pub fn set_background(&mut self, background: Option<BackgroundMedia>) -> bool {
+        if !self.item.accepts_background() || self.background == background {
+            return false;
+        }
+        self.background = background;
+        true
+    }
+
+    pub fn compile(&self, styles: &Styles) -> SlideDeck {
+        SlideDeck {
+            background: self.background.clone(),
+            ..self.item.compile(styles)
+        }
+    }
+}
+
+impl From<ScheduleItem> for ScheduledItem {
+    fn from(item: ScheduleItem) -> Self {
+        Self::new(item)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ScheduleItem;
+    use std::sync::Arc;
+
+    use super::{ScheduleItem, ScheduledItem};
     use crate::bible::{Book, Passage, Reference, Verse};
+    use crate::media::{BackgroundMedia, MediaExt, MediaHash, MediaKind, MediaRef};
     use crate::slide::ContentKind;
     use crate::song::Song;
     use crate::theme::Styles;
+
+    fn media(kind: MediaKind) -> MediaRef {
+        MediaRef {
+            sha256: MediaHash::parse(&"a".repeat(64)).unwrap(),
+            ext: MediaExt::parse("png").unwrap(),
+            title: Arc::from("Mountains"),
+            kind,
+            width: None,
+            height: None,
+            duration_ms: None,
+        }
+    }
+
+    #[test]
+    fn item_background_overrides_the_theme_background() {
+        let mut styles = Styles::default();
+        let global = BackgroundMedia::for_media(media(MediaKind::Video)).unwrap();
+        styles.song.theme.background_media = Some(global.clone());
+        let item = ScheduleItem::Song(Song::new("Test", "one", None));
+
+        let plain = ScheduledItem::new(item.clone()).compile(&styles);
+        assert_eq!(plain.background, None);
+        assert_eq!(plain.background_or(&styles.song.theme), Some(&global));
+
+        let own = BackgroundMedia::for_media(media(MediaKind::Image)).unwrap();
+        let deck = ScheduledItem::with_background(item, Some(own.clone())).compile(&styles);
+        assert_eq!(deck.background.as_ref(), Some(&own));
+        assert_eq!(deck.background_or(&styles.song.theme), Some(&own));
+    }
+
+    #[test]
+    fn media_items_never_carry_a_background() {
+        let image = BackgroundMedia::for_media(media(MediaKind::Image)).unwrap();
+        let item = ScheduleItem::Media(media(MediaKind::Video));
+
+        assert!(!item.accepts_background());
+        assert!(ScheduleItem::Passage(passage()).accepts_background());
+        let mut scheduled = ScheduledItem::with_background(item, Some(image.clone()));
+        assert_eq!(scheduled.background(), None);
+        assert!(!scheduled.set_background(Some(image)));
+        assert_eq!(scheduled.compile(&Styles::default()).background, None);
+    }
+
+    #[test]
+    fn set_background_reports_only_real_changes() {
+        let image = BackgroundMedia::for_media(media(MediaKind::Image)).unwrap();
+        let mut scheduled = ScheduledItem::new(ScheduleItem::Passage(passage()));
+
+        assert!(scheduled.set_background(Some(image.clone())));
+        assert!(!scheduled.set_background(Some(image.clone())));
+        assert_eq!(scheduled.background(), Some(&image));
+        assert!(scheduled.set_background(None));
+        assert!(!scheduled.set_background(None));
+    }
 
     fn passage() -> Passage {
         let reference = Reference::new(Book::from_number(19).unwrap(), 23, None).unwrap();

@@ -116,6 +116,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 target,
                 ..
             }) => Some(drag_ghost(
+                icon::MUSIC,
+                title,
+                *cursor,
+                target.is_some(),
+                app.control_width,
+                app.control_height,
+            )),
+            Some(Drag::Media {
+                title,
+                kind,
+                cursor,
+                target,
+                ..
+            }) => Some(drag_ghost(
+                crate::panes::media::glyph(*kind),
                 title,
                 *cursor,
                 target.is_some(),
@@ -130,6 +145,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 fn drag_ghost<'a>(
+    glyph: &'static str,
     title: &'a str,
     cursor: Point,
     over_target: bool,
@@ -138,7 +154,7 @@ fn drag_ghost<'a>(
 ) -> Element<'a, Message> {
     let chip = container(
         row![
-            icon::view(icon::MUSIC, 13.0, style::TEXT_2),
+            icon::view(glyph, 13.0, style::TEXT_2),
             label(title, 12.5, style::MEDIUM, style::TEXT).wrapping(text::Wrapping::None),
         ]
         .spacing(8)

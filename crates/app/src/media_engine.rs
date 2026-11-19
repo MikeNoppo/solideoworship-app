@@ -12,7 +12,6 @@ use iced::futures::{SinkExt, StreamExt};
 use iced::widget::image::Handle;
 use iced::{Subscription, Task};
 use sdw_core::slide::Slide;
-use sdw_core::theme::SlideTheme;
 use sdw_core::{BackgroundMedia, MediaExt, MediaFit, MediaHash, MediaKind, MediaRef};
 use sdw_library::{
     Library, MediaId, MediaSummary, NewMedia, cas_file_path, store_file_in_cas, thumb_file_path,
@@ -721,11 +720,11 @@ impl MediaEngine {
     pub fn stage_backdrop<'a>(
         &'a self,
         slide: Option<&'a Slide>,
-        theme: &'a SlideTheme,
+        background: Option<&'a BackgroundMedia>,
         slot: MediaSlot,
         viewport: ViewportSlot,
     ) -> MediaBackdrop<'a> {
-        let Some((media, fit, _, _)) = resolve_slide_media_config(slide, theme) else {
+        let Some((media, fit, _, _)) = resolve_slide_media_config(slide, background) else {
             return MediaBackdrop::default();
         };
         match media.kind {
@@ -776,9 +775,9 @@ impl MediaEngine {
     pub fn thumbnail_backdrop<'a>(
         &'a self,
         slide: &'a Slide,
-        theme: &'a SlideTheme,
+        background: Option<&'a BackgroundMedia>,
     ) -> MediaBackdrop<'a> {
-        let Some((media, fit, _, _)) = resolve_slide_media_config(Some(slide), theme) else {
+        let Some((media, fit, _, _)) = resolve_slide_media_config(Some(slide), background) else {
             return MediaBackdrop::default();
         };
         if media.kind == MediaKind::Audio {
@@ -841,9 +840,12 @@ pub struct SlotMediaPlan {
     is_standalone: bool,
 }
 
-pub fn plan_slot_media(slide: Option<&Slide>, theme: &SlideTheme) -> Option<SlotMediaPlan> {
+pub fn plan_slot_media(
+    slide: Option<&Slide>,
+    background: Option<&BackgroundMedia>,
+) -> Option<SlotMediaPlan> {
     let is_standalone = slide.and_then(|s| s.media.as_ref()).is_some();
-    let (media, _fit, looping, muted) = resolve_slide_media_config(slide, theme)?;
+    let (media, _fit, looping, muted) = resolve_slide_media_config(slide, background)?;
     Some(SlotMediaPlan {
         sha256: media.sha256.clone(),
         ext: media.ext.clone(),
@@ -986,12 +988,12 @@ fn load_or_generate_image(
 
 pub fn resolve_slide_media_config<'a>(
     slide: Option<&'a Slide>,
-    theme: &'a SlideTheme,
+    background: Option<&'a BackgroundMedia>,
 ) -> Option<(&'a MediaRef, MediaFit, bool, bool)> {
     if let Some(media) = slide.and_then(|s| s.media.as_ref()) {
         return Some((media, MediaFit::Contain, false, false));
     }
-    match theme.background_media.as_ref()? {
+    match background? {
         BackgroundMedia::Image { media, fit } => Some((media, *fit, true, true)),
         BackgroundMedia::Video {
             media,

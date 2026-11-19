@@ -17,7 +17,7 @@ pub use format::{
 };
 pub use live::{OutputState, Presentation};
 pub use media::{BackgroundMedia, MediaExt, MediaFit, MediaHash, MediaKind, MediaRef};
-pub use schedule::ScheduleItem;
+pub use schedule::{ScheduleItem, ScheduledItem};
 pub use settings::Settings;
 pub use slide::{ContentKind, Slide, SlideBox, SlideDeck, SlideSection};
 pub use song::{Song, SongSlide};

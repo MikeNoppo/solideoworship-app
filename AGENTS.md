@@ -6,7 +6,7 @@ This file provides guidance to coding agents (Codex, Claude Code, and others) wh
 
 `solideoworship-app` — a worship presenter application (EasyWorship-style) built with [iced](https://iced.rs) 0.14 on Rust edition 2024. The operator drives slides from a control window on the laptop; the congregation sees them on a projector via a second, fullscreen output window.
 
-Locked scope decisions: MVP covers **songs/lyrics and Bible verses only** (images and video deferred); **macOS and Windows are equal targets**; no import of existing EasyWorship/OpenLP libraries yet; **runtime performance and memory efficiency are the stated priority**.
+Locked scope decisions: MVP covers **songs/lyrics, Bible verses, and imported media** (images, video, and audio played as schedule items or used as slide backgrounds); **macOS and Windows are equal targets**; no import of existing EasyWorship/OpenLP libraries yet; **runtime performance and memory efficiency are the stated priority**.
 
 ## Commands
 
@@ -57,7 +57,9 @@ The app is an `iced::daemon`, not an `iced::application`, because it drives two 
 
 ### Planned unifying abstraction
 
-Songs and scripture both compile into a `SlideDeck` of `Slide`s. A schedule entry keeps its source `ScheduleItem` next to the compiled deck, so decks can be recompiled when slide limits change. The live engine and the renderer are meant to know only `Slide` — never where it came from. Adding images, video, or slide decks later should mean adding a compiler, not touching the live engine. Keep this boundary intact.
+Songs and scripture both compile into a `SlideDeck` of `Slide`s. A schedule entry keeps its source `ScheduledItem` (the `ScheduleItem` plus an optional background) next to the compiled deck, so decks can be recompiled when slide limits change. The live engine and the renderer are meant to know only `Slide` — never where it came from. Adding slide decks or other content later should mean adding a compiler, not touching the live engine. Keep this boundary intact.
+
+Background media resolves in one order: a media item's own `Slide::media`, then the schedule item's background (`SlideDeck::background`, set by dragging media onto a schedule row), then the theme's global `background_media` ("Song bg"/"Bible bg"). An item background lives in the schedule and its `.sdw` file (format version 3, written only when an item has one), never in the song library. `SlideDeck::background_or` applies that order for the preview. Go Live folds it into the `live_theme` snapshot, so a background dropped onto the live item reaches the projector on the next Go Live.
 
 ### Internationalisation
 

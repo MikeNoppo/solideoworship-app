@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use sdw_core::{Presentation, ScheduleItem, SlideDeck, Song, Styles};
+use sdw_core::{
+    BackgroundMedia, MediaHash, MediaKind, Presentation, ScheduleItem, ScheduledItem, SlideDeck,
+    Song, Styles,
+};
 use sdw_library::SongId;
 
 use crate::i18n::{Label, count, t};
@@ -11,19 +14,19 @@ static NEXT_KEY: AtomicU64 = AtomicU64::new(0);
 
 pub struct Entry {
     key: u64,
-    item: ScheduleItem,
+    source: ScheduledItem,
     origin: Option<SongId>,
     deck: Arc<SlideDeck>,
     meta: Box<str>,
 }
 
 impl Entry {
-    fn new(item: ScheduleItem, origin: Option<SongId>, styles: &Styles) -> Self {
-        let (deck, meta) = compile(&item, styles);
+    fn new(source: ScheduledItem, origin: Option<SongId>, styles: &Styles) -> Self {
+        let (deck, meta) = compile(&source, styles);
 
         Self {
             key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
-            item,
+            source,
             origin,
             deck,
             meta,
@@ -31,20 +34,25 @@ impl Entry {
     }
 
     fn compile(&mut self, styles: &Styles) {
-        (self.deck, self.meta) = compile(&self.item, styles);
+        (self.deck, self.meta) = compile(&self.source, styles);
     }
 
     fn replace(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
+        let background = self.source.background().cloned();
         *self = Self {
             key: self.key,
-            ..Self::new(item, origin, styles)
+            ..Self::new(
+                ScheduledItem::with_background(item, background),
+                origin,
+                styles,
+            )
         };
     }
 
     fn duplicate(&self) -> Self {
         Self {
             key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
-            item: self.item.clone(),
+            source: self.source.clone(),
             origin: self.origin,
             deck: Arc::clone(&self.deck),
             meta: self.meta.clone(),
@@ -64,7 +72,11 @@ impl Entry {
     }
 
     pub fn item(&self) -> &ScheduleItem {
-        &self.item
+        self.source.item()
+    }
+
+    pub fn background(&self) -> Option<&BackgroundMedia> {
+        self.source.background()
     }
 
     pub fn deck(&self) -> &SlideDeck {
@@ -72,11 +84,11 @@ impl Entry {
     }
 }
 
-fn compile(item: &ScheduleItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>) {
-    let deck = item.compile(styles);
+fn compile(source: &ScheduledItem, styles: &Styles) -> (Arc<SlideDeck>, Box<str>) {
+    let deck = source.compile(styles);
     let slides = count(deck.len(), t().slides.count_one, t().slides.count_other);
 
-    let meta = match item {
+    let meta = match source.item() {
         ScheduleItem::Song(_) => format!("{} · {slides}", deck.kind.label()),
         ScheduleItem::Passage(passage) => {
             format!(
@@ -112,7 +124,7 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    pub fn load(&mut self, path: PathBuf, items: Vec<ScheduleItem>, styles: &Styles) {
+    pub fn load(&mut self, path: PathBuf, items: Vec<ScheduledItem>, styles: &Styles) {
         self.reset(
             items
                 .into_iter()
@@ -126,7 +138,7 @@ impl Schedule {
         self.reset(Vec::new(), None);
     }
 
-    pub fn restore(&mut self, items: Vec<ScheduleItem>, styles: &Styles) {
+    pub fn restore(&mut self, items: Vec<ScheduledItem>, styles: &Styles) {
         self.reset(
             items
                 .into_iter()
@@ -142,10 +154,10 @@ impl Schedule {
         self.recovered && self.is_dirty()
     }
 
-    pub fn items(&self) -> Vec<ScheduleItem> {
+    pub fn items(&self) -> Vec<ScheduledItem> {
         self.entries
             .iter()
-            .map(|entry| entry.item.clone())
+            .map(|entry| entry.source.clone())
             .collect()
     }
 
@@ -218,7 +230,7 @@ impl Schedule {
     }
 
     pub fn preview_item(&mut self, item: ScheduleItem, origin: Option<SongId>, styles: &Styles) {
-        let entry = Entry::new(item, origin, styles);
+        let entry = Entry::new(ScheduledItem::new(item), origin, styles);
         self.selected = None;
         self.preview = Presentation::new(Arc::clone(&entry.deck));
         self.standalone = Some(entry);
@@ -236,7 +248,8 @@ impl Schedule {
         styles: &Styles,
     ) {
         let index = index.min(self.entries.len());
-        self.entries.insert(index, Entry::new(item, origin, styles));
+        self.entries
+            .insert(index, Entry::new(ScheduledItem::new(item), origin, styles));
         self.revision += 1;
         self.select(index);
     }
@@ -283,6 +296,55 @@ impl Schedule {
         }
 
         self.refresh_preview();
+    }
+
+    pub fn set_background(
+        &mut self,
+        index: usize,
+        background: Option<BackgroundMedia>,
+        styles: &Styles,
+    ) -> bool {
+        let Some(entry) = self.entries.get_mut(index) else {
+            return false;
+        };
+        if !entry.source.set_background(background) {
+            return false;
+        }
+
+        entry.compile(styles);
+        self.revision += 1;
+        if self.selected == Some(index) {
+            self.refresh_preview();
+        }
+        true
+    }
+
+    pub fn takes_background(&self, index: usize, kind: MediaKind) -> bool {
+        kind.is_visual()
+            && self
+                .entries
+                .get(index)
+                .is_some_and(|entry| entry.item().accepts_background())
+    }
+
+    pub fn clear_backgrounds_of(&mut self, sha256: &MediaHash, styles: &Styles) {
+        let mut selected_changed = false;
+
+        for (index, entry) in self.entries.iter_mut().enumerate() {
+            if entry
+                .background()
+                .is_some_and(|background| &background.media().sha256 == sha256)
+            {
+                entry.source.set_background(None);
+                entry.compile(styles);
+                selected_changed |= self.selected == Some(index);
+                self.revision += 1;
+            }
+        }
+
+        if selected_changed {
+            self.refresh_preview();
+        }
     }
 
     pub fn contains_song(&self, id: SongId) -> bool {
@@ -382,13 +444,121 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    use sdw_core::{ScheduleItem, Song, Styles};
+    use sdw_core::{
+        BackgroundMedia, MediaExt, MediaHash, MediaKind, MediaRef, ScheduleItem, ScheduledItem,
+        Song, Styles,
+    };
     use sdw_library::{Library, SongId};
 
     use super::{Entry, Schedule};
 
     fn song(title: &str) -> ScheduleItem {
         ScheduleItem::Song(Song::new(title, "one\n\ntwo", None))
+    }
+
+    fn scheduled(titles: &[&str]) -> Vec<ScheduledItem> {
+        titles
+            .iter()
+            .map(|title| ScheduledItem::new(song(title)))
+            .collect()
+    }
+
+    fn background(digit: char) -> BackgroundMedia {
+        BackgroundMedia::for_media(MediaRef {
+            sha256: MediaHash::parse(&digit.to_string().repeat(64)).unwrap(),
+            ext: MediaExt::parse("png").unwrap(),
+            title: Arc::from("Backdrop"),
+            kind: MediaKind::Image,
+            width: None,
+            height: None,
+            duration_ms: None,
+        })
+        .unwrap()
+    }
+
+    fn with_backgrounds() -> Schedule {
+        let mut schedule = Schedule::default();
+        schedule.load(
+            PathBuf::from("bg.sdw"),
+            vec![
+                ScheduledItem::with_background(song("A"), Some(background('a'))),
+                ScheduledItem::with_background(song("B"), Some(background('b'))),
+                ScheduledItem::new(song("C")),
+            ],
+            &Styles::default(),
+        );
+        schedule
+    }
+
+    #[test]
+    fn deleted_media_clears_only_matching_item_backgrounds() {
+        let mut schedule = with_backgrounds();
+        schedule.select(0);
+        let unrelated = MediaHash::parse(&"f".repeat(64)).unwrap();
+
+        schedule.clear_backgrounds_of(&unrelated, &Styles::default());
+        assert!(!schedule.is_dirty());
+
+        let deleted = background('a');
+        schedule.clear_backgrounds_of(&deleted.media().sha256, &Styles::default());
+
+        assert!(schedule.is_dirty());
+        assert_eq!(schedule.entries()[0].background(), None);
+        assert_eq!(schedule.entries()[0].deck().background, None);
+        assert_eq!(schedule.preview().unwrap().deck().background, None);
+        assert_eq!(schedule.entries()[1].background(), Some(&background('b')));
+    }
+
+    #[test]
+    fn only_visual_media_can_become_the_background_of_songs_and_passages() {
+        let mut schedule = with_backgrounds();
+        schedule.push(
+            ScheduleItem::Media(background('d').media().clone()),
+            None,
+            &Styles::default(),
+        );
+
+        assert!(schedule.takes_background(0, MediaKind::Image));
+        assert!(schedule.takes_background(2, MediaKind::Video));
+        assert!(!schedule.takes_background(0, MediaKind::Audio));
+        assert!(!schedule.takes_background(3, MediaKind::Image));
+        assert!(!schedule.takes_background(99, MediaKind::Image));
+    }
+
+    #[test]
+    fn editing_a_library_song_keeps_its_item_background() {
+        let mut schedule = Schedule::default();
+        let id = song_ids(1)[0];
+        schedule.push(song("A"), Some(id), &Styles::default());
+        assert!(schedule.set_background(0, Some(background('a')), &Styles::default()));
+
+        let edited = Song::new("A edited", "new\n\nlines", None);
+        schedule.replace_song(id, &edited, &Styles::default());
+
+        let entry = &schedule.entries()[0];
+        assert_eq!(&*entry.deck().title, "A edited");
+        assert_eq!(entry.background(), Some(&background('a')));
+        assert_eq!(entry.deck().background, Some(background('a')));
+        assert_eq!(
+            schedule.preview().unwrap().deck().background,
+            Some(background('a'))
+        );
+    }
+
+    #[test]
+    fn duplicate_keeps_the_item_background() {
+        let mut schedule = with_backgrounds();
+
+        let copy = schedule.duplicate(0).unwrap();
+        assert_eq!(
+            schedule.entries()[copy].background(),
+            Some(&background('a'))
+        );
+        assert_eq!(
+            schedule.entries()[copy].deck().background,
+            Some(background('a'))
+        );
+        assert_eq!(schedule.items()[copy].background(), Some(&background('a')));
     }
 
     fn schedule(titles: &[&str]) -> Schedule {
@@ -698,11 +868,11 @@ mod tests {
 
         schedule.load(
             PathBuf::from("sunday.sdw"),
-            vec![song("C")],
+            scheduled(&["C"]),
             &Styles::default(),
         );
 
-        assert_eq!(schedule.items(), vec![song("C")]);
+        assert_eq!(schedule.items(), scheduled(&["C"]));
         assert_eq!(schedule.selected(), None);
         assert!(schedule.preview().is_none());
         assert!(!schedule.is_dirty());
@@ -713,7 +883,11 @@ mod tests {
     fn items_from_file_have_no_source_song() {
         let ids = song_ids(1);
         let mut schedule = Schedule::default();
-        schedule.load(PathBuf::from("a.sdw"), vec![song("A")], &Styles::default());
+        schedule.load(
+            PathBuf::from("a.sdw"),
+            scheduled(&["A"]),
+            &Styles::default(),
+        );
 
         schedule.replace_song(ids[0], &Song::new("Other", "", None), &Styles::default());
 
@@ -739,7 +913,11 @@ mod tests {
 
         schedule.clear();
         let after_clear = schedule.revision();
-        schedule.load(PathBuf::from("b.sdw"), vec![song("B")], &Styles::default());
+        schedule.load(
+            PathBuf::from("b.sdw"),
+            scheduled(&["B"]),
+            &Styles::default(),
+        );
 
         assert!(after_clear > before);
         assert!(schedule.revision() > after_clear);
@@ -765,9 +943,9 @@ mod tests {
         let mut schedule = schedule(&["A"]);
         schedule.mark_saved(PathBuf::from("a.sdw"), schedule.revision());
 
-        schedule.restore(vec![song("B"), song("C")], &Styles::default());
+        schedule.restore(scheduled(&["B", "C"]), &Styles::default());
 
-        assert_eq!(schedule.items(), vec![song("B"), song("C")]);
+        assert_eq!(schedule.items(), scheduled(&["B", "C"]));
         assert_eq!(schedule.path(), None);
         assert!(schedule.is_dirty());
         assert!(schedule.is_recovered());
@@ -776,7 +954,7 @@ mod tests {
     #[test]
     fn recovered_marker_clears_after_save() {
         let mut schedule = Schedule::default();
-        schedule.restore(vec![song("B")], &Styles::default());
+        schedule.restore(scheduled(&["B"]), &Styles::default());
 
         schedule.mark_saved(PathBuf::from("b.sdw"), schedule.revision());
 

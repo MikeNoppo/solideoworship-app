@@ -33,6 +33,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use iced::keyboard::{self, key::Named};
@@ -44,7 +45,7 @@ use sdw_core::slide::{ContentKind, Slide};
 use sdw_core::theme::SlideTheme;
 use sdw_core::transition::TransitionSpec;
 use sdw_core::{
-    BackgroundMedia, MediaFit, MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song,
+    BackgroundMedia, MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song,
 };
 use sdw_library::{MediaId, MediaSummary, SongId, SongSummary, schedule_file};
 use sdw_media::PlaybackState;
@@ -60,7 +61,7 @@ use crate::files::{SaveFailure, SaveTarget};
 use crate::i18n::{fill, t};
 use crate::media_engine::{MediaEngine, MediaEvent, MediaSlot, ViewportSlot};
 use crate::message::{
-    LibraryTab, Menu, Message, Notice, OpenedSchedule, Pending, StartupLibrary, Step,
+    LibraryTab, MediaDrop, Menu, Message, Notice, OpenedSchedule, Pending, StartupLibrary, Step,
     UnsavedChoice, Zoom,
 };
 use crate::recovery::Recovery;
@@ -180,6 +181,13 @@ enum Drag {
         cursor: iced::Point,
         target: Option<usize>,
     },
+    Media {
+        id: MediaId,
+        title: Arc<str>,
+        kind: MediaKind,
+        cursor: iced::Point,
+        target: Option<MediaDrop>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -204,7 +212,7 @@ enum Toast {
     Done(Box<str>),
     Removed {
         index: usize,
-        entry: Entry,
+        entry: Box<Entry>,
         text: Box<str>,
     },
 }
@@ -698,6 +706,13 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ScheduleBackgroundCleared(index) => {
+                self.dismiss_menus();
+                let _ = self
+                    .schedule
+                    .set_background(index, None, &self.settings.styles);
+                Task::none()
+            }
             Message::ScheduleContextMenu(target, position) => {
                 if self.modal.is_some() {
                     return Task::none();
@@ -763,31 +778,59 @@ impl App {
                 });
                 Task::none()
             }
+            Message::MediaDragStarted(id, cursor) => {
+                let Some(summary) = self.media_results.iter().find(|item| item.id == id) else {
+                    return Task::none();
+                };
+                let (title, kind) = (Arc::clone(&summary.title), summary.kind);
+                self.dismiss_menus();
+                self.hovered_row = None;
+                self.drag = Some(Drag::Media {
+                    id,
+                    title,
+                    kind,
+                    cursor,
+                    target: None,
+                });
+                Task::none()
+            }
             Message::DragMoved(window, position) => {
                 if self.control.is_some_and(|control| control != window) {
                     return Task::none();
                 }
-                if let Some(Drag::Song { cursor, .. }) = &mut self.drag {
+                if let Some(Drag::Song { cursor, .. } | Drag::Media { cursor, .. }) = &mut self.drag
+                {
                     *cursor = position;
                 }
                 Task::none()
             }
             Message::DragEnteredSchedule => {
-                if let Some(Drag::Song { target, .. }) = &mut self.drag
-                    && target.is_none()
-                {
-                    *target = Some(self.schedule.entries().len());
+                let end = self.schedule.entries().len();
+                match &mut self.drag {
+                    Some(Drag::Song { target, .. }) if target.is_none() => *target = Some(end),
+                    Some(Drag::Media { target, .. }) if target.is_none() => {
+                        *target = Some(MediaDrop::Insert(end));
+                    }
+                    _ => {}
                 }
                 Task::none()
             }
             Message::DragExitedSchedule => {
-                if let Some(Drag::Song { target, .. }) = &mut self.drag {
-                    *target = None;
+                match &mut self.drag {
+                    Some(Drag::Song { target, .. }) => *target = None,
+                    Some(Drag::Media { target, .. }) => *target = None,
+                    _ => {}
                 }
                 Task::none()
             }
             Message::SongDropTarget(next) => {
                 if let Some(Drag::Song { target, .. }) = &mut self.drag {
+                    *target = next;
+                }
+                Task::none()
+            }
+            Message::MediaDropTarget(next) => {
+                if let Some(Drag::Media { target, .. }) = &mut self.drag {
                     *target = next;
                 }
                 Task::none()
@@ -808,7 +851,17 @@ impl App {
                         move |result| Message::SongInserted(index, id, result),
                     )
                 }
-                Some(Drag::Song { target: None, .. }) | None => Task::none(),
+                Some(Drag::Media {
+                    id,
+                    target: Some(drop),
+                    ..
+                }) => {
+                    self.apply_media_drop(id, drop);
+                    Task::none()
+                }
+                Some(Drag::Song { target: None, .. } | Drag::Media { target: None, .. }) | None => {
+                    Task::none()
+                }
             },
             Message::SelectedRemoved => {
                 if let Some(index) = self.schedule.selected() {
@@ -873,7 +926,11 @@ impl App {
                         let _ = live.go_to(preview.index());
                     }
 
-                    self.live_theme = self.settings.styles.theme(preview.deck().kind).clone();
+                    let theme = self.settings.styles.theme(preview.deck().kind);
+                    self.live_theme = SlideTheme {
+                        background_media: preview.deck().background_or(theme).cloned(),
+                        ..theme.clone()
+                    };
                     self.live_sections = preview
                         .slides()
                         .iter()
@@ -1128,7 +1185,7 @@ impl App {
             Message::ToastAccepted => match self.toast.take() {
                 Some(Toast::Saved { id, .. }) => self.update(Message::SongPicked(id)),
                 Some(Toast::Removed { index, entry, .. }) => {
-                    self.schedule.reinsert(index, entry);
+                    self.schedule.reinsert(index, *entry);
                     Task::none()
                 }
                 _ => Task::none(),
@@ -1664,6 +1721,8 @@ impl App {
                     self.media.evict_media(&summary.sha256);
                     let text = fill(t().library.media_deleted, &[("title", &summary.title)]);
                     self.show_toast(Toast::Done(text.into_boxed_str()));
+                    self.schedule
+                        .clear_backgrounds_of(&summary.sha256, &self.settings.styles);
                     let clear_bg_task = self.clear_deleted_backgrounds(&summary.sha256);
                     Task::batch([clear_bg_task, self.load_media()])
                 }
@@ -1677,18 +1736,8 @@ impl App {
                 let Some(summary) = self.media_results.iter().find(|item| item.id == id) else {
                     return Task::none();
                 };
-                let bg = match summary.kind {
-                    MediaKind::Image => BackgroundMedia::Image {
-                        media: media_engine::media_ref(summary),
-                        fit: MediaFit::Cover,
-                    },
-                    MediaKind::Video => BackgroundMedia::Video {
-                        media: media_engine::media_ref(summary),
-                        fit: MediaFit::Cover,
-                        loop_playback: true,
-                        muted: true,
-                    },
-                    MediaKind::Audio => return Task::none(),
+                let Some(bg) = BackgroundMedia::for_media(media_engine::media_ref(summary)) else {
+                    return Task::none();
                 };
                 self.set_theme_background(kind, Some(bg))
             }
@@ -1803,7 +1852,7 @@ impl App {
                     _ => None,
                 }));
             }
-            Some(Drag::Song { .. }) => {
+            Some(Drag::Song { .. } | Drag::Media { .. }) => {
                 subscriptions.push(event::listen_with(|event, _status, window| match event {
                     iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                         Some(Message::DragMoved(window, position))
@@ -1916,7 +1965,11 @@ impl App {
         self.hovered_row = None;
         self.drag = None;
         let text = fill(t().schedule.removed, &[("title", &entry.deck().title)]).into_boxed_str();
-        self.show_toast(Toast::Removed { index, entry, text });
+        self.show_toast(Toast::Removed {
+            index,
+            entry: Box::new(entry),
+            text,
+        });
     }
 
     fn flash(&mut self, text: String) {
@@ -2549,18 +2602,22 @@ impl App {
         if !frame.background_media_visible {
             return MediaBackdrop::default();
         }
-        self.media
-            .stage_backdrop(frame.slide, frame.theme, MediaSlot::Live, viewport)
+        self.media.stage_backdrop(
+            frame.slide,
+            frame.theme.background_media.as_ref(),
+            MediaSlot::Live,
+            viewport,
+        )
     }
 
     pub(crate) fn preview_stage_backdrop<'a>(
         &'a self,
         slide: &'a Slide,
-        theme: &'a SlideTheme,
+        background: Option<&'a BackgroundMedia>,
     ) -> MediaBackdrop<'a> {
         self.media.stage_backdrop(
             Some(slide),
-            theme,
+            background,
             MediaSlot::Preview,
             ViewportSlot::Preview,
         )
@@ -2569,9 +2626,9 @@ impl App {
     pub(crate) fn thumbnail_backdrop<'a>(
         &'a self,
         slide: &'a Slide,
-        theme: &'a SlideTheme,
+        background: Option<&'a BackgroundMedia>,
     ) -> MediaBackdrop<'a> {
-        self.media.thumbnail_backdrop(slide, theme)
+        self.media.thumbnail_backdrop(slide, background)
     }
 
     fn load_media(&self) -> Task<Message> {
@@ -2601,7 +2658,7 @@ impl App {
         let preview_plan = self.schedule.preview().and_then(|preview| {
             let slide = Some(preview.current());
             let theme = self.settings.styles.theme(preview.deck().kind);
-            media_engine::plan_slot_media(slide, theme)
+            media_engine::plan_slot_media(slide, preview.deck().background_or(theme))
         });
         let preview_missing = media_engine::prepare_slot_sync(
             &mut self.media,
@@ -2623,7 +2680,7 @@ impl App {
         } else {
             let slide = self.live.as_ref().map(Presentation::current);
             let theme = self.scene_theme();
-            media_engine::plan_slot_media(slide, theme)
+            media_engine::plan_slot_media(slide, theme.background_media.as_ref())
         };
         let live_missing = media_engine::prepare_slot_sync(
             &mut self.media,
@@ -2643,6 +2700,46 @@ impl App {
         }
 
         Task::batch(tasks)
+    }
+
+    fn apply_media_drop(&mut self, id: MediaId, drop: MediaDrop) {
+        let Some(media) = self
+            .media_results
+            .iter()
+            .find(|item| item.id == id)
+            .map(media_engine::media_ref)
+        else {
+            return;
+        };
+        self.preview_ticket += 1;
+
+        match drop {
+            MediaDrop::Insert(index) => {
+                self.schedule.insert(
+                    index,
+                    ScheduleItem::Media(media),
+                    None,
+                    &self.settings.styles,
+                );
+            }
+            MediaDrop::Background(index) => {
+                if !self.schedule.takes_background(index, media.kind) {
+                    return;
+                }
+                let title = Arc::clone(&media.title);
+                let background = BackgroundMedia::for_media(media);
+                let _ = self
+                    .schedule
+                    .set_background(index, background, &self.settings.styles);
+                self.schedule.select(index);
+                let item = &self.schedule.entries()[index].deck().title;
+                let text = fill(
+                    t().schedule.background_set,
+                    &[("title", &title), ("item", item)],
+                );
+                self.show_toast(Toast::Done(text.into_boxed_str()));
+            }
+        }
     }
 
     fn set_theme_background(
@@ -2666,11 +2763,9 @@ impl App {
             &mut settings.styles.song.theme.background_media,
             &mut settings.styles.scripture.theme.background_media,
         ] {
-            let matches_sha = bg.as_ref().is_some_and(|item| match item {
-                BackgroundMedia::Image { media, .. } | BackgroundMedia::Video { media, .. } => {
-                    &media.sha256 == sha256
-                }
-            });
+            let matches_sha = bg
+                .as_ref()
+                .is_some_and(|item| &item.media().sha256 == sha256);
             if matches_sha {
                 *bg = None;
                 changed = true;
@@ -2874,7 +2969,7 @@ mod tests {
     use std::path::PathBuf;
 
     use iced::window;
-    use sdw_core::{OutputState, ScheduleItem, Song};
+    use sdw_core::{BackgroundMedia, MediaKind, OutputState, ScheduleItem, ScheduledItem, Song};
 
     use sdw_library::{Library, SongSummary};
 
@@ -2884,7 +2979,7 @@ mod tests {
     use crate::display::Display;
     use crate::editor;
     use crate::i18n::{fill, t};
-    use crate::message::{Message, Pending, UnsavedChoice};
+    use crate::message::{MediaDrop, Message, Pending, UnsavedChoice};
 
     fn dirty_app() -> App {
         let mut app = App::default();
@@ -3941,8 +4036,8 @@ mod tests {
     fn schedule_is_restored_from_recovery_file() {
         let mut app = App::default();
 
-        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Recovered", "one", None),
+        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduledItem::new(
+            ScheduleItem::Song(Song::new("Recovered", "one", None)),
         )]))));
 
         assert_eq!(app.schedule.entries().len(), 1);
@@ -3953,8 +4048,8 @@ mod tests {
     fn recovery_does_not_overwrite_filled_schedule() {
         let mut app = dirty_app();
 
-        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduleItem::Song(
-            Song::new("Recovered", "one", None),
+        let _ = app.update(Message::RecoveryLoaded(Ok(Some(vec![ScheduledItem::new(
+            ScheduleItem::Song(Song::new("Recovered", "one", None)),
         )]))));
 
         assert!(!app.schedule.is_recovered());
@@ -5255,6 +5350,265 @@ mod tests {
             app.schedule.entries()[0].deck().title.as_ref(),
             "Motion Wave"
         );
+    }
+
+    fn media_summary(id: i64, kind: MediaKind, digit: char) -> sdw_library::MediaSummary {
+        sdw_library::MediaSummary {
+            id: sdw_library::MediaId(id),
+            sha256: sdw_core::MediaHash::parse(&digit.to_string().repeat(64)).unwrap(),
+            kind,
+            title: std::sync::Arc::from(format!("Media {id}")),
+            ext: sdw_core::MediaExt::parse("png").unwrap(),
+            width: None,
+            height: None,
+            duration_ms: None,
+            byte_size: 1,
+        }
+    }
+
+    fn background_of(summary: &sdw_library::MediaSummary) -> BackgroundMedia {
+        BackgroundMedia::for_media(crate::media_engine::media_ref(summary)).unwrap()
+    }
+
+    #[test]
+    fn go_live_snapshots_the_item_background_before_the_theme_background() {
+        let mut app = App::default();
+        let global = background_of(&media_summary(1, MediaKind::Video, 'a'));
+        let own = background_of(&media_summary(2, MediaKind::Image, 'b'));
+        app.settings.styles.song.theme.background_media = Some(global.clone());
+        app.schedule.load(
+            PathBuf::from("bg.sdw"),
+            vec![
+                ScheduledItem::with_background(
+                    ScheduleItem::Song(Song::new("Own", "one", None)),
+                    Some(own.clone()),
+                ),
+                ScheduledItem::new(ScheduleItem::Song(Song::new("Global", "one", None))),
+            ],
+            &app.settings.styles,
+        );
+
+        app.schedule.select(0);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&own));
+        assert_eq!(
+            app.settings.styles.song.theme.background_media.as_ref(),
+            Some(&global)
+        );
+
+        app.schedule.select(1);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&global));
+    }
+
+    fn media_drag_app() -> App {
+        let mut app = dirty_app();
+        app.schedule.push(
+            ScheduleItem::Song(Song::new("B", "two", None)),
+            None,
+            &app.settings.styles,
+        );
+        app.media_results = vec![
+            media_summary(1, MediaKind::Image, 'a'),
+            media_summary(2, MediaKind::Video, 'b'),
+            media_summary(3, MediaKind::Audio, 'c'),
+        ];
+        app.control = Some(window::Id::unique());
+        app.control_width = 1280.0;
+        app.control_height = 800.0;
+        app
+    }
+
+    fn drag_media_onto(app: &mut App, id: i64, drop: Option<MediaDrop>) {
+        let _ = app.update(Message::MediaDragStarted(
+            sdw_library::MediaId(id),
+            iced::Point::new(500.0, 500.0),
+        ));
+        let _ = app.update(Message::DragEnteredSchedule);
+        let _ = app.update(Message::MediaDropTarget(drop));
+        let _ = crate::panes::control::view(app);
+        let _ = app.update(Message::DragEnded);
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn dropping_media_onto_an_item_sets_only_that_item_background() {
+        let mut app = media_drag_app();
+        let image = background_of(&app.media_results[0]);
+        app.schedule.select(0);
+
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
+
+        assert_eq!(app.schedule.entries().len(), 2);
+        assert_eq!(app.schedule.entries()[0].background(), None);
+        assert_eq!(app.schedule.entries()[1].background(), Some(&image));
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(
+            app.schedule.preview().unwrap().deck().background.as_ref(),
+            Some(&image)
+        );
+        assert!(app.schedule.is_dirty());
+        assert!(app.settings.styles.song.theme.background_media.is_none());
+        assert!(matches!(app.toast, Some(super::Toast::Done(_))));
+    }
+
+    #[test]
+    fn dropping_media_between_items_inserts_a_media_item() {
+        let mut app = media_drag_app();
+
+        let _ = app.update(Message::MediaDragStarted(
+            sdw_library::MediaId(2),
+            iced::Point::new(500.0, 500.0),
+        ));
+        let _ = app.update(Message::DragEnteredSchedule);
+        assert!(matches!(
+            app.drag,
+            Some(super::Drag::Media {
+                target: Some(MediaDrop::Insert(2)),
+                ..
+            })
+        ));
+        let _ = app.update(Message::MediaDropTarget(Some(MediaDrop::Insert(1))));
+        let _ = app.update(Message::DragEnded);
+
+        let kinds: Vec<_> = app
+            .schedule
+            .entries()
+            .iter()
+            .map(|entry| entry.deck().kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                sdw_core::slide::ContentKind::Song,
+                sdw_core::slide::ContentKind::Media,
+                sdw_core::slide::ContentKind::Song,
+            ]
+        );
+        assert!(
+            app.schedule
+                .entries()
+                .iter()
+                .all(|entry| entry.background().is_none())
+        );
+    }
+
+    #[test]
+    fn media_drops_outside_the_schedule_or_onto_media_items_change_nothing() {
+        let mut app = media_drag_app();
+
+        let _ = app.update(Message::MediaDragStarted(
+            sdw_library::MediaId(1),
+            iced::Point::new(500.0, 500.0),
+        ));
+        let _ = app.update(Message::DragEnteredSchedule);
+        let _ = app.update(Message::DragExitedSchedule);
+        let _ = app.update(Message::DragEnded);
+        assert_eq!(app.schedule.entries().len(), 2);
+        assert!(
+            !app.schedule
+                .entries()
+                .iter()
+                .any(|entry| entry.background().is_some())
+        );
+
+        drag_media_onto(&mut app, 3, Some(MediaDrop::Background(0)));
+        assert_eq!(app.schedule.entries()[0].background(), None);
+
+        drag_media_onto(&mut app, 2, Some(MediaDrop::Insert(0)));
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(0)));
+        assert_eq!(app.schedule.entries()[0].background(), None);
+        assert_eq!(app.schedule.entries().len(), 3);
+    }
+
+    #[test]
+    fn clearing_an_item_background_falls_back_to_the_global_background() {
+        let mut app = media_drag_app();
+        let global = background_of(&app.media_results[1]);
+        app.settings.styles.song.theme.background_media = Some(global.clone());
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
+
+        let _ = app.update(Message::ScheduleContextMenu(
+            Some(1),
+            iced::Point::new(40.0, 40.0),
+        ));
+        let _ = crate::panes::control::view(&app);
+        let _ = app.update(Message::ScheduleBackgroundCleared(1));
+
+        assert!(app.schedule_menu.is_none());
+        assert_eq!(app.schedule.entries()[1].background(), None);
+        let preview = app.schedule.preview().unwrap().deck();
+        assert_eq!(
+            preview.background_or(&app.settings.styles.song.theme),
+            Some(&global)
+        );
+
+        let _ = app.update(Message::ScheduleBackgroundCleared(0));
+        let _ = app.update(Message::ScheduleBackgroundCleared(99));
+        assert!(
+            app.schedule
+                .entries()
+                .iter()
+                .all(|entry| entry.background().is_none())
+        );
+    }
+
+    #[test]
+    fn dropping_the_same_background_again_still_selects_the_item() {
+        let mut app = media_drag_app();
+        let image = background_of(&app.media_results[0]);
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
+        app.schedule.select(0);
+        app.toast = None;
+        let revision = app.schedule.revision();
+
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(1)));
+
+        assert_eq!(app.schedule.selected(), Some(1));
+        assert_eq!(app.schedule.entries()[1].background(), Some(&image));
+        assert_eq!(app.schedule.revision(), revision);
+        assert!(matches!(app.toast, Some(super::Toast::Done(_))));
+
+        app.schedule.select(0);
+        app.toast = None;
+        drag_media_onto(&mut app, 3, Some(MediaDrop::Background(1)));
+
+        assert_eq!(app.schedule.selected(), Some(0));
+        assert_eq!(app.schedule.entries()[1].background(), Some(&image));
+        assert!(app.toast.is_none());
+    }
+
+    #[test]
+    fn deleting_media_from_the_library_clears_item_backgrounds_that_use_it() {
+        let mut app = media_drag_app();
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(0)));
+        drag_media_onto(&mut app, 2, Some(MediaDrop::Background(1)));
+        let video = background_of(&app.media_results[1]);
+        let deleted = app.media_results[0].clone();
+
+        let _ = app.update(Message::MediaDeleted(Ok(Some(deleted))));
+
+        assert_eq!(app.schedule.entries()[0].background(), None);
+        assert_eq!(app.schedule.entries()[0].deck().background, None);
+        assert_eq!(app.schedule.entries()[1].background(), Some(&video));
+    }
+
+    #[test]
+    fn a_new_item_background_reaches_the_projector_only_on_the_next_go_live() {
+        let mut app = media_drag_app();
+        let global = background_of(&app.media_results[1]);
+        app.settings.styles.song.theme.background_media = Some(global.clone());
+        app.schedule.select(0);
+        let _ = app.update(Message::GoLive);
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&global));
+
+        drag_media_onto(&mut app, 1, Some(MediaDrop::Background(0)));
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&global));
+        assert_eq!(app.live.as_ref().unwrap().deck().background, None);
+
+        let _ = app.update(Message::GoLive);
+        let image = background_of(&app.media_results[0]);
+        assert_eq!(app.live_theme.background_media.as_ref(), Some(&image));
     }
 
     #[test]

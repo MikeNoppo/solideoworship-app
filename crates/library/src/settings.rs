@@ -498,7 +498,7 @@ struct ThemeDto {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum BackgroundMediaDto {
+pub(crate) enum BackgroundMediaDto {
     Image {
         media: MediaRefDto,
         #[serde(default)]
@@ -520,7 +520,7 @@ fn default_true() -> bool {
 }
 
 #[derive(Serialize, Deserialize)]
-struct MediaRefDto {
+pub(crate) struct MediaRefDto {
     sha256: String,
     ext: String,
     title: String,
@@ -732,7 +732,7 @@ impl From<&BackgroundMedia> for BackgroundMediaDto {
 }
 
 impl BackgroundMediaDto {
-    fn into_media(self) -> Option<BackgroundMedia> {
+    pub(crate) fn into_media(self) -> Option<BackgroundMedia> {
         match self {
             Self::Image { media, fit } => Some(BackgroundMedia::Image {
                 media: media.into_media_ref()?,

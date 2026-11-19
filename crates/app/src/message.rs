@@ -4,7 +4,7 @@ use std::time::{Instant, SystemTime};
 use iced::window;
 use sdw_core::bible::{Passage, Reference};
 use sdw_core::slide::ContentKind;
-use sdw_core::{MediaKind, OutputState, Presentation, ScheduleItem, Settings, Song};
+use sdw_core::{MediaKind, OutputState, Presentation, ScheduledItem, Settings, Song};
 use sdw_library::{
     BibleBook, BibleId, BibleSummary, ImportReport, MediaId, MediaSummary, SongId, SongSummary,
 };
@@ -78,6 +78,28 @@ pub enum Pending {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaDrop {
+    Insert(usize),
+    Background(usize),
+}
+
+impl MediaDrop {
+    pub fn insertion(self) -> Option<usize> {
+        match self {
+            Self::Insert(index) => Some(index),
+            Self::Background(_) => None,
+        }
+    }
+
+    pub fn background(self) -> Option<usize> {
+        match self {
+            Self::Background(index) => Some(index),
+            Self::Insert(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsavedChoice {
     Save,
     Discard,
@@ -103,7 +125,7 @@ impl From<Settings> for StartupLibrary {
     }
 }
 
-pub type OpenedSchedule = (PathBuf, Vec<ScheduleItem>, Option<SystemTime>);
+pub type OpenedSchedule = (PathBuf, Vec<ScheduledItem>, Option<SystemTime>);
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -112,7 +134,7 @@ pub enum Message {
     SplashElapsed,
     ControlOpened,
     LibraryOpened(Outcome<Box<StartupLibrary>>),
-    RecoveryLoaded(Outcome<Option<Vec<ScheduleItem>>>),
+    RecoveryLoaded(Outcome<Option<Vec<ScheduledItem>>>),
     CrashLoaded(Outcome<Option<CrashRecord>>),
     FontsLoaded,
     Update(crate::app_update::Event),
@@ -143,6 +165,7 @@ pub enum Message {
     ScheduleRemoved(usize),
     ScheduleMoved(usize, usize),
     ScheduleDuplicated(usize),
+    ScheduleBackgroundCleared(usize),
     ScheduleContextMenu(Option<usize>, iced::Point),
     ScheduleAddSubmenu(bool),
     ScheduleScriptureRequested,
@@ -150,10 +173,12 @@ pub enum Message {
     DragStarted(usize),
     DragOver(usize),
     SongDragStarted(SongId, iced::Point),
+    MediaDragStarted(MediaId, iced::Point),
     DragMoved(window::Id, iced::Point),
     DragEnteredSchedule,
     DragExitedSchedule,
     SongDropTarget(Option<usize>),
+    MediaDropTarget(Option<MediaDrop>),
     DragEnded,
     PreviewSlideSelected(usize),
     LiveSlideSelected(usize),
@@ -256,10 +281,12 @@ impl Message {
             | Self::ScheduleAddSubmenu(..)
             | Self::DragOver(..)
             | Self::SongDragStarted(..)
+            | Self::MediaDragStarted(..)
             | Self::DragMoved(..)
             | Self::DragEnteredSchedule
             | Self::DragExitedSchedule
             | Self::SongDropTarget(..)
+            | Self::MediaDropTarget(..)
             | Self::ToastDismissed
             | Self::ToastExpired(..)
             | Self::ModalDismissed
@@ -303,6 +330,7 @@ impl Message {
             | Self::ScheduleRemoved(..)
             | Self::ScheduleMoved(..)
             | Self::ScheduleDuplicated(..)
+            | Self::ScheduleBackgroundCleared(..)
             | Self::ScheduleContextMenu(..)
             | Self::ScheduleScriptureRequested
             | Self::DragStarted(..)

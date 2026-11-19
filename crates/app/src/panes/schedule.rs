@@ -1,11 +1,11 @@
-use iced::widget::{Column, Space, column, container, mouse_area, opaque, row, space, stack};
+use iced::widget::{Column, Space, column, container, mouse_area, opaque, row, space, stack, text};
 use iced::{Bottom, Center, Element, Fill, Padding, Point, Top};
-use sdw_core::ContentKind;
+use sdw_core::{BackgroundMedia, ContentKind};
 
 use crate::i18n::t;
 use crate::icon;
-use crate::message::Message;
-use crate::panes::{columns, live_badge};
+use crate::message::{MediaDrop, Message};
+use crate::panes::{columns, live_badge, media};
 use crate::popover::{Align, popover, right_click};
 use crate::schedule::Entry;
 use crate::style;
@@ -18,6 +18,11 @@ const ROW_GAP: f32 = 4.0;
 pub fn view(app: &App) -> Element<'_, Message> {
     let song_drop = match &app.drag {
         Some(Drag::Song { target, .. }) => Some(*target),
+        Some(Drag::Media { target, .. }) => Some(target.and_then(MediaDrop::insertion)),
+        _ => None,
+    };
+    let background_target = match &app.drag {
+        Some(Drag::Media { target, .. }) => target.and_then(MediaDrop::background),
         _ => None,
     };
 
@@ -74,19 +79,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let len = app.schedule.entries().len();
         let last = len - 1;
         let drop_target = song_drop.flatten();
-        let rows = app
-            .schedule
-            .entries()
-            .iter()
-            .enumerate()
-            .fold(Column::new().spacing(ROW_GAP), |list, (index, entry)| {
-                list.push(item(app, index, entry, last, drop_target))
-            });
+        let rows = app.schedule.entries().iter().enumerate().fold(
+            Column::new().spacing(ROW_GAP),
+            |list, (index, entry)| {
+                list.push(item(
+                    app,
+                    index,
+                    entry,
+                    last,
+                    drop_target,
+                    background_target,
+                ))
+            },
+        );
 
-        let rows = mouse_area(rows).on_exit(if song_drop.is_some() {
-            Message::SongDropTarget(Some(len))
-        } else {
-            Message::RowHovered(None)
+        let rows = mouse_area(rows).on_exit(match &app.drag {
+            Some(Drag::Song { .. }) => Message::SongDropTarget(Some(len)),
+            Some(Drag::Media { .. }) => Message::MediaDropTarget(Some(MediaDrop::Insert(len))),
+            _ => Message::RowHovered(None),
         });
         let rows = match &app.drag {
             Some(Drag::Row { .. }) => rows.on_move(move |position| {
@@ -96,6 +106,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             Some(Drag::Song { .. }) => rows.on_move(move |position| {
                 Message::SongDropTarget(Some(insertion_index(position.y, len)))
             }),
+            Some(Drag::Media { kind, .. }) => {
+                let kind = *kind;
+                rows.on_move(move |position| {
+                    Message::MediaDropTarget(Some(media_drop(position.y, len, |index| {
+                        app.schedule.takes_background(index, kind)
+                    })))
+                })
+            }
             None => rows,
         };
 
@@ -160,52 +178,63 @@ fn context_menu(app: &App, menu: ScheduleMenu) -> Element<'static, Message> {
     ))
     .on_enter(Message::ScheduleAddSubmenu(true));
 
-    let actions = mouse_area(
-        column![
+    let clear_background = target
+        .filter(|&index| entries[index].background().is_some())
+        .map(|index| {
             ui::menu_item(
+                Some(icon::ERASER),
+                t().schedule.clear_background,
+                None,
+                Some(Message::ScheduleBackgroundCleared(index)),
+            )
+        });
+
+    let actions = mouse_area(
+        Column::new()
+            .push(ui::menu_item(
                 Some(icon::PLAY),
                 t().toolbar.go_live,
                 None,
                 target.map(|_| Message::GoLive),
-            ),
-            ui::menu_item(
+            ))
+            .push(ui::menu_item(
                 Some(icon::PENCIL),
                 t().slides.edit_song,
                 None,
                 song_id.map(Message::SongEditRequested),
-            ),
-            separator(),
-            ui::menu_item(
+            ))
+            .push(clear_background)
+            .push(separator())
+            .push(ui::menu_item(
                 None,
                 t().schedule.move_up,
                 None,
                 target
                     .filter(|&index| index > 0)
                     .map(|index| Message::ScheduleMoved(index, index - 1)),
-            ),
-            ui::menu_item(
+            ))
+            .push(ui::menu_item(
                 None,
                 t().schedule.move_down,
                 None,
                 target
                     .filter(|&index| index + 1 < total)
                     .map(|index| Message::ScheduleMoved(index, index + 1)),
-            ),
-            separator(),
-            ui::menu_item(
+            ))
+            .push(separator())
+            .push(ui::menu_item(
                 None,
                 t().schedule.duplicate,
                 None,
                 target.map(Message::ScheduleDuplicated),
-            ),
-            ui::menu_item(
+            ))
+            .push(ui::menu_item(
                 Some(icon::TRASH_2),
                 t().schedule.remove,
                 None,
                 target.map(Message::ScheduleRemoved),
-            ),
-        ]
-        .spacing(2),
+            ))
+            .spacing(2),
     )
     .on_enter(Message::ScheduleAddSubmenu(false));
 
@@ -276,6 +305,37 @@ fn insertion_index(y: f32, len: usize) -> usize {
     index.min(len)
 }
 
+fn media_drop(y: f32, len: usize, takes_background: impl Fn(usize) -> bool) -> MediaDrop {
+    let step = ROW_HEIGHT + ROW_GAP;
+    if y >= 0.0 && len > 0 {
+        let slot = (y / step) as usize;
+        let within = y - slot as f32 * step;
+        let middle = ROW_HEIGHT * 0.25..ROW_HEIGHT * 0.75;
+        if slot < len && middle.contains(&within) && takes_background(slot) {
+            return MediaDrop::Background(slot);
+        }
+    }
+
+    MediaDrop::Insert(insertion_index(y, len))
+}
+
+fn background_chip(background: &BackgroundMedia) -> Element<'_, Message> {
+    let media = background.media();
+    container(
+        row![
+            icon::view(media::glyph(media.kind), 11.0, style::TEXT_3),
+            label(&media.title, 11.0, style::INTER, style::TEXT_3).wrapping(text::Wrapping::None),
+        ]
+        .spacing(4)
+        .align_y(Center),
+    )
+    .padding([1, 6])
+    .max_width(160)
+    .clip(true)
+    .style(style::boxed(Some(style::RAISED), style::BORDER, 4.0))
+    .into()
+}
+
 fn drop_line<'a>() -> Element<'a, Message> {
     row![
         ui::dot(6.0, style::INVERSE),
@@ -294,6 +354,7 @@ fn item<'a>(
     entry: &'a Entry,
     last: usize,
     drop_target: Option<usize>,
+    background_target: Option<usize>,
 ) -> Element<'a, Message> {
     let is_selected = app.schedule.selected() == Some(index);
     let is_live = app.output.is_some() && app.is_live(entry);
@@ -315,6 +376,7 @@ fn item<'a>(
         app.drag,
         Some(Drag::Row { from, over }) if over == index && from != index
     );
+    let is_background_target = background_target == Some(index);
 
     let content = row![
         label(ui::number(index + 1), 12.0, style::MEDIUM, style::TEXT_3),
@@ -323,7 +385,10 @@ fn item<'a>(
             .style(style::boxed(Some(style::RAISED), style::BORDER, 6.0)),
         column![
             label(&entry.deck().title, 13.0, style::MEDIUM, style::TEXT),
-            label(entry.meta(), 12.0, style::INTER, style::TEXT_3),
+            row![label(entry.meta(), 12.0, style::INTER, style::TEXT_3)]
+                .push(entry.background().map(background_chip))
+                .spacing(6)
+                .align_y(Center),
         ]
         .spacing(2)
         .width(Fill),
@@ -333,7 +398,7 @@ fn item<'a>(
     .height(Fill)
     .align_y(Center);
 
-    let background = if is_selected {
+    let background = if is_selected || is_background_target {
         Some(style::ACTIVE)
     } else if app.hovered_row == Some(index) && app.drag.is_none() {
         Some(style::RAISED)
@@ -348,7 +413,9 @@ fn item<'a>(
             .padding([0, 10])
             .style(style::boxed(
                 background,
-                if is_target {
+                if is_background_target {
+                    style::INVERSE
+                } else if is_target {
                     style::TEXT_3
                 } else {
                     iced::Color::TRANSPARENT
@@ -367,7 +434,7 @@ fn item<'a>(
             .on_press(Message::DragStarted(index))
             .on_enter(Message::RowHovered(Some(index))),
         Some(Drag::Row { .. }) => area.on_release(Message::DragEnded),
-        Some(Drag::Song { .. }) => area,
+        Some(Drag::Song { .. } | Drag::Media { .. }) => area,
     };
 
     let row_box = right_click(area, move |position| {
@@ -396,7 +463,32 @@ fn item<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::insertion_index;
+    use super::{insertion_index, media_drop};
+    use crate::message::MediaDrop;
+
+    #[test]
+    fn media_drop_sets_backgrounds_in_the_middle_and_inserts_at_the_edges() {
+        let every = |_| true;
+        assert_eq!(media_drop(-5.0, 3, every), MediaDrop::Insert(0));
+        assert_eq!(media_drop(5.0, 3, every), MediaDrop::Insert(0));
+        assert_eq!(media_drop(13.0, 3, every), MediaDrop::Background(0));
+        assert_eq!(media_drop(38.0, 3, every), MediaDrop::Background(0));
+        assert_eq!(media_drop(40.0, 3, every), MediaDrop::Insert(1));
+        assert_eq!(media_drop(54.0, 3, every), MediaDrop::Insert(1));
+        assert_eq!(media_drop(82.0, 3, every), MediaDrop::Background(1));
+        assert_eq!(media_drop(500.0, 3, every), MediaDrop::Insert(3));
+        assert_eq!(media_drop(20.0, 0, every), MediaDrop::Insert(0));
+    }
+
+    #[test]
+    fn media_drop_only_inserts_on_rows_without_backgrounds() {
+        let songs_only = |index| index != 1;
+        assert_eq!(media_drop(82.0, 3, songs_only), MediaDrop::Insert(2));
+        assert_eq!(media_drop(70.0, 3, songs_only), MediaDrop::Insert(1));
+        assert_eq!(media_drop(90.0, 3, songs_only), MediaDrop::Insert(2));
+        assert_eq!(media_drop(140.0, 3, songs_only), MediaDrop::Background(2));
+        assert_eq!(media_drop(26.0, 3, |_| false), MediaDrop::Insert(1));
+    }
 
     #[test]
     fn insertion_index_splits_rows_and_gaps_smoothly() {

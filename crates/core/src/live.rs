@@ -128,6 +128,7 @@ mod tests {
             title: "Test".into(),
             kind: ContentKind::Song,
             sections: Vec::new(),
+            background: None,
             slides: (0..count)
                 .map(|index| Slide {
                     body: index.to_string().into_boxed_str(),

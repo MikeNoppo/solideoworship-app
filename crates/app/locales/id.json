@@ -107,7 +107,9 @@
     "move_down": "Pindah ke bawah",
     "duplicate": "Duplikat item",
     "remove": "Hapus dari susunan acara",
-    "removed": "“{title}” dihapus dari susunan acara"
+    "clear_background": "Hapus latar item",
+    "removed": "“{title}” dihapus dari susunan acara",
+    "background_set": "“{title}” kini menjadi latar untuk “{item}”"
   },
   "welcome": {
     "eyebrow": "SELAMAT DATANG",
@@ -278,7 +280,7 @@
     "media_audio": "Audio",
     "import_media": "Impor media",
     "media_search": "Cari media berdasarkan judul",
-    "media_hint": "Klik untuk pratinjau, klik dua kali untuk tambah ke susunan acara, atau jadikan latar slide.",
+    "media_hint": "Klik untuk pratinjau, klik dua kali untuk tambah ke susunan acara, atau seret ke item susunan acara untuk menjadikannya latar item itu.",
     "media_title": "Library media masih kosong",
     "media_body": "Impor gambar, video, atau trek audio untuk diputar live atau dijadikan latar lagu dan Alkitab.",
     "set_song_bg": "Latar lagu",
